@@ -1,0 +1,64 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import '../services/logger.dart';
+
+final settingsProvider = StateNotifierProvider<SettingsNotifier, SettingsState>((ref) {
+  return SettingsNotifier();
+});
+
+class SettingsState {
+  final bool debugMode;
+  final bool showFps;
+  final int backend; // 0 = CGL, 1 = ANGLE
+
+  const SettingsState({
+    this.debugMode = false,
+    this.showFps = false,
+    this.backend = 0,
+  });
+
+  SettingsState copyWith({bool? debugMode, bool? showFps, int? backend}) {
+    return SettingsState(
+      debugMode: debugMode ?? this.debugMode,
+      showFps: showFps ?? this.showFps,
+      backend: backend ?? this.backend,
+    );
+  }
+}
+
+class SettingsNotifier extends StateNotifier<SettingsState> {
+  SettingsNotifier() : super(const SettingsState()) {
+    _load();
+  }
+
+  Future<void> _load() async {
+    final prefs = await SharedPreferences.getInstance();
+    final debugMode = prefs.getBool('debug_mode') ?? false;
+    Log.setDebugEnabled(debugMode);
+    state = SettingsState(
+      debugMode: prefs.getBool('debug_mode') ?? false,
+      showFps: prefs.getBool('show_fps') ?? false,
+      backend: prefs.getInt('gfx_backend') ?? 2, // default: ANGLE Vulkan
+    );
+  }
+
+  Future<void> setDebugMode(bool v) async {
+    Log.setDebugEnabled(v);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('debug_mode', v);
+    state = state.copyWith(debugMode: v);
+  }
+
+  Future<void> setShowFps(bool v) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('show_fps', v);
+    state = state.copyWith(showFps: v);
+  }
+
+  Future<void> setBackend(int v) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('gfx_backend', v);
+    state = state.copyWith(backend: v);
+  }
+}
