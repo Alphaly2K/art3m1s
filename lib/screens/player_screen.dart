@@ -100,7 +100,21 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       final deltaMs = now.difference(lastTime).inMilliseconds;
       lastTime = now;
 
+      if (_bridge.isExitRequested()) {
+        print('[PlayerScreen] exit requested, popping...');
+        if (mounted) {
+          _timer?.cancel();
+          Navigator.of(context).pop();
+        }
+        return;
+      }
+
       final pixels = _bridge.advanceAndRender(deltaMs.clamp(0, 100));
+      if (_bridge.isExitRequested() && mounted) {
+        _timer?.cancel();
+        Navigator.of(context).pop();
+        return;
+      }
       if (pixels != null && mounted) {
         _decodeFrame(pixels);
       }

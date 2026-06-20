@@ -35,6 +35,7 @@ typedef RuntimeFeedKeyNative = Void Function(
     Pointer<Void> rt, Uint32 vk, Int32 pressed);
 typedef RuntimeAdvanceRenderNative = Uint32 Function(
     Pointer<Void> rt, Uint32 deltaMs, Pointer<Uint8> outPixels, Uint32 capacity);
+typedef RuntimeIsExitRequestedNative = Int32 Function(Pointer<Void> rt);
 typedef RuntimeDestroyNative = Void Function(Pointer<Void> rt);
 
 // ── CoreBridge — manages the core runtime lifecycle ─────────────
@@ -174,11 +175,26 @@ class CoreBridge {
     }
   }
 
+  bool isExitRequested() {
+    if (_runtime == null || _lib == null) return false;
+    try {
+      final fn = _lib!.lookupFunction<RuntimeIsExitRequestedNative,
+          int Function(Pointer<Void>)>('art3m1s_runtime_is_exit_requested');
+      return fn(_runtime!) != 0;
+    } catch (_) {
+      return false;
+    }
+  }
+
   void shutdown() {
     if (_runtime != null && _lib != null) {
-      final fn = _lib!.lookupFunction<RuntimeDestroyNative,
-          void Function(Pointer<Void>)>('art3m1s_runtime_destroy');
-      fn(_runtime!);
+      try {
+        final fn = _lib!.lookupFunction<RuntimeDestroyNative,
+            void Function(Pointer<Void>)>('art3m1s_runtime_destroy');
+        fn(_runtime!);
+      } catch (_) {
+        // dylib may not export art3m1s_runtime_destroy yet
+      }
     }
     _runtime = null;
     FileProvider.close();
