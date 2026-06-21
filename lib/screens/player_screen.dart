@@ -49,6 +49,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       return;
     }
 
+    final debugMode = ref.read(settingsProvider).debugMode;
+    _bridge.setDebug(debugMode);
+
     String iniContent;
     if (widget.source == GameSource.pfsArchive) {
       FileProvider.openPfs(widget.projectPath);
