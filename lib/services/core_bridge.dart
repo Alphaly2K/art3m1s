@@ -44,6 +44,7 @@ class CoreBridge {
   bool _initialized = false;
   DynamicLibrary? _lib;
   Pointer<Void>? _runtime;
+  NativeCallable<LogCallbackNative>? _logCallable;
   int _stageWidth = 1280;
   int _stageHeight = 720;
 
@@ -84,8 +85,11 @@ class CoreBridge {
         void Function(Pointer<NativeFunction<LogCallbackNative>>)>(
       'art3m1s_register_log_callback',
     );
-    final nativeCallable = NativeCallable<LogCallbackNative>.isolateLocal(_logCallback, exceptionalReturn: -1);
-    registerFn(nativeCallable.nativeFunction);
+    _logCallable ??= NativeCallable<LogCallbackNative>.isolateLocal(
+      _logCallback,
+      exceptionalReturn: -1,
+    );
+    registerFn(_logCallable!.nativeFunction);
   }
 
   void setDebug(bool enabled) {
@@ -104,6 +108,31 @@ class CoreBridge {
       fn(ptr);
       malloc.free(ptr);
     } catch (_) {}
+  }
+
+  void setSaveDir(String dir) {
+    if (_lib == null) {
+      Log.warn('[CoreBridge] setSaveDir: _lib is null');
+      return;
+    }
+    try {
+      // 确保目录存在
+      final d = Directory(dir);
+      if (!d.existsSync()) {
+        d.createSync(recursive: true);
+      }
+      final fn = _lib!.lookupFunction<
+          Void Function(Pointer<Utf8>),
+          void Function(Pointer<Utf8>)>('art3m1s_set_save_dir');
+      final ptr = dir.toNativeUtf8();
+      fn(ptr);
+      malloc.free(ptr);
+      // 同步告知 FileProvider 存档基准目录，供写/删/读回退使用
+      FileProvider.setSaveDir(dir);
+      Log.info('[CoreBridge] 存档目录已设置: $dir');
+    } catch (e) {
+      Log.error('[CoreBridge] setSaveDir 失败 ($dir): $e');
+    }
   }
 
   void registerFileReader() {

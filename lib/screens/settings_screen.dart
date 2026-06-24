@@ -72,8 +72,7 @@ class SettingsScreen extends ConsumerWidget {
   List<_Option> _availableBackends() {
     final list = <_Option>[];
     if (Platform.isMacOS) {
-      list.add(const _Option(3, 'Vulkan'));
-      list.add(const _Option(2, 'Metal'));
+      list.add(const _Option(3, 'Metal'));
       list.add(const _Option(0, 'CGL'));
     }
     if (Platform.isIOS) {

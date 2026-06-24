@@ -32,6 +32,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   int _stageW = 1280;
   int _stageH = 720;
 
+  // FPS
+  double _fps = 0;
+  final List<int> _frameTimes = [];
+  static const int _fpsSamples = 60;
+
   @override
   void initState() {
     super.initState();
@@ -66,6 +71,18 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
 
     _parseStageSize(iniContent);
 
+    // 存档目录：统一放应用沙箱（getApplicationSupportDirectory）下，不分 PFS/目录
+    // 模式——为 iOS 兼容（iOS 沙箱只允许写应用支持目录）。
+    //
+    // 注意：core 侧已把 s.savepath 前缀拼进相对路径（形如 `savedata/save0001.dat`），
+    // 故这里的 saveDir 只是**每个游戏的基准目录**，不再追加 savePath，否则会双重前缀。
+    // 用 projectPath 派生稳定的游戏标识作子目录，避免多游戏存档串档。
+    final appSupport = await _getAppSupportDir();
+    final gameId = _gameIdFor(widget.projectPath);
+    final saveDir =
+        '$appSupport${Platform.pathSeparator}saves${Platform.pathSeparator}$gameId';
+    _bridge.setSaveDir(saveDir);
+
     _bridge.registerFileReader();
     _bridge.createRuntime(_stageW, _stageH,
         backend: ref.read(settingsProvider).backend);
@@ -94,6 +111,38 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     }
   }
 
+  /// 由项目路径派生稳定的游戏标识，作为沙箱存档子目录名，避免多游戏串档。
+  /// 取路径末段并清洗为文件系统安全字符；为空时退回路径哈希。
+  String _gameIdFor(String projectPath) {
+    final normalized = projectPath.replaceAll('\\', '/').replaceAll(RegExp(r'/+$'), '');
+    final last = normalized.split('/').where((s) => s.isNotEmpty).lastOrNull ?? '';
+    final cleaned = last.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
+    if (cleaned.isNotEmpty) return cleaned;
+    return 'game_${projectPath.hashCode.toUnsigned(32).toRadixString(16)}';
+  }
+
+  /// 获取平台相关的应用支持目录（用于存放存档）。
+  Future<String> _getAppSupportDir() async {
+    if (Platform.isMacOS) {
+      final home = Platform.environment['HOME'] ?? '/tmp';
+      return '$home/Library/Application Support/art3m1s';
+    } else if (Platform.isWindows) {
+      final appData = Platform.environment['APPDATA'] ??
+          Platform.environment['USERPROFILE'] ??
+          'C:\\Users\\Default';
+      return '$appData\\art3m1s';
+    } else if (Platform.isLinux) {
+      final home = Platform.environment['HOME'] ?? '/tmp';
+      return '$home/.local/share/art3m1s';
+    } else if (Platform.isIOS || Platform.isAndroid) {
+      // 移动平台：用临时目录作为兜底，
+      // 实际应该用 path_provider 插件获取 documents 目录
+      final dir = Directory.systemTemp.path;
+      return '$dir/art3m1s';
+    }
+    return '/tmp/art3m1s';
+  }
+
   void _startGameLoop() {
     const frameMs = 16;
     var lastTime = DateTime.now();
@@ -102,6 +151,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       final now = DateTime.now();
       final deltaMs = now.difference(lastTime).inMilliseconds;
       lastTime = now;
+
+      // track FPS
+      _frameTimes.add(deltaMs);
+      if (_frameTimes.length > _fpsSamples) _frameTimes.removeAt(0);
+      final avgMs = _frameTimes.fold<int>(0, (a, b) => a + b) / _frameTimes.length;
+      _fps = avgMs > 0 ? 1000.0 / avgMs : 0;
 
       if (_bridge.isExitRequested()) {
         print('[PlayerScreen] exit requested, popping...');
@@ -156,9 +211,34 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
           onPressed: () => Navigator.of(context).pop(),
         ),
       ),
-      body: _frameImage != null
-          ? _buildGameView()
-          : const Center(child: CircularProgressIndicator()),
+      body: Stack(
+        children: [
+          if (_frameImage != null)
+            _buildGameView()
+          else
+            const Center(child: CircularProgressIndicator()),
+          if (ref.watch(settingsProvider).showFps)
+            Positioned(
+              top: 4,
+              left: 4,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.black54,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  '${_fps.toStringAsFixed(0)} fps',
+                  style: const TextStyle(
+                    color: Colors.lime,
+                    fontSize: 12,
+                    fontFamily: 'monospace',
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 
