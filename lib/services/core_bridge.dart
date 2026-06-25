@@ -1,8 +1,8 @@
 import 'dart:ffi';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
+import 'package:flutter/services.dart';
 
 import '../services/logger.dart';
 import 'file_provider.dart';
@@ -60,14 +60,18 @@ class CoreBridge {
     if (_lib != null) return;
     final name = Platform.isMacOS
         ? 'libart3m1s_core.dylib'
-        : Platform.isLinux
+        : Platform.isLinux || Platform.isAndroid
             ? 'libart3m1s_core.so'
             : 'art3m1s_core.dll';
     try {
       _lib = DynamicLibrary.open(name);
     } catch (_) {
-      final exeDir = File(Platform.resolvedExecutable).parent.path;
-      _lib = DynamicLibrary.open('$exeDir/$name');
+      if (!Platform.isAndroid && !Platform.isIOS) {
+        final exeDir = File(Platform.resolvedExecutable).parent.path;
+        _lib = DynamicLibrary.open('$exeDir/$name');
+      } else {
+        rethrow;
+      }
     }
   }
 
@@ -75,11 +79,39 @@ class CoreBridge {
     try {
       _loadLibrary();
     } catch (e) {
-      _initialized = true;
+      Log.error('[CoreBridge] Core 库加载失败: $e');
+      _initialized = false;
       return;
+    }
+    // Android 必须先初始化 ndk-context（JavaVM + Activity），否则 cpal 音频会 panic。
+    if (Platform.isAndroid) {
+      await _initAndroidContext();
     }
     _registerCallback();
     _initialized = true;
+  }
+
+  /// Android 专用：通过 MethodChannel 从 MainActivity 拿 JavaVM 和 Context 指针，
+  /// 传给 Rust 侧的 art3m1s_init_android。
+  Future<void> _initAndroidContext() async {
+    if (_lib == null) return;
+    try {
+      const channel = MethodChannel('moe.alphaly.art3m1s/native_ptrs');
+      final result = await channel.invokeMethod<Map>('getAndroidContextPtrs');
+      if (result == null) {
+        Log.warn('[CoreBridge] getAndroidContextPtrs 返回 null');
+        return;
+      }
+      final vmPtr = result['vmPtr'] as int;
+      final ctxPtr = result['contextPtr'] as int;
+      final fn = _lib!.lookupFunction<
+          Void Function(Pointer<Void>, Pointer<Void>),
+          void Function(Pointer<Void>, Pointer<Void>)>('art3m1s_init_android');
+      fn(Pointer.fromAddress(vmPtr), Pointer.fromAddress(ctxPtr));
+      Log.info('[CoreBridge] Android ndk-context 已初始化');
+    } catch (e) {
+      Log.error('[CoreBridge] _initAndroidContext 失败: $e');
+    }
   }
 
   void _registerCallback() {

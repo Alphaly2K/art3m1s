@@ -43,7 +43,7 @@ class PfsBridge {
   DynamicLibrary _loadLibrary() {
     final name = Platform.isMacOS
         ? 'libpfs_upk.dylib'
-        : Platform.isLinux
+        : Platform.isLinux || Platform.isAndroid
             ? 'libpfs_upk.so'
             : 'pfs_upk.dll';
     return DynamicLibrary.open(name);

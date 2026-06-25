@@ -5,11 +5,13 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../models/game_entry.dart';
 import '../providers/settings_provider.dart';
 import '../services/core_bridge.dart';
 import '../services/file_provider.dart';
+import '../services/logger.dart';
 
 class PlayerScreen extends ConsumerStatefulWidget {
   final String projectPath;
@@ -29,6 +31,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   final _bridge = CoreBridge();
   Timer? _timer;
   ui.Image? _frameImage;
+  bool _frameInFlight = false;
   int _stageW = 1280;
   int _stageH = 720;
 
@@ -59,7 +62,16 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
 
     String iniContent;
     if (widget.source == GameSource.pfsArchive) {
-      FileProvider.openPfs(widget.projectPath);
+      try {
+        FileProvider.openPfs(widget.projectPath);
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('PFS 库加载失败: $e')),
+          );
+        }
+        return;
+      }
       final bytes = FileProvider.readFile('system.ini');
       if (bytes == null) return;
       iniContent = String.fromCharCodes(bytes);
@@ -139,10 +151,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       final home = Platform.environment['HOME'] ?? '/tmp';
       return '$home/.local/share/art3m1s';
     } else if (Platform.isIOS || Platform.isAndroid) {
-      // 移动平台：用临时目录作为兜底，
-      // 实际应该用 path_provider 插件获取 documents 目录
-      final dir = Directory.systemTemp.path;
-      return '$dir/art3m1s';
+      final dir = await getApplicationSupportDirectory();
+      return dir.path;
     }
     return '/tmp/art3m1s';
   }
@@ -163,7 +173,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       _fps = avgMs > 0 ? 1000.0 / avgMs : 0;
 
       if (_bridge.isExitRequested()) {
-        print('[PlayerScreen] exit requested, popping...');
+        Log.info('[PlayerScreen] exit requested, popping...');
         if (mounted) {
           _timer?.cancel();
           Navigator.of(context).pop();
@@ -171,14 +181,20 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         return;
       }
 
+      if (_frameInFlight) return;
+      _frameInFlight = true;
+
       final pixels = _bridge.advanceAndRender(deltaMs.clamp(0, 100));
       if (_bridge.isExitRequested() && mounted) {
+        _frameInFlight = false;
         _timer?.cancel();
         Navigator.of(context).pop();
         return;
       }
       if (pixels != null && mounted) {
         _decodeFrame(pixels);
+      } else {
+        _frameInFlight = false;
       }
     });
   }
@@ -187,11 +203,17 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     final w = _stageW;
     final h = _stageH;
     ui.decodeImageFromPixels(pixels, w, h, ui.PixelFormat.rgba8888, (image) {
-      if (mounted) {
+      try {
+        if (!mounted) {
+          image.dispose();
+          return;
+        }
         final old = _frameImage;
         _frameImage = image;
         old?.dispose();
         setState(() {});
+      } finally {
+        _frameInFlight = false;
       }
     });
   }

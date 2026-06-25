@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/game_entry.dart';
 import '../providers/library_provider.dart';
 import '../providers/settings_provider.dart';
+import '../services/game_importer.dart';
 import '../services/logger.dart';
 import 'player_screen.dart';
 import 'settings_screen.dart';
@@ -187,11 +188,57 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
   }
 
   Future<void> _pickPfs() async {
-    const typeGroup = XTypeGroup(label: 'PFS 归档', extensions: ['pfs', 'PFS']);
-    final file = await openFile(acceptedTypeGroups: [typeGroup]);
-    if (file == null || !mounted) return;
+    String? filePath;
+    if (Platform.isAndroid || Platform.isIOS) {
+      // 移动平台：通过原生 SAF 选目录，拷贝整个目录（含分卷）到沙箱。
+      // 避免 file_selector 在 Android 上返回无法用 dart:io 访问的 content URI。
+      if (Platform.isAndroid) {
+        final sandboxDir = await GameImporter.pickDirectoryAndCopy();
+        if (sandboxDir == null || !mounted) return;
+        // 在沙箱里找 base .pfs 文件。
+        final pfsFile = Directory(sandboxDir)
+            .listSync()
+            .whereType<File>()
+            .where((f) => f.path.toLowerCase().endsWith('.pfs'))
+            .where((f) => !RegExp(r'\.pfs\.\d{3}$', caseSensitive: false).hasMatch(f.path))
+            .firstOrNull;
+        if (pfsFile == null) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('所选目录中没有 .pfs 文件')),
+            );
+          }
+          return;
+        }
+        filePath = pfsFile.path;
+      } else {
+        // iOS：flutter_file_dialog 给的路径可用，但分卷可能在别的目录。
+        // 先回退到目录选择。
+        final dirPath = await getDirectoryPath(confirmButtonText: '选择 PFS 所在目录');
+        if (dirPath == null || !mounted) return;
+        final pfsFile = Directory(dirPath)
+            .listSync()
+            .whereType<File>()
+            .where((f) => f.path.toLowerCase().endsWith('.pfs'))
+            .where((f) => !RegExp(r'\.pfs\.\d{3}$', caseSensitive: false).hasMatch(f.path))
+            .firstOrNull;
+        if (pfsFile == null) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('所选目录中没有 .pfs 文件')),
+            );
+          }
+          return;
+        }
+        filePath = pfsFile.path;
+      }
+    } else {
+      const typeGroup = XTypeGroup(label: 'PFS 归档', extensions: ['pfs', 'PFS']);
+      final file = await openFile(acceptedTypeGroups: [typeGroup]);
+      filePath = file?.path;
+    }
+    if (filePath == null || !mounted) return;
 
-    final filePath = file.path;
     final name = filePath
         .split(Platform.pathSeparator)
         .last

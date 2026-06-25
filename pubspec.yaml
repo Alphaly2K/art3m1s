@@ -37,6 +37,7 @@ dependencies:
   shared_preferences: ^2.3.4
   ffi: ^2.1.4
   file_selector: ^1.0.3
+  flutter_file_dialog: ^3.0.2
 
 dev_dependencies:
   flutter_test:
