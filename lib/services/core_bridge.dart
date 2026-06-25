@@ -33,6 +33,9 @@ typedef RuntimeFeedMouseNative = Void Function(
 typedef RuntimeFeedClickNative = Void Function(Pointer<Void> rt);
 typedef RuntimeFeedKeyNative = Void Function(
     Pointer<Void> rt, Uint32 vk, Int32 pressed);
+typedef RuntimeStageWidthNative = Uint32 Function(Pointer<Void> rt);
+typedef RuntimeStageHeightNative = Uint32 Function(Pointer<Void> rt);
+typedef RuntimePixelBufferSizeNative = Uint32 Function(Pointer<Void> rt);
 typedef RuntimeAdvanceRenderNative = Uint32 Function(
     Pointer<Void> rt, Uint32 deltaMs, Pointer<Uint8> outPixels, Uint32 capacity);
 typedef RuntimeIsExitRequestedNative = Int32 Function(Pointer<Void> rt);
@@ -159,10 +162,30 @@ class CoreBridge {
     final iniPtr = iniContent.toNativeUtf8();
     final platPtr = 'WINDOWS'.toNativeUtf8();
     try {
-      return fn(_runtime!, iniPtr, platPtr) == 0;
+      final result = fn(_runtime!, iniPtr, platPtr) == 0;
+      if (result) {
+        // 加载成功后查询 core 端的实际舞台尺寸
+        _updateStageSize();
+      }
+      return result;
     } finally {
       malloc.free(iniPtr);
       malloc.free(platPtr);
+    }
+  }
+
+  void _updateStageSize() {
+    if (_runtime == null || _lib == null) return;
+    try {
+      final widthFn = _lib!.lookupFunction<RuntimeStageWidthNative,
+          int Function(Pointer<Void>)>('art3m1s_runtime_stage_width');
+      final heightFn = _lib!.lookupFunction<RuntimeStageHeightNative,
+          int Function(Pointer<Void>)>('art3m1s_runtime_stage_height');
+      _stageWidth = widthFn(_runtime!);
+      _stageHeight = heightFn(_runtime!);
+      Log.info('[CoreBridge] 舞台尺寸已更新: $_stageWidth x $_stageHeight');
+    } catch (e) {
+      Log.warn('[CoreBridge] 查询舞台尺寸失败: $e');
     }
   }
 

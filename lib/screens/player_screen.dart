@@ -95,6 +95,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       return;
     }
 
+    // 从 CoreBridge 获取实际的舞台尺寸（Rust 端解析 INI 后的准确值）
+    _stageW = _bridge.stageWidth;
+    _stageH = _bridge.stageHeight;
+
     setState(() {});
     _startGameLoop();
   }
