@@ -32,6 +32,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   Timer? _timer;
   ui.Image? _frameImage;
   bool _frameInFlight = false;
+  bool _closing = false;
   int _stageW = 1280;
   int _stageH = 720;
 
@@ -48,6 +49,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
 
   Future<void> _init() async {
     await _bridge.initialize();
+    if (!mounted || _closing) {
+      _bridge.shutdown();
+      return;
+    }
     if (!_bridge.isInitialized) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -90,6 +95,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     // 故这里的 saveDir 只是**每个游戏的基准目录**，不再追加 savePath，否则会双重前缀。
     // 用 projectPath 派生稳定的游戏标识作子目录，避免多游戏存档串档。
     final appSupport = await _getAppSupportDir();
+    if (!mounted || _closing) {
+      _bridge.shutdown();
+      return;
+    }
     final gameId = _gameIdFor(widget.projectPath);
     final saveDir =
         '$appSupport${Platform.pathSeparator}saves${Platform.pathSeparator}$gameId';
@@ -111,6 +120,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     _stageW = _bridge.stageWidth;
     _stageH = _bridge.stageHeight;
 
+    if (!mounted || _closing) {
+      _bridge.shutdown();
+      return;
+    }
     setState(() {});
     _startGameLoop();
   }
@@ -162,6 +175,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     var lastTime = DateTime.now();
 
     _timer = Timer.periodic(Duration(milliseconds: frameMs), (_) {
+      if (_closing || !mounted) return;
       final now = DateTime.now();
       final deltaMs = now.difference(lastTime).inMilliseconds;
       lastTime = now;
@@ -174,10 +188,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
 
       if (_bridge.isExitRequested()) {
         Log.info('[PlayerScreen] exit requested, popping...');
-        if (mounted) {
-          _timer?.cancel();
-          Navigator.of(context).pop();
-        }
+        _closePlayer();
         return;
       }
 
@@ -187,8 +198,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       final pixels = _bridge.advanceAndRender(deltaMs.clamp(0, 100));
       if (_bridge.isExitRequested() && mounted) {
         _frameInFlight = false;
-        _timer?.cancel();
-        Navigator.of(context).pop();
+        _closePlayer();
         return;
       }
       if (pixels != null && mounted) {
@@ -200,6 +210,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   }
 
   void _decodeFrame(Uint8List pixels) {
+    if (_closing || !mounted) {
+      _frameInFlight = false;
+      return;
+    }
     final w = _stageW;
     final h = _stageH;
     ui.decodeImageFromPixels(pixels, w, h, ui.PixelFormat.rgba8888, (image) {
@@ -220,10 +234,20 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
 
   @override
   void dispose() {
+    _closing = true;
     _timer?.cancel();
     _frameImage?.dispose();
     _bridge.shutdown();
     super.dispose();
+  }
+
+  void _closePlayer() {
+    if (_closing) return;
+    _closing = true;
+    _timer?.cancel();
+    if (mounted) {
+      Navigator.of(context).pop();
+    }
   }
 
   @override
@@ -234,7 +258,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
             overflow: TextOverflow.ellipsis),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.of(context).pop(),
+          onPressed: _closePlayer,
         ),
       ),
       body: Stack(

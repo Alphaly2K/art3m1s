@@ -44,10 +44,12 @@ typedef RuntimeDestroyNative = Void Function(Pointer<Void> rt);
 // ── CoreBridge — manages the core runtime lifecycle ─────────────
 
 class CoreBridge {
+  static NativeCallable<LogCallbackNative>? _sharedLogCallable;
+  static bool _androidContextInitialized = false;
+
   bool _initialized = false;
   DynamicLibrary? _lib;
   Pointer<Void>? _runtime;
-  NativeCallable<LogCallbackNative>? _logCallable;
   int _stageWidth = 1280;
   int _stageHeight = 720;
 
@@ -94,7 +96,7 @@ class CoreBridge {
   /// Android 专用：通过 MethodChannel 从 MainActivity 拿 JavaVM 和 Context 指针，
   /// 传给 Rust 侧的 art3m1s_init_android。
   Future<void> _initAndroidContext() async {
-    if (_lib == null) return;
+    if (_lib == null || _androidContextInitialized) return;
     try {
       const channel = MethodChannel('moe.alphaly.art3m1s/native_ptrs');
       final result = await channel.invokeMethod<Map>('getAndroidContextPtrs');
@@ -108,6 +110,7 @@ class CoreBridge {
           Void Function(Pointer<Void>, Pointer<Void>),
           void Function(Pointer<Void>, Pointer<Void>)>('art3m1s_init_android');
       fn(Pointer.fromAddress(vmPtr), Pointer.fromAddress(ctxPtr));
+      _androidContextInitialized = true;
       Log.info('[CoreBridge] Android ndk-context 已初始化');
     } catch (e) {
       Log.error('[CoreBridge] _initAndroidContext 失败: $e');
@@ -120,11 +123,11 @@ class CoreBridge {
         void Function(Pointer<NativeFunction<LogCallbackNative>>)>(
       'art3m1s_register_log_callback',
     );
-    _logCallable ??= NativeCallable<LogCallbackNative>.isolateLocal(
+    _sharedLogCallable ??= NativeCallable<LogCallbackNative>.isolateLocal(
       _logCallback,
       exceptionalReturn: -1,
     );
-    registerFn(_logCallable!.nativeFunction);
+    registerFn(_sharedLogCallable!.nativeFunction);
   }
 
   void setDebug(bool enabled) {
@@ -271,18 +274,24 @@ class CoreBridge {
   }
 
   void shutdown() {
-    if (_runtime != null && _lib != null) {
+    final runtime = _runtime;
+    final lib = _lib;
+    _runtime = null;
+    _initialized = false;
+
+    if (runtime != null && lib != null) {
       try {
-        final fn = _lib!.lookupFunction<RuntimeDestroyNative,
+        Log.info('[CoreBridge] runtime destroy begin');
+        final fn = lib.lookupFunction<RuntimeDestroyNative,
             void Function(Pointer<Void>)>('art3m1s_runtime_destroy');
-        fn(_runtime!);
-      } catch (_) {
+        fn(runtime);
+        Log.info('[CoreBridge] runtime destroy end');
+      } catch (e) {
+        Log.warn('[CoreBridge] runtime destroy failed: $e');
         // dylib may not export art3m1s_runtime_destroy yet
       }
     }
-    _runtime = null;
     FileProvider.close();
-    _initialized = false;
     _lib = null;
   }
 }
