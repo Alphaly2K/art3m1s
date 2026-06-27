@@ -6,6 +6,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:video_player/video_player.dart';
 
 import '../models/game_entry.dart';
 import '../providers/settings_provider.dart';
@@ -267,6 +268,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
             _buildGameView()
           else
             const Center(child: CircularProgressIndicator()),
+          _buildVideoLayer(),
           if (ref.watch(settingsProvider).showFps)
             Positioned(
               top: 4,
@@ -320,6 +322,35 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                 width: dw,
                 height: dh,
                 child: RawImage(image: image, fit: BoxFit.fill),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildVideoLayer() {
+    return ValueListenableBuilder<VideoPlayerController?>(
+      valueListenable: _bridge.media.videoController,
+      builder: (context, controller, _) {
+        if (controller == null || !controller.value.isInitialized) {
+          return const SizedBox.shrink();
+        }
+        final size = controller.value.size;
+        return Positioned.fill(
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: _bridge.media.skipVideo,
+            child: ColoredBox(
+              color: Colors.black,
+              child: Center(
+                child: AspectRatio(
+                  aspectRatio: size.width > 0 && size.height > 0
+                      ? size.width / size.height
+                      : _stageW / _stageH,
+                  child: VideoPlayer(controller),
+                ),
               ),
             ),
           ),

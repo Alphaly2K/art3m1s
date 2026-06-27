@@ -1,14 +1,24 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
-import 'package:flutter/services.dart';
 
 import '../services/logger.dart';
 import 'file_provider.dart';
+import 'media_bridge.dart';
 
 typedef LogCallbackNative = Int32 Function(Pointer<Int8> level, Pointer<Int8> msg);
 typedef RegisterLogCallbackNative = Void Function(Pointer<NativeFunction<LogCallbackNative>>);
+typedef MediaCommandCallbackNative = Void Function(
+  Pointer<Int8> kind,
+  Pointer<Int8> payloadJson,
+);
+typedef RegisterMediaCommandCallbackNative = Void Function(
+  Pointer<NativeFunction<MediaCommandCallbackNative>>,
+);
 
 int _logCallback(Pointer<Int8> levelPtr, Pointer<Int8> msgPtr) {
   final level = levelPtr.cast<Utf8>().toDartString();
@@ -21,6 +31,20 @@ int _logCallback(Pointer<Int8> levelPtr, Pointer<Int8> msgPtr) {
     default: Log.info(msg);
   }
   return 0;
+}
+
+void _mediaCommandCallback(Pointer<Int8> kindPtr, Pointer<Int8> payloadPtr) {
+  try {
+    final kind = kindPtr.cast<Utf8>().toDartString();
+    final rawPayload = payloadPtr.cast<Utf8>().toDartString();
+    final decoded = jsonDecode(rawPayload);
+    final payload = decoded is Map
+        ? decoded.map((key, value) => MapEntry(key.toString(), value))
+        : <String, dynamic>{};
+    CoreBridge._activeBridge?.media.handleCommand(kind, payload);
+  } catch (e) {
+    Log.error('[CoreBridge] 媒体命令解析失败: $e');
+  }
 }
 
 // ── Core FFI type definitions ───────────────────────────────────
@@ -40,18 +64,27 @@ typedef RuntimeAdvanceRenderNative = Uint32 Function(
     Pointer<Void> rt, Uint32 deltaMs, Pointer<Uint8> outPixels, Uint32 capacity);
 typedef RuntimeIsExitRequestedNative = Int32 Function(Pointer<Void> rt);
 typedef RuntimeDestroyNative = Void Function(Pointer<Void> rt);
+typedef RuntimeNotifyVideoFinishedNative = Void Function(
+    Pointer<Void> rt, Pointer<Utf8> id);
+typedef RuntimeNotifySoundFinishedNative = Void Function(
+    Pointer<Void> rt, Pointer<Utf8> id);
 
 // ── CoreBridge — manages the core runtime lifecycle ─────────────
 
 class CoreBridge {
   static NativeCallable<LogCallbackNative>? _sharedLogCallable;
-  static bool _androidContextInitialized = false;
+  static NativeCallable<MediaCommandCallbackNative>? _sharedMediaCallable;
+  static CoreBridge? _activeBridge;
 
   bool _initialized = false;
   DynamicLibrary? _lib;
   Pointer<Void>? _runtime;
   int _stageWidth = 1280;
   int _stageHeight = 720;
+  late final MediaBridge media = MediaBridge(
+    onVideoFinished: notifyVideoFinished,
+    onSoundFinished: notifySoundFinished,
+  );
 
   bool get isInitialized => _initialized;
   Pointer<Void>? get runtime => _runtime;
@@ -85,36 +118,8 @@ class CoreBridge {
       _initialized = false;
       return;
     }
-    // Android 必须先初始化 ndk-context（JavaVM + Activity），否则 cpal 音频会 panic。
-    if (Platform.isAndroid) {
-      await _initAndroidContext();
-    }
     _registerCallback();
     _initialized = true;
-  }
-
-  /// Android 专用：通过 MethodChannel 从 MainActivity 拿 JavaVM 和 Context 指针，
-  /// 传给 Rust 侧的 art3m1s_init_android。
-  Future<void> _initAndroidContext() async {
-    if (_lib == null || _androidContextInitialized) return;
-    try {
-      const channel = MethodChannel('moe.alphaly.art3m1s/native_ptrs');
-      final result = await channel.invokeMethod<Map>('getAndroidContextPtrs');
-      if (result == null) {
-        Log.warn('[CoreBridge] getAndroidContextPtrs 返回 null');
-        return;
-      }
-      final vmPtr = result['vmPtr'] as int;
-      final ctxPtr = result['contextPtr'] as int;
-      final fn = _lib!.lookupFunction<
-          Void Function(Pointer<Void>, Pointer<Void>),
-          void Function(Pointer<Void>, Pointer<Void>)>('art3m1s_init_android');
-      fn(Pointer.fromAddress(vmPtr), Pointer.fromAddress(ctxPtr));
-      _androidContextInitialized = true;
-      Log.info('[CoreBridge] Android ndk-context 已初始化');
-    } catch (e) {
-      Log.error('[CoreBridge] _initAndroidContext 失败: $e');
-    }
   }
 
   void _registerCallback() {
@@ -128,6 +133,16 @@ class CoreBridge {
       exceptionalReturn: -1,
     );
     registerFn(_sharedLogCallable!.nativeFunction);
+
+    final registerMediaFn = _lib!.lookupFunction<RegisterMediaCommandCallbackNative,
+        void Function(Pointer<NativeFunction<MediaCommandCallbackNative>>)>(
+      'art3m1s_register_media_command_callback',
+    );
+    _sharedMediaCallable ??= NativeCallable<MediaCommandCallbackNative>.isolateLocal(
+      _mediaCommandCallback,
+    );
+    _activeBridge = this;
+    registerMediaFn(_sharedMediaCallable!.nativeFunction);
   }
 
   void setDebug(bool enabled) {
@@ -273,7 +288,37 @@ class CoreBridge {
     }
   }
 
+  void notifyVideoFinished(String? id) {
+    if (_runtime == null || _lib == null) return;
+    final fn = _lib!.lookupFunction<RuntimeNotifyVideoFinishedNative,
+        void Function(Pointer<Void>, Pointer<Utf8>)>(
+      'art3m1s_runtime_notify_video_finished',
+    );
+    final idPtr = id == null ? Pointer<Utf8>.fromAddress(0) : id.toNativeUtf8();
+    try {
+      fn(_runtime!, idPtr);
+    } finally {
+      if (id != null) malloc.free(idPtr);
+    }
+  }
+
+  void notifySoundFinished(String? id) {
+    if (_runtime == null || _lib == null) return;
+    final fn = _lib!.lookupFunction<RuntimeNotifySoundFinishedNative,
+        void Function(Pointer<Void>, Pointer<Utf8>)>(
+      'art3m1s_runtime_notify_sound_finished',
+    );
+    final idPtr = id == null ? Pointer<Utf8>.fromAddress(0) : id.toNativeUtf8();
+    try {
+      fn(_runtime!, idPtr);
+    } finally {
+      if (id != null) malloc.free(idPtr);
+    }
+  }
+
   void shutdown() {
+    if (_activeBridge == this) _activeBridge = null;
+    unawaited(media.dispose());
     final runtime = _runtime;
     final lib = _lib;
     _runtime = null;

@@ -90,6 +90,7 @@ class _DebugOverlayState extends State<DebugOverlay> {
   static const _minSize = Size(300, 150);
   final _scroll = ScrollController();
   bool _autoScroll = true;
+  bool _refreshScheduled = false;
 
   @override
   void initState() {
@@ -113,7 +114,7 @@ class _DebugOverlayState extends State<DebugOverlay> {
     final h = prefs.getDouble('debug_overlay_h');
     if (x != null && y != null) _pos = Offset(x, y);
     if (w != null && h != null) _size = Size(w, h);
-    if (mounted) setState(() {});
+    _scheduleRefresh();
   }
 
   Future<void> _savePosition() async {
@@ -125,12 +126,20 @@ class _DebugOverlayState extends State<DebugOverlay> {
   }
 
   void _onLog() {
-    if (mounted) setState(() {});
-    if (_autoScroll && _scroll.hasClients) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (_scroll.hasClients) _scroll.jumpTo(_scroll.position.maxScrollExtent);
-      });
-    }
+    _scheduleRefresh(scrollToBottom: _autoScroll);
+  }
+
+  void _scheduleRefresh({bool scrollToBottom = false}) {
+    if (_refreshScheduled) return;
+    _refreshScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _refreshScheduled = false;
+      if (!mounted) return;
+      setState(() {});
+      if (scrollToBottom && _scroll.hasClients) {
+        _scroll.jumpTo(_scroll.position.maxScrollExtent);
+      }
+    });
   }
 
   @override
@@ -184,7 +193,7 @@ class _DebugOverlayState extends State<DebugOverlay> {
             final text = entries.map((e) => '[${e.timestamp}] [${e.level}] ${e.message}').join('\n');
             await Clipboard.setData(ClipboardData(text: text));
           }),
-          _btn(Icons.delete_outline, false, () { Log.clear(); setState(() {}); }),
+          _btn(Icons.delete_outline, false, Log.clear),
           _btn(Icons.close, false, () => _close()),
         ],
       ),
