@@ -3,8 +3,10 @@ import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:audioplayers/audioplayers.dart';
-import 'package:flutter/foundation.dart';
-import 'package:video_player/video_player.dart';
+import 'package:flutter/widgets.dart';
+import 'package:media_kit/media_kit.dart' as media_kit;
+import 'package:media_kit_video/media_kit_video.dart' as media_kit_video;
+import 'package:video_player/video_player.dart' as video_player;
 
 import 'file_provider.dart';
 import 'logger.dart';
@@ -15,13 +17,16 @@ class MediaBridge {
   MediaBridge({
     required MediaFinishedCallback onVideoFinished,
     required MediaFinishedCallback onSoundFinished,
-  })  : _videoFinishedCallback = onVideoFinished,
-        _soundFinishedCallback = onSoundFinished;
+  }) : _videoFinishedCallback = onVideoFinished,
+       _soundFinishedCallback = onSoundFinished;
 
   final MediaFinishedCallback _videoFinishedCallback;
   final MediaFinishedCallback _soundFinishedCallback;
-  final ValueNotifier<VideoPlayerController?> videoController =
-      ValueNotifier<VideoPlayerController?>(null);
+  final ValueNotifier<VideoPlayback?> videoPlayback =
+      ValueNotifier<VideoPlayback?>(null);
+  final ValueNotifier<bool> fullscreenVideoBlocking = ValueNotifier<bool>(
+    false,
+  );
 
   final Map<String, double> _channelVolumes = {
     'master': 1,
@@ -31,14 +36,18 @@ class MediaBridge {
   };
   final Map<String, _AudioHandle> _sounds = {};
   final Map<String, File> _assetCache = {};
-  final Directory _cacheDir =
-      Directory.systemTemp.createTempSync('art3m1s_media_');
+  final Directory _cacheDir = Directory.systemTemp.createTempSync(
+    'art3m1s_media_',
+  );
 
   _AudioHandle? _bgm;
   _VideoHandle? _video;
   String? _videoId;
   bool _videoSkippable = false;
+  bool _fullscreenVideoBlocking = false;
   bool _disposed = false;
+
+  bool get isFullscreenVideoBlocking => _fullscreenVideoBlocking;
 
   void handleCommand(String kind, Map<String, dynamic> payload) {
     if (_disposed) return;
@@ -63,8 +72,10 @@ class MediaBridge {
         case 'audio_se_play':
           await _playSound(payload, channel: 'se');
         case 'audio_se_stop':
-          await _stopSound(_string(payload['id']),
-              fadeMs: _int(payload['fade_ms']));
+          await _stopSound(
+            _string(payload['id']),
+            fadeMs: _int(payload['fade_ms']),
+          );
         case 'audio_se_fade':
           await _fadeSound(_string(payload['id']), payload, channel: 'se');
         case 'audio_se_pan':
@@ -99,7 +110,10 @@ class MediaBridge {
     await _video?.setEffectiveVolume(_channelVolumes['master'] ?? 1);
   }
 
-  Future<void> _playBgm(Map<String, dynamic> payload, {required int fadeMs}) async {
+  Future<void> _playBgm(
+    Map<String, dynamic> payload, {
+    required int fadeMs,
+  }) async {
     final file = await _resolveAsset(payload);
     if (file == null) {
       _soundFinishedCallback(null);
@@ -117,7 +131,9 @@ class MediaBridge {
       onCompleted: (_) => _soundFinishedCallback(null),
     );
     _bgm = handle;
-    await handle.setEffectiveVolume(fadeMs > 0 ? 0 : _effectiveVolume('bgm', gain));
+    await handle.setEffectiveVolume(
+      fadeMs > 0 ? 0 : _effectiveVolume('bgm', gain),
+    );
     await handle.play();
     if (fadeMs > 0) {
       await handle.fadeTo(_effectiveVolume('bgm', gain), fadeMs);
@@ -136,7 +152,10 @@ class MediaBridge {
     final bgm = _bgm;
     if (bgm == null) return;
     bgm.gain = _gain(payload['gain'], fallback: bgm.gain);
-    await bgm.fadeTo(_effectiveVolume('bgm', bgm.gain), _int(payload['time_ms']));
+    await bgm.fadeTo(
+      _effectiveVolume('bgm', bgm.gain),
+      _int(payload['time_ms']),
+    );
   }
 
   Future<void> _playSound(
@@ -166,7 +185,9 @@ class MediaBridge {
     );
     _sounds[key] = handle;
     final fadeMs = _int(payload['fade_ms']);
-    await handle.setEffectiveVolume(fadeMs > 0 ? 0 : _effectiveVolume(channel, gain));
+    await handle.setEffectiveVolume(
+      fadeMs > 0 ? 0 : _effectiveVolume(channel, gain),
+    );
     await handle.play();
     if (fadeMs > 0) {
       await handle.fadeTo(_effectiveVolume(channel, gain), fadeMs);
@@ -193,7 +214,10 @@ class MediaBridge {
     final handle = _sounds[_soundKey(channel, id)];
     if (handle == null) return;
     handle.gain = _gain(payload['gain'], fallback: handle.gain);
-    await handle.fadeTo(_effectiveVolume(channel, handle.gain), _int(payload['time_ms']));
+    await handle.fadeTo(
+      _effectiveVolume(channel, handle.gain),
+      _int(payload['time_ms']),
+    );
   }
 
   Future<void> _stopAllAudio() async {
@@ -214,20 +238,34 @@ class MediaBridge {
     await _stopVideo(notify: false);
     _videoId = _string(payload['id']);
     _videoSkippable = _bool(payload['skippable']);
-    if (_string(payload['id']) != null) {
-      Log.warn('[MediaBridge] 图层视频暂按全屏视频播放: id=${payload['id']}');
+    _setFullscreenVideoBlocking(_videoId == null);
+
+    late final _VideoHandle handle;
+    try {
+      handle = await _VideoHandle.create(
+        id: _videoId,
+        file: file,
+        loop: _bool(payload['loop']),
+        onCompleted: (id) {
+          scheduleMicrotask(() {
+            unawaited(_stopVideo(notify: true, completedId: id));
+          });
+        },
+      );
+    } catch (_) {
+      await _stopVideo(notify: false);
+      rethrow;
     }
-    final handle = await _VideoHandle.create(
-      id: _videoId,
-      file: file,
-      loop: _bool(payload['loop']),
-      onCompleted: (id) {
-        unawaited(_stopVideo(notify: true, completedId: id));
-      },
-    );
     _video = handle;
     await handle.setEffectiveVolume(_channelVolumes['master'] ?? 1);
-    videoController.value = handle.controller;
+    _setVideoPlayback(
+      VideoPlayback(
+        id: _videoId,
+        view: handle.buildView(),
+        aspectRatio: handle.aspectRatio,
+        skippable: _videoSkippable,
+      ),
+    );
     await handle.play();
   }
 
@@ -239,14 +277,46 @@ class MediaBridge {
   Future<void> _stopVideo({required bool notify, String? completedId}) async {
     final video = _video;
     final id = completedId ?? _videoId;
+    final wasFullscreen = _fullscreenVideoBlocking;
     _video = null;
     _videoId = null;
     _videoSkippable = false;
-    if (videoController.value != null) {
-      videoController.value = null;
+    _setVideoPlayback(null);
+    if (wasFullscreen) {
+      await _afterNextFrame();
     }
     if (video != null) await video.dispose();
+    if (wasFullscreen) {
+      await _afterNextFrame();
+    }
+    _setFullscreenVideoBlocking(false);
     if (notify) _videoFinishedCallback(id);
+  }
+
+  void _setFullscreenVideoBlocking(bool blocking) {
+    if (_fullscreenVideoBlocking == blocking) return;
+    _fullscreenVideoBlocking = blocking;
+    scheduleMicrotask(() {
+      if (_disposed) return;
+      fullscreenVideoBlocking.value = blocking;
+    });
+  }
+
+  void _setVideoPlayback(VideoPlayback? playback) {
+    if (_disposed) return;
+    scheduleMicrotask(() {
+      if (_disposed) return;
+      videoPlayback.value = playback;
+    });
+  }
+
+  Future<void> _afterNextFrame() {
+    final completer = Completer<void>();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!completer.isCompleted) completer.complete();
+    });
+    WidgetsBinding.instance.scheduleFrame();
+    return completer.future;
   }
 
   Future<File?> _resolveAsset(Map<String, dynamic> payload) async {
@@ -263,8 +333,10 @@ class MediaBridge {
       if (cached != null && cached.existsSync()) return cached;
       final bytes = FileProvider.readFile(candidate);
       if (bytes == null) continue;
-      final file = File('${_cacheDir.path}${Platform.pathSeparator}'
-          '${_stableId(candidate)}${_extension(candidate)}');
+      final file = File(
+        '${_cacheDir.path}${Platform.pathSeparator}'
+        '${_stableId(candidate)}${_extension(candidate)}',
+      );
       file.writeAsBytesSync(bytes, flush: true);
       _assetCache[candidate] = file;
       return file;
@@ -286,8 +358,13 @@ class MediaBridge {
         if (!_hasExtension(normalized)) '$normalized.mp3',
         if (!_hasExtension(normalized)) '$normalized.m4a',
         if (!_hasExtension(normalized)) '$normalized.mp4',
+        if (!_hasExtension(normalized)) '$normalized.m4v',
+        if (!_hasExtension(normalized)) '$normalized.mov',
         if (!_hasExtension(normalized)) '$normalized.mpg',
         if (!_hasExtension(normalized)) '$normalized.mpeg',
+        if (!_hasExtension(normalized)) '$normalized.wmv',
+        if (!_hasExtension(normalized)) '$normalized.asf',
+        if (!_hasExtension(normalized)) '$normalized.avi',
         if (!_hasExtension(normalized)) '$normalized.webm',
         if (!_hasExtension(normalized)) '$normalized.ogv',
       ]) {
@@ -323,11 +400,28 @@ class MediaBridge {
     _disposed = true;
     await _stopVideo(notify: false);
     await _stopAllAudio();
-    videoController.dispose();
+    videoPlayback.dispose();
+    fullscreenVideoBlocking.dispose();
     try {
       if (_cacheDir.existsSync()) _cacheDir.deleteSync(recursive: true);
     } catch (_) {}
   }
+}
+
+class VideoPlayback {
+  const VideoPlayback({
+    required this.id,
+    required this.view,
+    required this.aspectRatio,
+    required this.skippable,
+  });
+
+  final String? id;
+  final Widget view;
+  final double aspectRatio;
+  final bool skippable;
+
+  bool get isFullscreen => id == null;
 }
 
 class _AudioHandle {
@@ -421,77 +515,220 @@ class _AudioHandle {
   }
 }
 
-class _VideoHandle {
-  _VideoHandle({
-    required this.id,
-    required this.controller,
-    required this.onCompleted,
-  });
-
-  final String? id;
-  final VideoPlayerController controller;
-  final void Function(String? id) onCompleted;
-  Timer? _fadeTimer;
-  bool _completed = false;
-
+abstract class _VideoHandle {
   static Future<_VideoHandle> create({
     required String? id,
     required File file,
     required bool loop,
     required void Function(String? id) onCompleted,
   }) async {
-    final controller = VideoPlayerController.file(file);
-    final handle = _VideoHandle(
+    if (_shouldUseWideCodecBackend(file)) {
+      return _MediaKitVideoHandle.create(
+        id: id,
+        file: file,
+        loop: loop,
+        onCompleted: onCompleted,
+      );
+    }
+    try {
+      return await _NativeVideoHandle.create(
+        id: id,
+        file: file,
+        loop: loop,
+        onCompleted: onCompleted,
+      );
+    } catch (e, st) {
+      Log.warn(
+        '[MediaBridge] video_player 初始化失败，切换 media_kit: '
+        '${file.path}\n$e\n$st',
+      );
+      return _MediaKitVideoHandle.create(
+        id: id,
+        file: file,
+        loop: loop,
+        onCompleted: onCompleted,
+      );
+    }
+  }
+
+  String? get id;
+  double get aspectRatio;
+
+  Widget buildView();
+
+  Future<void> play();
+
+  Future<void> setEffectiveVolume(double volume);
+
+  Future<void> dispose();
+}
+
+bool _shouldUseWideCodecBackend(File file) {
+  final ext = _extension(file.path).toLowerCase();
+  return const {
+    '.wmv',
+    '.asf',
+    '.avi',
+    '.mpg',
+    '.mpeg',
+    '.ogv',
+    '.webm',
+  }.contains(ext);
+}
+
+class _NativeVideoHandle implements _VideoHandle {
+  _NativeVideoHandle({
+    required this.id,
+    required this.controller,
+    required this.onCompleted,
+  });
+
+  @override
+  final String? id;
+  final video_player.VideoPlayerController controller;
+  final void Function(String? id) onCompleted;
+  bool _completed = false;
+
+  static Future<_NativeVideoHandle> create({
+    required String? id,
+    required File file,
+    required bool loop,
+    required void Function(String? id) onCompleted,
+  }) async {
+    final controller = video_player.VideoPlayerController.file(file);
+    final handle = _NativeVideoHandle(
       id: id,
       controller: controller,
       onCompleted: onCompleted,
     );
     controller.addListener(handle._onTick);
-    await controller.initialize();
-    await controller.setLooping(loop);
-    return handle;
+    try {
+      await controller.initialize();
+      await controller.setLooping(loop);
+      return handle;
+    } catch (_) {
+      controller.removeListener(handle._onTick);
+      await controller.dispose();
+      rethrow;
+    }
   }
 
+  @override
+  double get aspectRatio {
+    final size = controller.value.size;
+    if (size.width > 0 && size.height > 0) return size.width / size.height;
+    return 16 / 9;
+  }
+
+  @override
+  Widget buildView() => video_player.VideoPlayer(controller);
+
+  @override
   Future<void> play() => controller.play();
 
+  @override
   Future<void> setEffectiveVolume(double volume) {
     return controller.setVolume(volume.clamp(0, 1));
   }
 
-  Future<void> fadeTo(double target, int durationMs) async {
-    _fadeTimer?.cancel();
-    if (durationMs <= 0) {
-      await setEffectiveVolume(target);
-      return;
-    }
-    final start = controller.value.volume;
-    final steps = math.max(1, durationMs ~/ 33);
-    var step = 0;
-    final completer = Completer<void>();
-    _fadeTimer = Timer.periodic(const Duration(milliseconds: 33), (timer) {
-      step += 1;
-      final t = (step / steps).clamp(0, 1).toDouble();
-      unawaited(setEffectiveVolume(start + (target - start) * t));
-      if (step >= steps) {
-        timer.cancel();
-        if (!completer.isCompleted) completer.complete();
-      }
-    });
-    return completer.future;
-  }
-
+  @override
   Future<void> dispose() async {
-    _fadeTimer?.cancel();
     controller.removeListener(_onTick);
     await controller.dispose();
   }
 
   void _onTick() {
-    if (_completed || controller.value.isLooping || !controller.value.isCompleted) {
+    if (_completed ||
+        controller.value.isLooping ||
+        !controller.value.isCompleted) {
       return;
     }
     _completed = true;
     onCompleted(id);
+  }
+}
+
+class _MediaKitVideoHandle implements _VideoHandle {
+  _MediaKitVideoHandle({
+    required this.id,
+    required this.player,
+    required this.controller,
+    required this.completionSub,
+  });
+
+  @override
+  final String? id;
+  final media_kit.Player player;
+  final media_kit_video.VideoController controller;
+  final StreamSubscription<bool> completionSub;
+
+  static Future<_MediaKitVideoHandle> create({
+    required String? id,
+    required File file,
+    required bool loop,
+    required void Function(String? id) onCompleted,
+  }) async {
+    final player = media_kit.Player();
+    var completed = false;
+    final completionSub = player.stream.completed.listen((isCompleted) {
+      if (!isCompleted || loop || completed) return;
+      completed = true;
+      onCompleted(id);
+    });
+    final controller = media_kit_video.VideoController(
+      player,
+      configuration: media_kit_video.VideoControllerConfiguration(
+        enableHardwareAcceleration: !Platform.isMacOS,
+      ),
+    );
+    final handle = _MediaKitVideoHandle(
+      id: id,
+      player: player,
+      controller: controller,
+      completionSub: completionSub,
+    );
+    try {
+      await player.setPlaylistMode(
+        loop ? media_kit.PlaylistMode.single : media_kit.PlaylistMode.none,
+      );
+      await player.open(media_kit.Media(file.uri.toString()), play: false);
+      return handle;
+    } catch (_) {
+      await handle.dispose();
+      rethrow;
+    }
+  }
+
+  @override
+  double get aspectRatio {
+    final width = player.state.width;
+    final height = player.state.height;
+    if (width != null && height != null && width > 0 && height > 0) {
+      return width / height;
+    }
+    return 16 / 9;
+  }
+
+  @override
+  Widget buildView() => media_kit_video.Video(
+    controller: controller,
+    controls: media_kit_video.NoVideoControls,
+    fit: BoxFit.contain,
+    fill: const Color(0x00000000),
+  );
+
+  @override
+  Future<void> play() => player.play();
+
+  @override
+  Future<void> setEffectiveVolume(double volume) {
+    return player.setVolume(volume.clamp(0, 1) * 100);
+  }
+
+  @override
+  Future<void> dispose() async {
+    await completionSub.cancel();
+    await player.dispose();
   }
 }
 

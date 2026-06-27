@@ -6,7 +6,6 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:video_player/video_player.dart';
 
 import '../models/game_entry.dart';
 import '../providers/settings_provider.dart';
@@ -56,9 +55,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     }
     if (!_bridge.isInitialized) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Core 库加载失败')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Core 库加载失败')));
       }
       return;
     }
@@ -72,9 +71,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         FileProvider.openPfs(widget.projectPath);
       } catch (e) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('PFS 库加载失败: $e')),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('PFS 库加载失败: $e')));
         }
         return;
       }
@@ -83,8 +82,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       iniContent = String.fromCharCodes(bytes);
     } else {
       FileProvider.openDirectory(widget.projectPath);
-      iniContent = File('${widget.projectPath}${Platform.pathSeparator}system.ini')
-          .readAsStringSync();
+      iniContent = File(
+        '${widget.projectPath}${Platform.pathSeparator}system.ini',
+      ).readAsStringSync();
     }
 
     _parseStageSize(iniContent);
@@ -106,13 +106,16 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     _bridge.setSaveDir(saveDir);
 
     _bridge.registerFileReader();
-    _bridge.createRuntime(_stageW, _stageH,
-        backend: ref.read(settingsProvider).backend);
+    _bridge.createRuntime(
+      _stageW,
+      _stageH,
+      backend: ref.read(settingsProvider).backend,
+    );
     if (!_bridge.loadProject(iniContent)) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('项目加载失败')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('项目加载失败')));
       }
       return;
     }
@@ -144,8 +147,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   /// 由项目路径派生稳定的游戏标识，作为沙箱存档子目录名，避免多游戏串档。
   /// 取路径末段并清洗为文件系统安全字符；为空时退回路径哈希。
   String _gameIdFor(String projectPath) {
-    final normalized = projectPath.replaceAll('\\', '/').replaceAll(RegExp(r'/+$'), '');
-    final last = normalized.split('/').where((s) => s.isNotEmpty).lastOrNull ?? '';
+    final normalized = projectPath
+        .replaceAll('\\', '/')
+        .replaceAll(RegExp(r'/+$'), '');
+    final last =
+        normalized.split('/').where((s) => s.isNotEmpty).lastOrNull ?? '';
     final cleaned = last.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
     if (cleaned.isNotEmpty) return cleaned;
     return 'game_${projectPath.hashCode.toUnsigned(32).toRadixString(16)}';
@@ -157,7 +163,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       final home = Platform.environment['HOME'] ?? '/tmp';
       return '$home/Library/Application Support/art3m1s';
     } else if (Platform.isWindows) {
-      final appData = Platform.environment['APPDATA'] ??
+      final appData =
+          Platform.environment['APPDATA'] ??
           Platform.environment['USERPROFILE'] ??
           'C:\\Users\\Default';
       return '$appData\\art3m1s';
@@ -184,12 +191,17 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       // track FPS
       _frameTimes.add(deltaMs);
       if (_frameTimes.length > _fpsSamples) _frameTimes.removeAt(0);
-      final avgMs = _frameTimes.fold<int>(0, (a, b) => a + b) / _frameTimes.length;
+      final avgMs =
+          _frameTimes.fold<int>(0, (a, b) => a + b) / _frameTimes.length;
       _fps = avgMs > 0 ? 1000.0 / avgMs : 0;
 
       if (_bridge.isExitRequested()) {
         Log.info('[PlayerScreen] exit requested, popping...');
         _closePlayer();
+        return;
+      }
+
+      if (_bridge.media.isFullscreenVideoBlocking) {
         return;
       }
 
@@ -255,8 +267,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.projectPath.split('/').last,
-            overflow: TextOverflow.ellipsis),
+        title: Text(
+          widget.projectPath.split('/').last,
+          overflow: TextOverflow.ellipsis,
+        ),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: _closePlayer,
@@ -331,28 +345,32 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   }
 
   Widget _buildVideoLayer() {
-    return ValueListenableBuilder<VideoPlayerController?>(
-      valueListenable: _bridge.media.videoController,
-      builder: (context, controller, _) {
-        if (controller == null || !controller.value.isInitialized) {
+    return ValueListenableBuilder(
+      valueListenable: _bridge.media.videoPlayback,
+      builder: (context, playback, _) {
+        if (playback == null) {
           return const SizedBox.shrink();
         }
-        final size = controller.value.size;
+        final video = Center(
+          child: AspectRatio(
+            aspectRatio: playback.aspectRatio,
+            child: playback.view,
+          ),
+        );
+
+        if (!playback.isFullscreen) {
+          return Positioned.fill(child: IgnorePointer(child: video));
+        }
+
+        final fullscreen = video;
+        if (!playback.skippable) {
+          return Positioned.fill(child: AbsorbPointer(child: fullscreen));
+        }
         return Positioned.fill(
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTap: _bridge.media.skipVideo,
-            child: ColoredBox(
-              color: Colors.black,
-              child: Center(
-                child: AspectRatio(
-                  aspectRatio: size.width > 0 && size.height > 0
-                      ? size.width / size.height
-                      : _stageW / _stageH,
-                  child: VideoPlayer(controller),
-                ),
-              ),
-            ),
+            child: fullscreen,
           ),
         );
       },
@@ -360,21 +378,44 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   }
 
   void _handleHover(PointerEvent event, double ox, double oy, double scale) {
-    final mx = ((event.localPosition.dx - ox) / scale).clamp(0.0, _stageW.toDouble() - 1);
-    final my = ((event.localPosition.dy - oy) / scale).clamp(0.0, _stageH.toDouble() - 1);
+    final mx = ((event.localPosition.dx - ox) / scale).clamp(
+      0.0,
+      _stageW.toDouble() - 1,
+    );
+    final my = ((event.localPosition.dy - oy) / scale).clamp(
+      0.0,
+      _stageH.toDouble() - 1,
+    );
     _bridge.feedMouse(mx.toInt(), my.toInt());
   }
 
   void _handleTap(TapDownDetails details, double ox, double oy, double scale) {
-    final mx = ((details.localPosition.dx - ox) / scale).clamp(0.0, _stageW.toDouble() - 1);
-    final my = ((details.localPosition.dy - oy) / scale).clamp(0.0, _stageH.toDouble() - 1);
+    final mx = ((details.localPosition.dx - ox) / scale).clamp(
+      0.0,
+      _stageW.toDouble() - 1,
+    );
+    final my = ((details.localPosition.dy - oy) / scale).clamp(
+      0.0,
+      _stageH.toDouble() - 1,
+    );
     _bridge.feedMouse(mx.toInt(), my.toInt());
     _bridge.feedClick();
   }
 
-  void _handlePan(DragUpdateDetails details, double ox, double oy, double scale) {
-    final mx = ((details.localPosition.dx - ox) / scale).clamp(0.0, _stageW.toDouble() - 1);
-    final my = ((details.localPosition.dy - oy) / scale).clamp(0.0, _stageH.toDouble() - 1);
+  void _handlePan(
+    DragUpdateDetails details,
+    double ox,
+    double oy,
+    double scale,
+  ) {
+    final mx = ((details.localPosition.dx - ox) / scale).clamp(
+      0.0,
+      _stageW.toDouble() - 1,
+    );
+    final my = ((details.localPosition.dy - oy) / scale).clamp(
+      0.0,
+      _stageH.toDouble() - 1,
+    );
     _bridge.feedMouse(mx.toInt(), my.toInt());
   }
 }
