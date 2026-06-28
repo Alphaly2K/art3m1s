@@ -1,10 +1,11 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../models/game_entry.dart';
@@ -35,6 +36,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   bool _closing = false;
   int _stageW = 1280;
   int _stageH = 720;
+  final FocusNode _gameFocusNode = FocusNode(debugLabel: 'game-input');
+  final Set<int> _mouseButtonsDown = <int>{};
 
   // FPS
   double _fps = 0;
@@ -250,6 +253,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     _closing = true;
     _timer?.cancel();
     _frameImage?.dispose();
+    _gameFocusNode.dispose();
     _bridge.shutdown();
     super.dispose();
   }
@@ -325,12 +329,29 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         final ox = (cw - dw) / 2;
         final oy = (ch - dh) / 2;
 
-        return GestureDetector(
-          behavior: HitTestBehavior.translucent,
-          onTapDown: (details) => _handleTap(details, ox, oy, scale),
-          onPanUpdate: (details) => _handlePan(details, ox, oy, scale),
-          child: MouseRegion(
-            onHover: (event) => _handleHover(event, ox, oy, scale),
+        return KeyboardListener(
+          focusNode: _gameFocusNode,
+          autofocus: true,
+          onKeyEvent: _handleKeyEvent,
+          child: Listener(
+            behavior: HitTestBehavior.translucent,
+            onPointerHover: (event) =>
+                _feedPointerPosition(event, ox, oy, scale),
+            onPointerMove: (event) {
+              _feedPointerPosition(event, ox, oy, scale);
+              _syncPointerButtons(event.buttons);
+            },
+            onPointerDown: (event) {
+              _gameFocusNode.requestFocus();
+              _feedPointerPosition(event, ox, oy, scale);
+              _syncPointerButtons(event.buttons);
+            },
+            onPointerUp: (event) {
+              _feedPointerPosition(event, ox, oy, scale);
+              _syncPointerButtons(event.buttons);
+            },
+            onPointerCancel: (_) => _releasePointerButtons(),
+            onPointerSignal: _handlePointerSignal,
             child: Center(
               child: SizedBox(
                 width: dw,
@@ -377,45 +398,115 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     );
   }
 
-  void _handleHover(PointerEvent event, double ox, double oy, double scale) {
-    final mx = ((event.localPosition.dx - ox) / scale).clamp(
-      0.0,
-      _stageW.toDouble() - 1,
-    );
-    final my = ((event.localPosition.dy - oy) / scale).clamp(
-      0.0,
-      _stageH.toDouble() - 1,
-    );
-    _bridge.feedMouse(mx.toInt(), my.toInt());
-  }
-
-  void _handleTap(TapDownDetails details, double ox, double oy, double scale) {
-    final mx = ((details.localPosition.dx - ox) / scale).clamp(
-      0.0,
-      _stageW.toDouble() - 1,
-    );
-    final my = ((details.localPosition.dy - oy) / scale).clamp(
-      0.0,
-      _stageH.toDouble() - 1,
-    );
-    _bridge.feedMouse(mx.toInt(), my.toInt());
-    _bridge.feedClick();
-  }
-
-  void _handlePan(
-    DragUpdateDetails details,
+  void _feedPointerPosition(
+    PointerEvent event,
     double ox,
     double oy,
     double scale,
   ) {
-    final mx = ((details.localPosition.dx - ox) / scale).clamp(
+    final point = _stagePoint(event.localPosition, ox, oy, scale);
+    _bridge.feedMouse(point.dx.toInt(), point.dy.toInt());
+  }
+
+  Offset _stagePoint(Offset localPosition, double ox, double oy, double scale) {
+    final mx = ((localPosition.dx - ox) / scale).clamp(
       0.0,
       _stageW.toDouble() - 1,
     );
-    final my = ((details.localPosition.dy - oy) / scale).clamp(
+    final my = ((localPosition.dy - oy) / scale).clamp(
       0.0,
       _stageH.toDouble() - 1,
     );
-    _bridge.feedMouse(mx.toInt(), my.toInt());
+    return Offset(mx, my);
+  }
+
+  void _syncPointerButtons(int buttons) {
+    final pressed = <int>{
+      if ((buttons & kPrimaryMouseButton) != 0) 1,
+      if ((buttons & kSecondaryMouseButton) != 0) 2,
+      if ((buttons & kMiddleMouseButton) != 0) 3,
+    };
+    for (final button in pressed.difference(_mouseButtonsDown)) {
+      _bridge.feedMouseButton(button, true);
+    }
+    for (final button in _mouseButtonsDown.difference(pressed).toList()) {
+      _bridge.feedMouseButton(button, false);
+    }
+    _mouseButtonsDown
+      ..clear()
+      ..addAll(pressed);
+  }
+
+  void _releasePointerButtons() {
+    for (final button in _mouseButtonsDown.toList()) {
+      _bridge.feedMouseButton(button, false);
+    }
+    _mouseButtonsDown.clear();
+  }
+
+  void _handlePointerSignal(PointerSignalEvent event) {
+    if (event is! PointerScrollEvent) return;
+    final key = event.scrollDelta.dy < 0 ? 136 : 137;
+    _bridge.feedKey(key, true);
+    _bridge.feedKey(key, false);
+  }
+
+  void _handleKeyEvent(KeyEvent event) {
+    final vk = _virtualKey(event.logicalKey);
+    if (vk == null) return;
+    if (event is KeyDownEvent || event is KeyRepeatEvent) {
+      _bridge.feedKey(vk, true);
+    } else if (event is KeyUpEvent) {
+      _bridge.feedKey(vk, false);
+    }
+  }
+
+  int? _virtualKey(LogicalKeyboardKey key) {
+    if (key == LogicalKeyboardKey.enter ||
+        key == LogicalKeyboardKey.numpadEnter) {
+      return 13;
+    }
+    if (key == LogicalKeyboardKey.escape) return 27;
+    if (key == LogicalKeyboardKey.backspace) return 8;
+    if (key == LogicalKeyboardKey.tab) return 9;
+    if (key == LogicalKeyboardKey.space) return 32;
+    if (key == LogicalKeyboardKey.arrowLeft) return 37;
+    if (key == LogicalKeyboardKey.arrowUp) return 38;
+    if (key == LogicalKeyboardKey.arrowRight) return 39;
+    if (key == LogicalKeyboardKey.arrowDown) return 40;
+    if (key == LogicalKeyboardKey.pageUp) return 33;
+    if (key == LogicalKeyboardKey.pageDown) return 34;
+    if (key == LogicalKeyboardKey.controlLeft ||
+        key == LogicalKeyboardKey.controlRight) {
+      return 17;
+    }
+    if (key == LogicalKeyboardKey.altLeft ||
+        key == LogicalKeyboardKey.altRight) {
+      return 18;
+    }
+    if (key == LogicalKeyboardKey.shiftLeft ||
+        key == LogicalKeyboardKey.shiftRight) {
+      return 16;
+    }
+    if (key == LogicalKeyboardKey.f1) return 112;
+    if (key == LogicalKeyboardKey.f2) return 113;
+    if (key == LogicalKeyboardKey.f3) return 114;
+    if (key == LogicalKeyboardKey.f4) return 115;
+    if (key == LogicalKeyboardKey.f5) return 116;
+    if (key == LogicalKeyboardKey.f6) return 117;
+    if (key == LogicalKeyboardKey.f7) return 118;
+    if (key == LogicalKeyboardKey.f8) return 119;
+    if (key == LogicalKeyboardKey.f9) return 120;
+    if (key == LogicalKeyboardKey.f10) return 121;
+    if (key == LogicalKeyboardKey.f11) return 122;
+    if (key == LogicalKeyboardKey.f12) return 123;
+
+    final label = key.keyLabel;
+    if (label.length == 1) {
+      final code = label.toUpperCase().codeUnitAt(0);
+      if (code >= 0x30 && code <= 0x39) return code;
+      if (code >= 0x41 && code <= 0x5A) return code;
+    }
+    return null;
   }
 }

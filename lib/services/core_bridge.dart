@@ -55,6 +55,8 @@ typedef RuntimeLoadProjectNative = Int32 Function(
 typedef RuntimeFeedMouseNative = Void Function(
     Pointer<Void> rt, Int32 x, Int32 y);
 typedef RuntimeFeedClickNative = Void Function(Pointer<Void> rt);
+typedef RuntimeFeedMouseButtonNative = Void Function(
+    Pointer<Void> rt, Uint32 button, Int32 pressed);
 typedef RuntimeFeedKeyNative = Void Function(
     Pointer<Void> rt, Uint32 vk, Int32 pressed);
 typedef RuntimeStageWidthNative = Uint32 Function(Pointer<Void> rt);
@@ -251,6 +253,15 @@ class CoreBridge {
     final fn = _lib!.lookupFunction<RuntimeFeedClickNative,
         void Function(Pointer<Void>)>('art3m1s_runtime_feed_click');
     fn(_runtime!);
+  }
+
+  void feedMouseButton(int button, bool pressed) {
+    if (_runtime == null || _lib == null) return;
+    final fn = _lib!.lookupFunction<RuntimeFeedMouseButtonNative,
+        void Function(Pointer<Void>, int, int)>(
+      'art3m1s_runtime_feed_mouse_button',
+    );
+    fn(_runtime!, button, pressed ? 1 : 0);
   }
 
   void feedKey(int vk, bool pressed) {
