@@ -230,13 +230,22 @@ class MediaBridge {
   }
 
   Future<void> _playVideo(Map<String, dynamic> payload) async {
+    final id = _string(payload['id']);
+    if (id != null) {
+      // TODO: Layer video is intentionally unsupported for now. Correct support
+      // requires decoded frames to enter the core compositor as layer textures;
+      // rendering it as a Flutter overlay breaks z-order and covers the game.
+      Log.debug('[MediaBridge] 暂不以 Flutter overlay 渲染 layer video: $id');
+      return;
+    }
+
     final file = await _resolveAsset(payload);
     if (file == null) {
-      _videoFinishedCallback(_string(payload['id']));
+      _videoFinishedCallback(id);
       return;
     }
     await _stopVideo(notify: false);
-    _videoId = _string(payload['id']);
+    _videoId = id;
     _videoSkippable = _bool(payload['skippable']);
     _setFullscreenVideoBlocking(_videoId == null);
 
