@@ -101,9 +101,9 @@ class MediaBridge {
     if (channel == null) return;
     _channelVolumes[channel] = _double(payload['value'], 1).clamp(0, 1);
     await _bgm?.setEffectiveVolume(_effectiveVolume('bgm', _bgm!.gain));
-    for (final entry in _sounds.entries) {
-      await entry.value.setEffectiveVolume(
-        _effectiveVolume(entry.value.channel, entry.value.gain),
+    for (final sound in _sounds.values.toList()) {
+      await sound.setEffectiveVolume(
+        _effectiveVolume(sound.channel, sound.gain),
       );
     }
     await _video?.setEffectiveVolume(_channelVolumes['master'] ?? 1);

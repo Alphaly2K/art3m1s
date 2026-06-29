@@ -402,11 +402,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
           ),
         );
 
+        final fullscreen = video;
         if (!playback.isFullscreen) {
-          return Positioned.fill(child: IgnorePointer(child: video));
+          return Positioned.fill(child: AbsorbPointer(child: fullscreen));
         }
 
-        final fullscreen = video;
         if (!playback.skippable) {
           return Positioned.fill(child: AbsorbPointer(child: fullscreen));
         }
