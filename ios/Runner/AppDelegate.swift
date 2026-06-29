@@ -1,5 +1,6 @@
 import Flutter
 import UIKit
+import UniformTypeIdentifiers
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate, UIDocumentPickerDelegate {
@@ -39,7 +40,12 @@ import UIKit
     }
 
     pfsPickResult = result
-    let picker = UIDocumentPickerViewController(documentTypes: ["public.data"], in: .open)
+    let picker: UIDocumentPickerViewController
+    if #available(iOS 14.0, *) {
+      picker = UIDocumentPickerViewController(forOpeningContentTypes: [.data], asCopy: true)
+    } else {
+      picker = UIDocumentPickerViewController(documentTypes: ["public.data"], in: .import)
+    }
     picker.delegate = self
     picker.allowsMultipleSelection = true
     presenter.present(picker, animated: true)
@@ -79,15 +85,10 @@ import UIKit
   }
 
   private func copySelectedPfsFilesToSandbox(_ urls: [URL]) throws -> String {
-    let accessScopes = urls.map { ($0, $0.startAccessingSecurityScopedResource()) }
-    defer {
-      for (url, didAccess) in accessScopes where didAccess {
-        url.stopAccessingSecurityScopedResource()
-      }
-    }
+    NSLog("[Art3m1s] PFS import selected \(urls.count) files")
 
     let files = try urls.map { url in
-      SelectedPfsFile(url: url, name: url.lastPathComponent, size: try coordinatedFileSize(url))
+      SelectedPfsFile(url: url, name: url.lastPathComponent, size: try fileSize(url))
     }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
 
     guard let base = files.first(where: { Self.isBasePfsName($0.name) }) else {
@@ -120,44 +121,24 @@ import UIKit
 
     for file in files {
       let dest = targetDir.appendingPathComponent(file.name, isDirectory: false)
-      try coordinatedCopy(from: file.url, to: dest)
+      NSLog("[Art3m1s] PFS import copy \(file.name)")
+      try copyFile(from: file.url, to: dest)
     }
 
+    NSLog("[Art3m1s] PFS import completed: \(targetDir.appendingPathComponent(base.name).path)")
     return targetDir.appendingPathComponent(base.name).path
   }
 
-  private func coordinatedFileSize(_ url: URL) throws -> Int64 {
-    var size: Int64 = 0
-    var coordinatorError: NSError?
-    var thrown: Error?
-    NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &coordinatorError) { readableURL in
-      do {
-        let attrs = try FileManager.default.attributesOfItem(atPath: readableURL.path)
-        size = (attrs[.size] as? NSNumber)?.int64Value ?? 0
-      } catch {
-        thrown = error
-      }
-    }
-    if let thrown { throw thrown }
-    if let coordinatorError { throw coordinatorError }
-    return size
+  private func fileSize(_ url: URL) throws -> Int64 {
+    let attrs = try FileManager.default.attributesOfItem(atPath: url.path)
+    return (attrs[.size] as? NSNumber)?.int64Value ?? 0
   }
 
-  private func coordinatedCopy(from source: URL, to dest: URL) throws {
-    var coordinatorError: NSError?
-    var thrown: Error?
-    NSFileCoordinator().coordinate(readingItemAt: source, options: [], error: &coordinatorError) { readableURL in
-      do {
-        if FileManager.default.fileExists(atPath: dest.path) {
-          try FileManager.default.removeItem(at: dest)
-        }
-        try FileManager.default.copyItem(at: readableURL, to: dest)
-      } catch {
-        thrown = error
-      }
+  private func copyFile(from source: URL, to dest: URL) throws {
+    if FileManager.default.fileExists(atPath: dest.path) {
+      try FileManager.default.removeItem(at: dest)
     }
-    if let thrown { throw thrown }
-    if let coordinatorError { throw coordinatorError }
+    try FileManager.default.copyItem(at: source, to: dest)
   }
 
   private func isComplete(files: [SelectedPfsFile], targetDir: URL) throws -> Bool {

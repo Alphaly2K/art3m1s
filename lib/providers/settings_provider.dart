@@ -1,3 +1,4 @@
+import 'dart:io' show Platform;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -35,6 +36,18 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
     _load();
   }
 
+  int getDefaultBackend() {
+    if (Platform.isIOS || Platform.isMacOS) {
+      return 3;                     // Metal
+    } else {
+      if (Platform.isAndroid) {
+        return 1;                   // OpenGLES
+      } else {
+        return 2;                   // Vulkan
+      }
+    }
+  }
+
   Future<void> _load() async {
     final prefs = await SharedPreferences.getInstance();
     final debugMode = prefs.getBool('debug_mode') ?? false;
@@ -43,7 +56,7 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
       debugMode: prefs.getBool('debug_mode') ?? false,
       debugOverlay: prefs.getBool('debugOverlay') ?? false,
       showFps: prefs.getBool('show_fps') ?? false,
-      backend: prefs.getInt('gfx_backend') ?? 2, // default: ANGLE Vulkan
+      backend: prefs.getInt('gfx_backend') ?? getDefaultBackend(), // default: ANGLE Vulkan
     );
   }
 
