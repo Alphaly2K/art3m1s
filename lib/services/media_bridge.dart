@@ -6,7 +6,6 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/widgets.dart';
 import 'package:media_kit/media_kit.dart' as media_kit;
 import 'package:media_kit_video/media_kit_video.dart' as media_kit_video;
-import 'package:video_player/video_player.dart' as video_player;
 
 import 'file_provider.dart';
 import 'logger.dart';
@@ -531,33 +530,12 @@ abstract class _VideoHandle {
     required bool loop,
     required void Function(String? id) onCompleted,
   }) async {
-    if (_shouldUseWideCodecBackend(file)) {
-      return _MediaKitVideoHandle.create(
-        id: id,
-        file: file,
-        loop: loop,
-        onCompleted: onCompleted,
-      );
-    }
-    try {
-      return await _NativeVideoHandle.create(
-        id: id,
-        file: file,
-        loop: loop,
-        onCompleted: onCompleted,
-      );
-    } catch (e, st) {
-      Log.warn(
-        '[MediaBridge] video_player 初始化失败，切换 media_kit: '
-        '${file.path}\n$e\n$st',
-      );
-      return _MediaKitVideoHandle.create(
-        id: id,
-        file: file,
-        loop: loop,
-        onCompleted: onCompleted,
-      );
-    }
+    return _MediaKitVideoHandle.create(
+      id: id,
+      file: file,
+      loop: loop,
+      onCompleted: onCompleted,
+    );
   }
 
   String? get id;
@@ -570,91 +548,6 @@ abstract class _VideoHandle {
   Future<void> setEffectiveVolume(double volume);
 
   Future<void> dispose();
-}
-
-bool _shouldUseWideCodecBackend(File file) {
-  final ext = _extension(file.path).toLowerCase();
-  return const {
-    '.wmv',
-    '.asf',
-    '.avi',
-    '.mpg',
-    '.mpeg',
-    '.ogv',
-    '.webm',
-  }.contains(ext);
-}
-
-class _NativeVideoHandle implements _VideoHandle {
-  _NativeVideoHandle({
-    required this.id,
-    required this.controller,
-    required this.onCompleted,
-  });
-
-  @override
-  final String? id;
-  final video_player.VideoPlayerController controller;
-  final void Function(String? id) onCompleted;
-  bool _completed = false;
-
-  static Future<_NativeVideoHandle> create({
-    required String? id,
-    required File file,
-    required bool loop,
-    required void Function(String? id) onCompleted,
-  }) async {
-    final controller = video_player.VideoPlayerController.file(file);
-    final handle = _NativeVideoHandle(
-      id: id,
-      controller: controller,
-      onCompleted: onCompleted,
-    );
-    controller.addListener(handle._onTick);
-    try {
-      await controller.initialize();
-      await controller.setLooping(loop);
-      return handle;
-    } catch (_) {
-      controller.removeListener(handle._onTick);
-      await controller.dispose();
-      rethrow;
-    }
-  }
-
-  @override
-  double get aspectRatio {
-    final size = controller.value.size;
-    if (size.width > 0 && size.height > 0) return size.width / size.height;
-    return 16 / 9;
-  }
-
-  @override
-  Widget buildView() => video_player.VideoPlayer(controller);
-
-  @override
-  Future<void> play() => controller.play();
-
-  @override
-  Future<void> setEffectiveVolume(double volume) {
-    return controller.setVolume(volume.clamp(0, 1));
-  }
-
-  @override
-  Future<void> dispose() async {
-    controller.removeListener(_onTick);
-    await controller.dispose();
-  }
-
-  void _onTick() {
-    if (_completed ||
-        controller.value.isLooping ||
-        !controller.value.isCompleted) {
-      return;
-    }
-    _completed = true;
-    onCompleted(id);
-  }
 }
 
 class _MediaKitVideoHandle implements _VideoHandle {
@@ -687,7 +580,7 @@ class _MediaKitVideoHandle implements _VideoHandle {
     final controller = media_kit_video.VideoController(
       player,
       configuration: media_kit_video.VideoControllerConfiguration(
-        enableHardwareAcceleration: !Platform.isMacOS,
+        enableHardwareAcceleration: false,
       ),
     );
     final handle = _MediaKitVideoHandle(

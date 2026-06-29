@@ -41,8 +41,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
 
   // FPS
   double _fps = 0;
-  final List<int> _frameTimes = [];
-  static const int _fpsSamples = 60;
+  final Stopwatch _frameClock = Stopwatch();
+  int _nextFrameUs = 0;
+  int _frameIndex = 0;
+  int _fpsWindowStartUs = 0;
+  int _fpsWindowFrames = 0;
+  static const int _targetFrameUs = 1000000 ~/ 60;
 
   @override
   void initState() {
@@ -182,21 +186,22 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   }
 
   void _startGameLoop() {
-    const frameMs = 16;
-    var lastTime = DateTime.now();
+    _frameClock
+      ..reset()
+      ..start();
+    _nextFrameUs = _targetFrameUs;
+    _frameIndex = 0;
+    _fpsWindowStartUs = 0;
+    _fpsWindowFrames = 0;
 
-    _timer = Timer.periodic(Duration(milliseconds: frameMs), (_) {
+    _timer = Timer.periodic(const Duration(milliseconds: 1), (_) {
       if (_closing || !mounted) return;
-      final now = DateTime.now();
-      final deltaMs = now.difference(lastTime).inMilliseconds;
-      lastTime = now;
-
-      // track FPS
-      _frameTimes.add(deltaMs);
-      if (_frameTimes.length > _fpsSamples) _frameTimes.removeAt(0);
-      final avgMs =
-          _frameTimes.fold<int>(0, (a, b) => a + b) / _frameTimes.length;
-      _fps = avgMs > 0 ? 1000.0 / avgMs : 0;
+      final nowUs = _frameClock.elapsedMicroseconds;
+      if (nowUs < _nextFrameUs) return;
+      _nextFrameUs += _targetFrameUs;
+      if (nowUs - _nextFrameUs > _targetFrameUs * 2) {
+        _nextFrameUs = nowUs + _targetFrameUs;
+      }
 
       if (_bridge.isExitRequested()) {
         Log.info('[PlayerScreen] exit requested, popping...');
@@ -211,6 +216,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       if (_frameInFlight) return;
       _frameInFlight = true;
 
+      final deltaMs = _nextFrameDeltaMs();
+      _trackFps(nowUs);
       final pixels = _bridge.advanceAndRender(deltaMs.clamp(0, 100));
       if (_bridge.isExitRequested() && mounted) {
         _frameInFlight = false;
@@ -223,6 +230,22 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         _frameInFlight = false;
       }
     });
+  }
+
+  int _nextFrameDeltaMs() {
+    final previousMs = (_frameIndex * 1000) ~/ 60;
+    _frameIndex += 1;
+    final currentMs = (_frameIndex * 1000) ~/ 60;
+    return currentMs - previousMs;
+  }
+
+  void _trackFps(int nowUs) {
+    _fpsWindowFrames += 1;
+    final elapsedUs = nowUs - _fpsWindowStartUs;
+    if (elapsedUs < 1000000) return;
+    _fps = _fpsWindowFrames * 1000000 / elapsedUs;
+    _fpsWindowStartUs = nowUs;
+    _fpsWindowFrames = 0;
   }
 
   void _decodeFrame(Uint8List pixels) {

@@ -38,7 +38,6 @@ dependencies:
   ffi: ^2.1.4
   file_selector: ^1.0.3
   flutter_file_dialog: ^3.0.2
-  video_player: ^2.11.1
   audioplayers: ^6.8.0
   media_kit: ^1.2.6
   media_kit_video: ^2.0.1
