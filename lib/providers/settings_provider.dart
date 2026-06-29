@@ -9,18 +9,21 @@ final settingsProvider = StateNotifierProvider<SettingsNotifier, SettingsState>(
 
 class SettingsState {
   final bool debugMode;
+  final bool debugOverlay;
   final bool showFps;
   final int backend; // 0 = CGL, 1 = ANGLE
 
   const SettingsState({
     this.debugMode = false,
+    this.debugOverlay = false,
     this.showFps = false,
     this.backend = 0,
   });
 
-  SettingsState copyWith({bool? debugMode, bool? showFps, int? backend}) {
+  SettingsState copyWith({bool? debugMode, bool? debugOverlay, bool? showFps, int? backend}) {
     return SettingsState(
       debugMode: debugMode ?? this.debugMode,
+      debugOverlay: debugOverlay ?? this.debugOverlay,
       showFps: showFps ?? this.showFps,
       backend: backend ?? this.backend,
     );
@@ -38,6 +41,7 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
     Log.setDebugEnabled(debugMode);
     state = SettingsState(
       debugMode: prefs.getBool('debug_mode') ?? false,
+      debugOverlay: prefs.getBool('debugOverlay') ?? false,
       showFps: prefs.getBool('show_fps') ?? false,
       backend: prefs.getInt('gfx_backend') ?? 2, // default: ANGLE Vulkan
     );
@@ -48,6 +52,13 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('debug_mode', v);
     state = state.copyWith(debugMode: v);
+  }
+
+  Future<void> setDebugOverlay(bool v) async {
+    Log.setOverlay(v);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('debug_overlay', v);
+    state = state.copyWith(debugOverlay: v);
   }
 
   Future<void> setShowFps(bool v) async {

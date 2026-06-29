@@ -56,12 +56,10 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final debug = ref.watch(settingsProvider.select((s) => s.debugMode));
-    if (debug && _debugEntry == null) {
-      Log.overlayVisible = true;
+    final debugOverlay = ref.watch(settingsProvider.select((s) => s.debugOverlay));
+    if (debugOverlay && _debugEntry == null) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _showOverlay());
-    } else if (!debug && _debugEntry != null) {
-      Log.overlayVisible = false;
+    } else if (!debugOverlay && _debugEntry != null) {
       _hideOverlay();
     }
     final library = ref.watch(libraryProvider);

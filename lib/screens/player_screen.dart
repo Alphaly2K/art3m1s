@@ -38,6 +38,17 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   int _stageH = 720;
   final FocusNode _gameFocusNode = FocusNode(debugLabel: 'game-input');
   final Set<int> _mouseButtonsDown = <int>{};
+  final Set<int> _activePointers = {};
+
+  Offset _ballPos = const Offset(16, 60);
+  bool _panelOpen = false;
+  Timer? _panelTimer;
+  static const _panelAutoHideMs = 4000;
+
+  final _keyboardNode = FocusNode();
+  final _keyboardCtrl = TextEditingController();
+  String _keyboardLast = '';
+  bool _keyboardShown = false;
 
   // FPS
   double _fps = 0;
@@ -51,6 +62,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   @override
   void initState() {
     super.initState();
+    _keyboardCtrl.addListener(_onKeyboardInput);
+    _lockOrientation();
     _init();
   }
 
@@ -274,9 +287,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   @override
   void dispose() {
     _closing = true;
+    _unlockOrientation();
     _timer?.cancel();
+    _panelTimer?.cancel();
     _frameImage?.dispose();
     _gameFocusNode.dispose();
+    _keyboardCtrl.removeListener(_onKeyboardInput);
+    _keyboardCtrl.dispose();
+    _keyboardNode.dispose();
     _bridge.shutdown();
     super.dispose();
   }
@@ -285,24 +303,84 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     if (_closing) return;
     _closing = true;
     _timer?.cancel();
+    _panelTimer?.cancel();
     if (mounted) {
       Navigator.of(context).pop();
     }
   }
 
+  void _lockOrientation() {
+    if (!Platform.isAndroid && !Platform.isIOS) return;
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
+  }
+
+  void _unlockOrientation() {
+    if (!Platform.isAndroid && !Platform.isIOS) return;
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    SystemChrome.setPreferredOrientations(DeviceOrientation.values);
+  }
+
+  void _resetPanelTimer() {
+    _panelTimer?.cancel();
+    _panelTimer = Timer(const Duration(milliseconds: _panelAutoHideMs), () {
+      if (mounted) setState(() => _panelOpen = false);
+    });
+  }
+
+  void _toggleKeyboard() {
+    setState(() {
+      _keyboardShown = !_keyboardShown;
+      if (_keyboardShown) {
+        _keyboardNode.requestFocus();
+      } else {
+        _keyboardNode.unfocus();
+      }
+    });
+    _resetPanelTimer();
+  }
+
+  void _onKeyboardInput() {
+    final text = _keyboardCtrl.text;
+    if (text == _keyboardLast) return;
+
+    if (text.length > _keyboardLast.length) {
+      final added = text.substring(_keyboardLast.length);
+      for (final char in added.runes) {
+        final key = _charToKey(char);
+        if (key != null) {
+          _bridge.feedKey(key, true);
+          _bridge.feedKey(key, false);
+        }
+      }
+    } else if (text.length < _keyboardLast.length) {
+      _bridge.feedKey(8, true);
+      _bridge.feedKey(8, false);
+    }
+
+    _keyboardLast = '';
+    _keyboardCtrl.clear();
+  }
+
+  int? _charToKey(int char) {
+    if (char == 0x0A) return 13; // enter
+    if (char == 0x20) return 32; // space
+    if (char == 0x08) return 8;  // backspace
+    if (char >= 0x30 && char <= 0x39) return char;
+    if (char >= 0x41 && char <= 0x5A) return char;
+    if (char >= 0x61 && char <= 0x7A) return char - 32;
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
+    final showFps = ref.watch(settingsProvider.select((s) => s.showFps));
+
     return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          widget.projectPath.split('/').last,
-          overflow: TextOverflow.ellipsis,
-        ),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: _closePlayer,
-        ),
-      ),
+      backgroundColor: Colors.black,
       body: Stack(
         children: [
           if (_frameImage != null)
@@ -310,27 +388,176 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
           else
             const Center(child: CircularProgressIndicator()),
           _buildVideoLayer(),
-          if (ref.watch(settingsProvider).showFps)
-            Positioned(
-              top: 4,
-              left: 4,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: Colors.black54,
-                  borderRadius: BorderRadius.circular(4),
+          if (showFps) _buildFpsDisplay(),
+          _buildFloatingBall(),
+          _buildControlPanel(),
+          _buildHiddenKeyboard(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFpsDisplay() {
+    return Positioned(
+      top: 8,
+      left: 8,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        decoration: BoxDecoration(
+          color: Colors.black54,
+          borderRadius: BorderRadius.circular(4),
+        ),
+        child: Text(
+          '${_fps.toStringAsFixed(0)} fps',
+          style: const TextStyle(
+            color: Colors.lime,
+            fontSize: 12,
+            fontFamily: 'monospace',
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFloatingBall() {
+    return Positioned(
+      left: _ballPos.dx,
+      top: _ballPos.dy,
+      child: GestureDetector(
+        onTap: () {
+          setState(() => _panelOpen = !_panelOpen);
+          if (_panelOpen) _resetPanelTimer();
+        },
+        onPanUpdate: (d) {
+          setState(() => _ballPos += d.delta);
+        },
+        child: Container(
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            color: Colors.black.withAlpha(180),
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white54, width: 1.5),
+          ),
+          child: const Icon(Icons.menu, color: Colors.white, size: 20),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildControlPanel() {
+    if (!_panelOpen) return const SizedBox.shrink();
+    final showFps = ref.watch(settingsProvider.select((s) => s.showFps));
+    final top = _ballPos.dy + 52;
+    final left = _ballPos.dx;
+
+    return Positioned(
+      top: top,
+      left: left,
+      child: Listener(
+        behavior: HitTestBehavior.translucent,
+        onPointerHover: (_) => _resetPanelTimer(),
+        onPointerMove: (_) => _resetPanelTimer(),
+        child: Material(
+          elevation: 8,
+          borderRadius: BorderRadius.circular(10),
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 220),
+            decoration: BoxDecoration(
+              color: const Color(0xEE1A1A2E),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.white24),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _panelBtn(Icons.arrow_back, '退出', _closePlayer),
+                _panelBtn(
+                  Icons.speed,
+                  'FPS ${showFps ? "开" : "关"}',
+                  () => ref.read(settingsProvider.notifier).setShowFps(!showFps),
                 ),
-                child: Text(
-                  '${_fps.toStringAsFixed(0)} fps',
-                  style: const TextStyle(
-                    color: Colors.lime,
-                    fontSize: 12,
-                    fontFamily: 'monospace',
+                _panelBtn(
+                  Icons.keyboard,
+                  '键盘 ${_keyboardShown ? "开" : "关"}',
+                  _toggleKeyboard,
+                ),
+                IconTheme(
+                  data: const IconThemeData(color: Colors.white38, size: 16),
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const SizedBox(width: 32),
+                        Expanded(
+                          child: Text(
+                            widget.projectPath.split('/').last,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(color: Colors.white24, fontSize: 10),
+                          ),
+                        ),
+                        GestureDetector(
+                          onTap: () => setState(() => _panelOpen = false),
+                          child: const Padding(
+                            padding: EdgeInsets.all(4),
+                            child: Icon(Icons.close, size: 14),
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                      ],
+                    ),
                   ),
                 ),
-              ),
+              ],
             ),
-        ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _panelBtn(IconData icon, String label, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: const BoxDecoration(
+          border: Border(bottom: BorderSide(color: Colors.white10)),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 16, color: Colors.white54),
+            const SizedBox(width: 10),
+            Text(label, style: const TextStyle(color: Colors.white70, fontSize: 13)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHiddenKeyboard() {
+    return Positioned(
+      left: -1,
+      top: -1,
+      width: 1,
+      height: 1,
+      child: Opacity(
+        opacity: 0,
+        child: TextField(
+          focusNode: _keyboardNode,
+          controller: _keyboardCtrl,
+          maxLines: 1,
+          autofocus: false,
+          showCursor: false,
+          enableInteractiveSelection: false,
+          decoration: const InputDecoration(
+            border: InputBorder.none,
+            contentPadding: EdgeInsets.zero,
+            isDense: true,
+          ),
+        ),
       ),
     );
   }
@@ -356,24 +583,38 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
           focusNode: _gameFocusNode,
           autofocus: true,
           onKeyEvent: _handleKeyEvent,
-          child: Listener(
-            behavior: HitTestBehavior.translucent,
-            onPointerHover: (event) =>
-                _feedPointerPosition(event, ox, oy, scale),
-            onPointerMove: (event) {
-              _feedPointerPosition(event, ox, oy, scale);
-              _syncPointerButtons(event.buttons);
-            },
-            onPointerDown: (event) {
-              _gameFocusNode.requestFocus();
-              _feedPointerPosition(event, ox, oy, scale);
-              _syncPointerButtons(event.buttons);
-            },
-            onPointerUp: (event) {
-              _feedPointerPosition(event, ox, oy, scale);
-              _syncPointerButtons(event.buttons);
-            },
-            onPointerCancel: (_) => _releasePointerButtons(),
+            child: Listener(
+              behavior: HitTestBehavior.translucent,
+              onPointerHover: (event) =>
+                  _feedPointerPosition(event, ox, oy, scale),
+              onPointerMove: (event) {
+                _feedPointerPosition(event, ox, oy, scale);
+                _syncPointerButtons(event.buttons);
+              },
+              onPointerDown: (event) {
+                _activePointers.add(event.pointer);
+                if (_activePointers.length >= 2) {
+                  _bridge.feedMouseButton(2, true);
+                }
+                _gameFocusNode.requestFocus();
+                _feedPointerPosition(event, ox, oy, scale);
+                _syncPointerButtons(event.buttons);
+              },
+              onPointerUp: (event) {
+                if (_activePointers.length >= 2) {
+                  _bridge.feedMouseButton(2, false);
+                }
+                _activePointers.remove(event.pointer);
+                _feedPointerPosition(event, ox, oy, scale);
+                _syncPointerButtons(event.buttons);
+              },
+              onPointerCancel: (event) {
+                if (_activePointers.length >= 2) {
+                  _bridge.feedMouseButton(2, false);
+                }
+                _activePointers.remove(event.pointer);
+                _releasePointerButtons();
+              },
             onPointerSignal: _handlePointerSignal,
             child: Center(
               child: SizedBox(

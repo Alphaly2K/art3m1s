@@ -3,7 +3,6 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 class Log {
   static final _logs = <LogEntry>[];
@@ -17,8 +16,8 @@ class Log {
   static ValueNotifier<int> get notifier => _notifier;
   static List<LogEntry> get entries => List.unmodifiable(_logs);
 
-  static void toggleOverlay() {
-    overlayVisible = !overlayVisible;
+  static void setOverlay(bool v) {
+    overlayVisible = v;
     _onOverlayToggle?.call();
   }
 
@@ -96,7 +95,6 @@ class _DebugOverlayState extends State<DebugOverlay> {
   void initState() {
     super.initState();
     Log.notifier.addListener(_onLog);
-    _loadPosition();
   }
 
   @override
@@ -104,25 +102,6 @@ class _DebugOverlayState extends State<DebugOverlay> {
     Log.notifier.removeListener(_onLog);
     _scroll.dispose();
     super.dispose();
-  }
-
-  Future<void> _loadPosition() async {
-    final prefs = await SharedPreferences.getInstance();
-    final x = prefs.getDouble('debug_overlay_x');
-    final y = prefs.getDouble('debug_overlay_y');
-    final w = prefs.getDouble('debug_overlay_w');
-    final h = prefs.getDouble('debug_overlay_h');
-    if (x != null && y != null) _pos = Offset(x, y);
-    if (w != null && h != null) _size = Size(w, h);
-    _scheduleRefresh();
-  }
-
-  Future<void> _savePosition() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setDouble('debug_overlay_x', _pos.dx);
-    await prefs.setDouble('debug_overlay_y', _pos.dy);
-    await prefs.setDouble('debug_overlay_w', _size.width);
-    await prefs.setDouble('debug_overlay_h', _size.height);
   }
 
   void _onLog() {
@@ -255,7 +234,6 @@ class _DebugOverlayState extends State<DebugOverlay> {
 
   void _move(DragUpdateDetails d) {
     setState(() => _pos += d.delta);
-    _savePosition();
   }
 
   void _resize(DragUpdateDetails d) {
@@ -265,12 +243,10 @@ class _DebugOverlayState extends State<DebugOverlay> {
         (_size.height + d.delta.dy).clamp(_minSize.height, 900),
       );
     });
-    _savePosition();
   }
 
   void _close() {
-    Log.overlayVisible = false;
-    if (mounted) Navigator.of(context).maybePop();
+    Log.setOverlay(false);
   }
 
   String _ts(DateTime t) =>

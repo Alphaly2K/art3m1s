@@ -37,9 +37,15 @@ class SettingsScreen extends ConsumerWidget {
           const _SectionHeader('调试'),
           SwitchListTile(
             title: const Text('调试模式'),
-            subtitle: const Text('记录详细日志，显示浮动监控面板'),
+            subtitle: const Text('记录详细日志'),
             value: settings.debugMode,
             onChanged: (v) => ref.read(settingsProvider.notifier).setDebugMode(v),
+          ),
+          SwitchListTile(
+            title: const Text('调试面板'),
+            subtitle: const Text('显示浮动监控面板'),
+            value: settings.debugOverlay,
+            onChanged: (v) => ref.read(settingsProvider.notifier).setDebugOverlay(v),
           ),
           ListTile(
             leading: const Icon(Icons.save_alt),
