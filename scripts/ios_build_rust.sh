@@ -170,4 +170,4 @@ echo "Frameworks 已输出到: $OUT_DIR"
 ls -lh "$OUT_DIR"/*.framework/*/..?* "$OUT_DIR"/*.framework/ 2>/dev/null | head -20 || true
 echo ""
 echo "若未签名，请用 --sign '证书名' 重新编译，或在 Xcode 中设置自动签名。"
-echo "MetalANGLE 的 EGL.framework / GLESv2.framework 请手动放入 $OUT_DIR"
+echo "MetalANGLE.Framework 请手动放入 $OUT_DIR"
