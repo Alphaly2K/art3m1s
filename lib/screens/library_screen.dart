@@ -56,7 +56,9 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final debugOverlay = ref.watch(settingsProvider.select((s) => s.debugOverlay));
+    final debugOverlay = ref.watch(
+      settingsProvider.select((s) => s.debugOverlay),
+    );
     if (debugOverlay && _debugEntry == null) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _showOverlay());
     } else if (!debugOverlay && _debugEntry != null) {
@@ -74,9 +76,9 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
             icon: const Icon(Icons.settings),
             tooltip: '设置',
             onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const SettingsScreen()),
-              );
+              Navigator.of(
+                context,
+              ).push(MaterialPageRoute(builder: (_) => const SettingsScreen()));
             },
           ),
         ],
@@ -95,15 +97,20 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.videogame_asset_outlined, size: 80,
-              color: Theme.of(context).colorScheme.outline),
+          Icon(
+            Icons.videogame_asset_outlined,
+            size: 80,
+            color: Theme.of(context).colorScheme.outline,
+          ),
           const SizedBox(height: 16),
           Text('库中暂无项目', style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 8),
-          Text('点击下方按钮添加游戏',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurface.withAlpha(160),
-                  )),
+          Text(
+            '点击下方按钮添加游戏',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: Theme.of(context).colorScheme.onSurface.withAlpha(160),
+            ),
+          ),
         ],
       ),
     );
@@ -139,8 +146,10 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text('添加项目',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              const Text(
+                '添加项目',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
               const SizedBox(height: 12),
               ListTile(
                 leading: const Icon(Icons.folder_open),
@@ -174,9 +183,9 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
 
     if (!File('$path${Platform.pathSeparator}system.ini').existsSync()) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('所选目录中没有 system.ini')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('所选目录中没有 system.ini')));
       }
       return;
     }
@@ -198,37 +207,32 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
             .listSync()
             .whereType<File>()
             .where((f) => f.path.toLowerCase().endsWith('.pfs'))
-            .where((f) => !RegExp(r'\.pfs\.\d{3}$', caseSensitive: false).hasMatch(f.path))
+            .where(
+              (f) => !RegExp(
+                r'\.pfs\.\d{3}$',
+                caseSensitive: false,
+              ).hasMatch(f.path),
+            )
             .firstOrNull;
         if (pfsFile == null) {
           if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('所选目录中没有 .pfs 文件')),
-            );
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(const SnackBar(content: Text('所选目录中没有 .pfs 文件')));
           }
           return;
         }
         filePath = pfsFile.path;
       } else {
-        // iOS：flutter_file_dialog 给的路径可用，但分卷可能在别的目录。
-        // 先回退到目录选择。
-        final dirPath = await getDirectoryPath(confirmButtonText: '选择 PFS 所在目录');
-        if (dirPath == null || !mounted) return;
-        final pfsFile = Directory(dirPath)
-            .listSync()
-            .whereType<File>()
-            .where((f) => f.path.toLowerCase().endsWith('.pfs'))
-            .where((f) => !RegExp(r'\.pfs\.\d{3}$', caseSensitive: false).hasMatch(f.path))
-            .firstOrNull;
-        if (pfsFile == null) {
+        filePath = await GameImporter.pickPfsFilesAndCopy();
+        if (filePath == null) {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('所选目录中没有 .pfs 文件')),
+              const SnackBar(content: Text('请选择 base .pfs 和所有 .pfs.NNN 分卷')),
             );
           }
           return;
         }
-        filePath = pfsFile.path;
       }
     } else {
       const typeGroup = XTypeGroup(label: 'PFS 归档', extensions: ['pfs', 'PFS']);
@@ -250,14 +254,18 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
       title: '添加项目',
       initialName: defaultName,
       onSave: (name, coverPath) {
-        ref.read(libraryProvider.notifier).add(GameEntry(
-          name: defaultName,
-          path: path,
-          source: source,
-          addedAt: DateTime.now(),
-          displayName: name.isNotEmpty ? name : null,
-          coverPath: coverPath,
-        ));
+        ref
+            .read(libraryProvider.notifier)
+            .add(
+              GameEntry(
+                name: defaultName,
+                path: path,
+                source: source,
+                addedAt: DateTime.now(),
+                displayName: name.isNotEmpty ? name : null,
+                coverPath: coverPath,
+              ),
+            );
         Log.info('已添加: ${name.isNotEmpty ? name : defaultName}');
       },
     );
@@ -269,11 +277,13 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
       initialName: entry.displayNameOrName,
       initialCover: entry.coverPath,
       onSave: (name, coverPath) {
-        ref.read(libraryProvider.notifier).update(
-          entry.path,
-          displayName: name.isNotEmpty ? name : null,
-          coverPath: coverPath,
-        );
+        ref
+            .read(libraryProvider.notifier)
+            .update(
+              entry.path,
+              displayName: name.isNotEmpty ? name : null,
+              coverPath: coverPath,
+            );
       },
     );
   }
@@ -299,10 +309,8 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
     ref.read(libraryProvider.notifier).markPlayed(entry.path);
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => PlayerScreen(
-          projectPath: entry.path,
-          source: entry.source,
-        ),
+        builder: (_) =>
+            PlayerScreen(projectPath: entry.path, source: entry.source),
       ),
     );
   }
@@ -314,14 +322,18 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
         title: const Text('移除项目'),
         content: Text('确定从库中移除「${entry.displayNameOrName}」吗？'),
         actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('取消')),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('取消'),
+          ),
           ElevatedButton(
             onPressed: () {
               ref.read(libraryProvider.notifier).remove(entry.path);
               Navigator.of(ctx).pop();
             },
             style: ElevatedButton.styleFrom(
-                backgroundColor: Theme.of(context).colorScheme.error),
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
             child: const Text('移除'),
           ),
         ],
@@ -362,36 +374,47 @@ class GameCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(entry.displayNameOrName, maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodyMedium),
+                    Text(
+                      entry.displayNameOrName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
                     const Spacer(),
                     Row(
                       children: [
                         Icon(
                           entry.source == GameSource.pfsArchive
-                              ? Icons.archive : Icons.folder_outlined,
+                              ? Icons.archive
+                              : Icons.folder_outlined,
                           size: 14,
                           color: Theme.of(context).colorScheme.outline,
                         ),
                         const SizedBox(width: 4),
                         Text(
                           entry.source == GameSource.pfsArchive ? 'PFS' : '目录',
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(
                                 color: Theme.of(context).colorScheme.outline,
                               ),
                         ),
                         const Spacer(),
                         GestureDetector(
                           onTap: onEdit,
-                          child: Icon(Icons.edit, size: 14,
-                              color: Theme.of(context).colorScheme.outline),
+                          child: Icon(
+                            Icons.edit,
+                            size: 14,
+                            color: Theme.of(context).colorScheme.outline,
+                          ),
                         ),
                         const SizedBox(width: 8),
                         GestureDetector(
                           onTap: onDelete,
-                          child: Icon(Icons.close, size: 16,
-                              color: Theme.of(context).colorScheme.outline),
+                          child: Icon(
+                            Icons.close,
+                            size: 16,
+                            color: Theme.of(context).colorScheme.outline,
+                          ),
                         ),
                       ],
                     ),
@@ -413,7 +436,9 @@ class GameCard extends StatelessWidget {
       color: Theme.of(context).colorScheme.surfaceContainerHighest,
       child: Center(
         child: Icon(
-          entry.source == GameSource.pfsArchive ? Icons.archive : Icons.folder_outlined,
+          entry.source == GameSource.pfsArchive
+              ? Icons.archive
+              : Icons.folder_outlined,
           size: 48,
           color: Theme.of(context).colorScheme.primary,
         ),
@@ -466,7 +491,10 @@ class _EditDialogState extends State<_EditDialog> {
           TextField(
             controller: _nameCtrl,
             autofocus: true,
-            decoration: const InputDecoration(labelText: '游戏名称', hintText: '输入自定义名称'),
+            decoration: const InputDecoration(
+              labelText: '游戏名称',
+              hintText: '输入自定义名称',
+            ),
           ),
           const SizedBox(height: 12),
           Row(
@@ -474,13 +502,21 @@ class _EditDialogState extends State<_EditDialog> {
               if (_coverPath != null)
                 ClipRRect(
                   borderRadius: BorderRadius.circular(8),
-                  child: Image.file(File(_coverPath!), width: 64, height: 64, fit: BoxFit.cover),
+                  child: Image.file(
+                    File(_coverPath!),
+                    width: 64,
+                    height: 64,
+                    fit: BoxFit.cover,
+                  ),
                 )
               else
                 Container(
-                  width: 64, height: 64,
+                  width: 64,
+                  height: 64,
                   decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.surfaceContainerHighest,
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: const Icon(Icons.image, size: 32),
@@ -501,7 +537,10 @@ class _EditDialogState extends State<_EditDialog> {
         ],
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('取消')),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('取消'),
+        ),
         ElevatedButton(
           onPressed: () {
             widget.onSave(_nameCtrl.text.trim(), _coverPath);
@@ -514,7 +553,10 @@ class _EditDialogState extends State<_EditDialog> {
   }
 
   Future<void> _pickCover() async {
-    const typeGroup = XTypeGroup(label: '图片', extensions: ['png', 'jpg', 'jpeg', 'bmp']);
+    const typeGroup = XTypeGroup(
+      label: '图片',
+      extensions: ['png', 'jpg', 'jpeg', 'bmp'],
+    );
     final file = await openFile(acceptedTypeGroups: [typeGroup]);
     if (file != null) {
       setState(() => _coverPath = file.path);

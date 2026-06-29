@@ -41,6 +41,9 @@ class PfsBridge {
   }
 
   DynamicLibrary _loadLibrary() {
+    if (Platform.isIOS) {
+      return DynamicLibrary.process();
+    }
     final name = Platform.isMacOS
         ? 'libpfs_upk.dylib'
         : Platform.isLinux || Platform.isAndroid

@@ -95,6 +95,10 @@ class CoreBridge {
 
   void _loadLibrary() {
     if (_lib != null) return;
+    if (Platform.isIOS) {
+      _lib = DynamicLibrary.process();
+      return;
+    }
     final name = Platform.isMacOS
         ? 'libart3m1s_core.dylib'
         : Platform.isLinux || Platform.isAndroid

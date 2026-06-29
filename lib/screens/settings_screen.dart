@@ -82,7 +82,6 @@ class SettingsScreen extends ConsumerWidget {
       list.add(const _Option(0, 'CGL'));
     }
     if (Platform.isIOS) {
-      list.add(const _Option(2, 'Vulkan'));
       list.add(const _Option(3, 'Metal'));
     }
     if (Platform.isLinux) {

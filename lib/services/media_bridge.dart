@@ -26,6 +26,7 @@ class MediaBridge {
   final ValueNotifier<bool> fullscreenVideoBlocking = ValueNotifier<bool>(
     false,
   );
+  static const Duration _fullscreenVideoStartupTimeout = Duration(seconds: 3);
 
   final Map<String, double> _channelVolumes = {
     'master': 1,
@@ -230,6 +231,10 @@ class MediaBridge {
 
   Future<void> _playVideo(Map<String, dynamic> payload) async {
     final id = _string(payload['id']);
+    Log.debug(
+      '[MediaBridge] video_play command: file=${payload['file']}, '
+      'resolved=${payload['resolved_file']}, id=$id',
+    );
     if (id != null) {
       // TODO: Layer video is intentionally unsupported for now. Correct support
       // requires decoded frames to enter the core compositor as layer textures;
@@ -248,33 +253,68 @@ class MediaBridge {
     _videoSkippable = _bool(payload['skippable']);
     _setFullscreenVideoBlocking(_videoId == null);
 
-    late final _VideoHandle handle;
+    final loop = _bool(payload['loop']);
+    final isFullscreen = _videoId == null;
+    final startupTimeout = isFullscreen && !loop
+        ? _fullscreenVideoStartupTimeout
+        : null;
+    _VideoHandle? handle;
+    Log.debug(
+      '[MediaBridge] video_play start: file=${file.path}, '
+      'id=$_videoId, loop=$loop, skippable=$_videoSkippable',
+    );
     try {
       handle = await _VideoHandle.create(
         id: _videoId,
         file: file,
-        loop: _bool(payload['loop']),
+        loop: loop,
+        startupTimeout: startupTimeout,
         onCompleted: (id) {
           scheduleMicrotask(() {
             unawaited(_stopVideo(notify: true, completedId: id));
           });
         },
       );
-    } catch (_) {
+      _video = handle;
+      await handle.setEffectiveVolume(_channelVolumes['master'] ?? 1);
+      _setVideoPlayback(
+        VideoPlayback(
+          id: _videoId,
+          view: handle.buildView(),
+          aspectRatio: handle.aspectRatio,
+          skippable: _videoSkippable,
+        ),
+      );
+      await _maybeTimeout(handle.play(), startupTimeout);
+      if (isFullscreen && !loop) {
+        unawaited(_finishDeadFullscreenVideoIfNeeded(handle, file.path));
+      }
+    } on TimeoutException {
+      Log.warn(
+        '[MediaBridge] fullscreen video startup timeout, skipping: ${file.path}',
+      );
+      if (handle != null && _video != handle) await handle.dispose();
       await _stopVideo(notify: false);
-      rethrow;
+      _videoFinishedCallback(id);
+    } catch (e, st) {
+      Log.warn(
+        '[MediaBridge] video startup failed, skipping: ${file.path}: $e\n$st',
+      );
+      if (handle != null && _video != handle) await handle.dispose();
+      await _stopVideo(notify: false);
+      _videoFinishedCallback(id);
     }
-    _video = handle;
-    await handle.setEffectiveVolume(_channelVolumes['master'] ?? 1);
-    _setVideoPlayback(
-      VideoPlayback(
-        id: _videoId,
-        view: handle.buildView(),
-        aspectRatio: handle.aspectRatio,
-        skippable: _videoSkippable,
-      ),
-    );
-    await handle.play();
+  }
+
+  Future<void> _finishDeadFullscreenVideoIfNeeded(
+    _VideoHandle handle,
+    String path,
+  ) async {
+    await Future<void>.delayed(const Duration(seconds: 3));
+    if (_disposed || _video != handle || !_fullscreenVideoBlocking) return;
+    if (handle.hasPlaybackSignal) return;
+    Log.warn('[MediaBridge] fullscreen video did not start, skipping: $path');
+    await _stopVideo(notify: true);
   }
 
   Future<void> skipVideo() async {
@@ -395,6 +435,7 @@ class MediaBridge {
 
   void _finishFailedCommand(String kind, Map<String, dynamic> payload) {
     if (kind == 'video_play') {
+      unawaited(_stopVideo(notify: false));
       _videoFinishedCallback(_string(payload['id']));
     } else if (kind == 'audio_bgm_play') {
       _soundFinishedCallback(null);
@@ -528,18 +569,21 @@ abstract class _VideoHandle {
     required String? id,
     required File file,
     required bool loop,
+    required Duration? startupTimeout,
     required void Function(String? id) onCompleted,
   }) async {
     return _MediaKitVideoHandle.create(
       id: id,
       file: file,
       loop: loop,
+      startupTimeout: startupTimeout,
       onCompleted: onCompleted,
     );
   }
 
   String? get id;
   double get aspectRatio;
+  bool get hasPlaybackSignal;
 
   Widget buildView();
 
@@ -555,28 +599,31 @@ class _MediaKitVideoHandle implements _VideoHandle {
     required this.id,
     required this.player,
     required this.controller,
-    required this.completionSub,
+    required this.subscriptions,
   });
 
   @override
   final String? id;
   final media_kit.Player player;
   final media_kit_video.VideoController controller;
-  final StreamSubscription<bool> completionSub;
+  final List<StreamSubscription<dynamic>> subscriptions;
+  bool _hasPlaybackSignal = false;
 
   static Future<_MediaKitVideoHandle> create({
     required String? id,
     required File file,
     required bool loop,
+    required Duration? startupTimeout,
     required void Function(String? id) onCompleted,
   }) async {
     final player = media_kit.Player();
     var completed = false;
-    final completionSub = player.stream.completed.listen((isCompleted) {
-      if (!isCompleted || loop || completed) return;
+    void finish() {
+      if (completed) return;
       completed = true;
       onCompleted(id);
-    });
+    }
+
     final controller = media_kit_video.VideoController(
       player,
       configuration: media_kit_video.VideoControllerConfiguration(
@@ -587,13 +634,51 @@ class _MediaKitVideoHandle implements _VideoHandle {
       id: id,
       player: player,
       controller: controller,
-      completionSub: completionSub,
+      subscriptions: <StreamSubscription<dynamic>>[],
+    );
+    handle.subscriptions.add(
+      player.stream.completed.listen((isCompleted) {
+        if (!isCompleted || loop || completed) return;
+        finish();
+      }),
+    );
+    handle.subscriptions.add(
+      player.stream.error.listen((error) {
+        Log.warn('[MediaBridge] video decode error: $error');
+        if (!loop) finish();
+      }),
+    );
+    handle.subscriptions.add(
+      player.stream.width.listen((value) {
+        if ((value ?? 0) > 0) handle._hasPlaybackSignal = true;
+      }),
+    );
+    handle.subscriptions.add(
+      player.stream.height.listen((value) {
+        if ((value ?? 0) > 0) handle._hasPlaybackSignal = true;
+      }),
+    );
+    handle.subscriptions.add(
+      player.stream.duration.listen((value) {
+        if (value > Duration.zero) handle._hasPlaybackSignal = true;
+      }),
+    );
+    handle.subscriptions.add(
+      player.stream.position.listen((value) {
+        if (value > Duration.zero) handle._hasPlaybackSignal = true;
+      }),
     );
     try {
-      await player.setPlaylistMode(
-        loop ? media_kit.PlaylistMode.single : media_kit.PlaylistMode.none,
+      await _maybeTimeout(
+        player.setPlaylistMode(
+          loop ? media_kit.PlaylistMode.single : media_kit.PlaylistMode.none,
+        ),
+        startupTimeout,
       );
-      await player.open(media_kit.Media(file.uri.toString()), play: false);
+      await _maybeTimeout(
+        player.open(media_kit.Media(file.uri.toString()), play: false),
+        startupTimeout,
+      );
       return handle;
     } catch (_) {
       await handle.dispose();
@@ -610,6 +695,9 @@ class _MediaKitVideoHandle implements _VideoHandle {
     }
     return 16 / 9;
   }
+
+  @override
+  bool get hasPlaybackSignal => _hasPlaybackSignal;
 
   @override
   Widget buildView() => media_kit_video.Video(
@@ -629,7 +717,7 @@ class _MediaKitVideoHandle implements _VideoHandle {
 
   @override
   Future<void> dispose() async {
-    await completionSub.cancel();
+    await Future.wait(subscriptions.map((sub) => sub.cancel()));
     await player.dispose();
   }
 }
@@ -664,6 +752,11 @@ double _pan(Object? value) {
 }
 
 bool _bool(Object? value) => value == true;
+
+Future<T> _maybeTimeout<T>(Future<T> future, Duration? timeout) {
+  if (timeout == null) return future;
+  return future.timeout(timeout);
+}
 
 String _soundKey(String channel, String id) => '$channel:$id';
 
