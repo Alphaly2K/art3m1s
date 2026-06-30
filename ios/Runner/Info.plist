@@ -55,6 +55,10 @@
 	<string>Main</string>
 	<key>NSDocumentsFolderUsageDescription</key>
 	<string>需要访问文件以浏览和添加游戏项目</string>
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>

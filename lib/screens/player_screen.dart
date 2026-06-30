@@ -84,8 +84,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
 
     final debugMode = ref.read(settingsProvider).debugMode;
     _bridge.setDebug(debugMode);
+    final runtimePlatform = ref.read(settingsProvider).runtimePlatform;
 
-    String iniContent;
+    Uint8List iniContent;
     if (widget.source == GameSource.pfsArchive) {
       try {
         FileProvider.openPfs(widget.projectPath);
@@ -99,18 +100,20 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       }
       final bytes = FileProvider.readFile('system.ini');
       if (bytes == null) return;
-      iniContent = String.fromCharCodes(bytes);
+      iniContent = bytes;
+      final charset = _detectIniCharset(iniContent, runtimePlatform);
+      FileProvider.openPfs(widget.projectPath, archiveEncoding: charset);
     } else {
       FileProvider.openDirectory(widget.projectPath);
       iniContent = File(
         '${widget.projectPath}${Platform.pathSeparator}system.ini',
-      ).readAsStringSync();
+      ).readAsBytesSync();
     }
 
     _parseStageSize(iniContent);
 
-    // 存档目录：统一放应用沙箱（getApplicationSupportDirectory）下，不分 PFS/目录
-    // 模式——为 iOS 兼容（iOS 沙箱只允许写应用支持目录）。
+    // 存档目录：统一放应用沙箱内，不分 PFS/目录模式。
+    // iOS 使用 Documents/Art3m1s/Saves，方便通过 Files app 导入导出。
     //
     // 注意：core 侧已把 s.savepath 前缀拼进相对路径（形如 `savedata/save0001.dat`），
     // 故这里的 saveDir 只是**每个游戏的基准目录**，不再追加 savePath，否则会双重前缀。
@@ -121,8 +124,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       return;
     }
     final gameId = _gameIdFor(widget.projectPath);
+    final saveFolderName = Platform.isIOS ? 'Saves' : 'saves';
     final saveDir =
-        '$appSupport${Platform.pathSeparator}saves${Platform.pathSeparator}$gameId';
+        '$appSupport${Platform.pathSeparator}$saveFolderName${Platform.pathSeparator}$gameId';
     _bridge.setSaveDir(saveDir);
 
     _bridge.registerFileReader();
@@ -131,7 +135,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       _stageH,
       backend: ref.read(settingsProvider).backend,
     );
-    if (!_bridge.loadProject(iniContent)) {
+    if (!_bridge.loadProjectBytes(iniContent, platform: runtimePlatform)) {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
@@ -152,8 +156,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     _startGameLoop();
   }
 
-  void _parseStageSize(String ini) {
-    for (final line in ini.split('\n')) {
+  void _parseStageSize(Uint8List ini) {
+    final asciiCompatible = String.fromCharCodes(
+      ini.map((byte) => byte < 0x80 ? byte : 0x20),
+    );
+    for (final line in asciiCompatible.split('\n')) {
       final trimmed = line.trim().toUpperCase();
       if (trimmed.startsWith('WIDTH=')) {
         _stageW = int.tryParse(trimmed.split('=').last.trim()) ?? 1280;
@@ -162,6 +169,38 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         _stageH = int.tryParse(trimmed.split('=').last.trim()) ?? 720;
       }
     }
+  }
+
+  String _detectIniCharset(Uint8List ini, String platform) {
+    final section = platform.trim().toUpperCase();
+    String? current;
+    for (final rawLine in String.fromCharCodes(
+      ini.map((byte) => byte < 0x80 ? byte : 0x20),
+    ).split(RegExp(r'[\r\n]+'))) {
+      final line = rawLine.trim();
+      if (line.isEmpty || line.startsWith(';') || line.startsWith('#')) {
+        continue;
+      }
+      if (line.startsWith('[') && line.endsWith(']')) {
+        current = line.substring(1, line.length - 1).trim().toUpperCase();
+        continue;
+      }
+      if (current != section) continue;
+      final eq = line.indexOf('=');
+      if (eq < 0) continue;
+      final key = line.substring(0, eq).trim().toUpperCase();
+      if (key != 'CHARSET') continue;
+      return _normalizeCharset(line.substring(eq + 1));
+    }
+    return 'Shift_JIS';
+  }
+
+  String _normalizeCharset(String value) {
+    return switch (value.trim().toUpperCase()) {
+      'UTF-8' || 'UTF8' => 'UTF-8',
+      'SHIFT_JIS' || 'SHIFT-JIS' || 'SJIS' => 'Shift_JIS',
+      _ => 'Shift_JIS',
+    };
   }
 
   /// 由项目路径派生稳定的游戏标识，作为沙箱存档子目录名，避免多游戏串档。
@@ -191,7 +230,19 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     } else if (Platform.isLinux) {
       final home = Platform.environment['HOME'] ?? '/tmp';
       return '$home/.local/share/art3m1s';
-    } else if (Platform.isIOS || Platform.isAndroid) {
+    } else if (Platform.isIOS) {
+      final documents = await getApplicationDocumentsDirectory();
+      final root = Directory(
+        '${documents.path}${Platform.pathSeparator}Art3m1s',
+      );
+      Directory(
+        '${root.path}${Platform.pathSeparator}Games',
+      ).createSync(recursive: true);
+      Directory(
+        '${root.path}${Platform.pathSeparator}Saves',
+      ).createSync(recursive: true);
+      return root.path;
+    } else if (Platform.isAndroid) {
       final dir = await getApplicationSupportDirectory();
       return dir.path;
     }
@@ -368,7 +419,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   int? _charToKey(int char) {
     if (char == 0x0A) return 13; // enter
     if (char == 0x20) return 32; // space
-    if (char == 0x08) return 8;  // backspace
+    if (char == 0x08) return 8; // backspace
     if (char >= 0x30 && char <= 0x39) return char;
     if (char >= 0x41 && char <= 0x5A) return char;
     if (char >= 0x61 && char <= 0x7A) return char - 32;
@@ -475,7 +526,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                 _panelBtn(
                   Icons.speed,
                   'FPS ${showFps ? "开" : "关"}',
-                  () => ref.read(settingsProvider.notifier).setShowFps(!showFps),
+                  () =>
+                      ref.read(settingsProvider.notifier).setShowFps(!showFps),
                 ),
                 _panelBtn(
                   Icons.keyboard,
@@ -495,7 +547,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                             widget.projectPath.split('/').last,
                             overflow: TextOverflow.ellipsis,
                             textAlign: TextAlign.center,
-                            style: const TextStyle(color: Colors.white24, fontSize: 10),
+                            style: const TextStyle(
+                              color: Colors.white24,
+                              fontSize: 10,
+                            ),
                           ),
                         ),
                         GestureDetector(
@@ -530,7 +585,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
           children: [
             Icon(icon, size: 16, color: Colors.white54),
             const SizedBox(width: 10),
-            Text(label, style: const TextStyle(color: Colors.white70, fontSize: 13)),
+            Text(
+              label,
+              style: const TextStyle(color: Colors.white70, fontSize: 13),
+            ),
           ],
         ),
       ),
@@ -583,38 +641,38 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
           focusNode: _gameFocusNode,
           autofocus: true,
           onKeyEvent: _handleKeyEvent,
-            child: Listener(
-              behavior: HitTestBehavior.translucent,
-              onPointerHover: (event) =>
-                  _feedPointerPosition(event, ox, oy, scale),
-              onPointerMove: (event) {
-                _feedPointerPosition(event, ox, oy, scale);
-                _syncPointerButtons(event.buttons);
-              },
-              onPointerDown: (event) {
-                _activePointers.add(event.pointer);
-                if (_activePointers.length >= 2) {
-                  _bridge.feedMouseButton(2, true);
-                }
-                _gameFocusNode.requestFocus();
-                _feedPointerPosition(event, ox, oy, scale);
-                _syncPointerButtons(event.buttons);
-              },
-              onPointerUp: (event) {
-                if (_activePointers.length >= 2) {
-                  _bridge.feedMouseButton(2, false);
-                }
-                _activePointers.remove(event.pointer);
-                _feedPointerPosition(event, ox, oy, scale);
-                _syncPointerButtons(event.buttons);
-              },
-              onPointerCancel: (event) {
-                if (_activePointers.length >= 2) {
-                  _bridge.feedMouseButton(2, false);
-                }
-                _activePointers.remove(event.pointer);
-                _releasePointerButtons();
-              },
+          child: Listener(
+            behavior: HitTestBehavior.translucent,
+            onPointerHover: (event) =>
+                _feedPointerPosition(event, ox, oy, scale),
+            onPointerMove: (event) {
+              _feedPointerPosition(event, ox, oy, scale);
+              _syncPointerButtons(event.buttons);
+            },
+            onPointerDown: (event) {
+              _activePointers.add(event.pointer);
+              if (_activePointers.length >= 2) {
+                _bridge.feedMouseButton(2, true);
+              }
+              _gameFocusNode.requestFocus();
+              _feedPointerPosition(event, ox, oy, scale);
+              _syncPointerButtons(event.buttons);
+            },
+            onPointerUp: (event) {
+              if (_activePointers.length >= 2) {
+                _bridge.feedMouseButton(2, false);
+              }
+              _activePointers.remove(event.pointer);
+              _feedPointerPosition(event, ox, oy, scale);
+              _syncPointerButtons(event.buttons);
+            },
+            onPointerCancel: (event) {
+              if (_activePointers.length >= 2) {
+                _bridge.feedMouseButton(2, false);
+              }
+              _activePointers.remove(event.pointer);
+              _releasePointerButtons();
+            },
             onPointerSignal: _handlePointerSignal,
             child: Center(
               child: SizedBox(

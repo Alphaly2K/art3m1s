@@ -5,6 +5,26 @@ import 'package:path_provider/path_provider.dart';
 
 import 'logger.dart';
 
+class DiscoveredGame {
+  const DiscoveredGame({
+    required this.name,
+    required this.path,
+    required this.source,
+  });
+
+  final String name;
+  final String path;
+  final String source;
+
+  bool get isPfsArchive => source == 'pfsArchive';
+
+  factory DiscoveredGame.fromMap(Map<dynamic, dynamic> map) => DiscoveredGame(
+    name: map['name'] as String? ?? '',
+    path: map['path'] as String? ?? '',
+    source: map['source'] as String? ?? '',
+  );
+}
+
 /// 游戏数据沙箱导入。
 ///
 /// Android/iOS 对文件系统有严格限制：
@@ -19,14 +39,17 @@ class GameImporter {
   /// 桌面平台不需要沙箱导入（native 可直接访问文件系统）。
   static bool get needsSandbox => Platform.isAndroid || Platform.isIOS;
 
+  static const MethodChannel _nativeChannel = MethodChannel(
+    'moe.alphaly.art3m1s/native_ptrs',
+  );
+
   /// Android 专用：调原生 SAF 目录选择器，把整个目录拷贝到沙箱，
   /// 返回沙箱目录路径（`<filesDir>/games/incoming/<timestamp>/`）。
   /// 该目录下包含所有原始文件（含 .pfs 和 .pfs.NNN 分卷）。
   static Future<String?> pickDirectoryAndCopy() async {
     if (!Platform.isAndroid) return null;
     try {
-      const channel = MethodChannel('moe.alphaly.art3m1s/native_ptrs');
-      return await channel.invokeMethod<String>('pickDirectoryAndCopy');
+      return await _nativeChannel.invokeMethod<String>('pickDirectoryAndCopy');
     } on PlatformException catch (e) {
       if (e.code == 'PICK_CANCELLED') return null;
       Log.error('[GameImporter] pickDirectoryAndCopy 失败: ${e.message}');
@@ -39,12 +62,54 @@ class GameImporter {
   static Future<String?> pickPfsFilesAndCopy() async {
     if (!Platform.isIOS) return null;
     try {
-      const channel = MethodChannel('moe.alphaly.art3m1s/native_ptrs');
-      return await channel.invokeMethod<String>('pickPfsFilesAndCopy');
+      return await _nativeChannel.invokeMethod<String>('pickPfsFilesAndCopy');
     } on PlatformException catch (e) {
       if (e.code == 'PICK_CANCELLED') return null;
       Log.error('[GameImporter] pickPfsFilesAndCopy 失败: ${e.message}');
       return null;
+    }
+  }
+
+  /// iOS 专用：打开一个原生管理面板。
+  ///
+  /// 返回值：
+  /// - `scan`: 扫描 Files app 可见的 Art3m1s/Games
+  /// - `pickPfs`: 打开系统 PFS 文件选择器
+  /// - null: 用户关闭
+  static Future<String?> showIosLibraryManager() async {
+    if (!Platform.isIOS) return null;
+    try {
+      return await _nativeChannel.invokeMethod<String>('showIosLibraryManager');
+    } on PlatformException catch (e) {
+      Log.error('[GameImporter] showIosLibraryManager 失败: ${e.message}');
+      return null;
+    }
+  }
+
+  static Future<String?> prepareIosAppFolders() async {
+    if (!Platform.isIOS) return null;
+    try {
+      return await _nativeChannel.invokeMethod<String>('prepareIosAppFolders');
+    } on PlatformException catch (e) {
+      Log.error('[GameImporter] prepareIosAppFolders 失败: ${e.message}');
+      return null;
+    }
+  }
+
+  static Future<List<DiscoveredGame>> scanIosAppGamesFolder() async {
+    if (!Platform.isIOS) return const [];
+    try {
+      final raw = await _nativeChannel.invokeMethod<List<dynamic>>(
+        'scanIosAppGamesFolder',
+      );
+      return (raw ?? const [])
+          .whereType<Map<dynamic, dynamic>>()
+          .map(DiscoveredGame.fromMap)
+          .where((game) => game.path.isNotEmpty)
+          .toList();
+    } on PlatformException catch (e) {
+      Log.error('[GameImporter] scanIosAppGamesFolder 失败: ${e.message}');
+      return const [];
     }
   }
 
@@ -60,6 +125,9 @@ class GameImporter {
 
     // 已在沙箱内（例如刚通过 pickDirectoryAndCopy 拷贝的）→ 直接返回。
     if (sourcePath.startsWith(gamesPrefix)) {
+      return sourcePath;
+    }
+    if (Platform.isIOS && await _isInIosVisibleGamesFolder(sourcePath)) {
       return sourcePath;
     }
 
@@ -277,5 +345,12 @@ class GameImporter {
       hash = (hash * 0x100000001b3) & 0xffffffffffffffff;
     }
     return '${name}_${hash.toRadixString(16)}';
+  }
+
+  static Future<bool> _isInIosVisibleGamesFolder(String sourcePath) async {
+    final documents = await getApplicationDocumentsDirectory();
+    final visibleGamesPrefix =
+        '${documents.path}${Platform.pathSeparator}Art3m1s${Platform.pathSeparator}Games${Platform.pathSeparator}';
+    return sourcePath.startsWith(visibleGamesPrefix);
   }
 }

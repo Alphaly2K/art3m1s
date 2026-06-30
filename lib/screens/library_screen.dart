@@ -151,6 +151,16 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 12),
+              if (Platform.isIOS)
+                ListTile(
+                  leading: const Icon(Icons.folder_special_outlined),
+                  title: const Text('App 文件夹'),
+                  subtitle: const Text('从 Files app 的 Art3m1s/Games 扫描'),
+                  onTap: () {
+                    Navigator.of(ctx).pop();
+                    _openIosAppFolderManager();
+                  },
+                ),
               ListTile(
                 leading: const Icon(Icons.folder_open),
                 title: const Text('选择文件夹'),
@@ -247,6 +257,86 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
         .replaceAll(RegExp(r'\.pfs$', caseSensitive: false), '');
 
     _editAndAdd(name, filePath, GameSource.pfsArchive);
+  }
+
+  Future<void> _openIosAppFolderManager() async {
+    final action = await GameImporter.showIosLibraryManager();
+    if (!mounted || action == null) return;
+    switch (action) {
+      case 'scan':
+        await _scanIosAppFolder();
+        break;
+      case 'pickPfs':
+        await _pickPfs();
+        break;
+    }
+  }
+
+  Future<void> _scanIosAppFolder() async {
+    await GameImporter.prepareIosAppFolders();
+    final games = await GameImporter.scanIosAppGamesFolder();
+    if (!mounted) return;
+
+    if (games.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('未发现游戏。请在 Files app 中把游戏放入 Art3m1s/Games'),
+        ),
+      );
+      return;
+    }
+
+    if (games.length == 1) {
+      _addDiscoveredGame(games.single);
+      return;
+    }
+
+    final selected = await showDialog<DiscoveredGame>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('选择项目'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: games.length,
+            itemBuilder: (_, index) {
+              final game = games[index];
+              return ListTile(
+                leading: Icon(
+                  game.isPfsArchive ? Icons.archive : Icons.folder_open,
+                ),
+                title: Text(game.name),
+                subtitle: Text(
+                  game.path,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                onTap: () => Navigator.of(ctx).pop(game),
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('取消'),
+          ),
+        ],
+      ),
+    );
+
+    if (selected != null && mounted) {
+      _addDiscoveredGame(selected);
+    }
+  }
+
+  void _addDiscoveredGame(DiscoveredGame game) {
+    _editAndAdd(
+      game.name,
+      game.path,
+      game.isPfsArchive ? GameSource.pfsArchive : GameSource.directory,
+    );
   }
 
   void _editAndAdd(String defaultName, String path, GameSource source) {

@@ -7,24 +7,24 @@ import 'package:ffi/ffi.dart';
 import '../services/logger.dart';
 import 'pfs_bridge.dart';
 
-typedef FileReaderNative = Int32 Function(
-  Pointer<Utf8> path, Pointer<Uint8> buf, Int32 bufSize, Int64 offset,
-);
-typedef RegisterFileReaderNative = Void Function(
-  Pointer<NativeFunction<FileReaderNative>>,
-);
+typedef FileReaderNative =
+    Int32 Function(
+      Pointer<Utf8> path,
+      Pointer<Uint8> buf,
+      Int32 bufSize,
+      Int64 offset,
+    );
+typedef RegisterFileReaderNative =
+    Void Function(Pointer<NativeFunction<FileReaderNative>>);
 
-typedef FileWriterNative = Int32 Function(
-  Pointer<Utf8> path, Pointer<Uint8> buf, Int32 len,
-);
-typedef RegisterFileWriterNative = Void Function(
-  Pointer<NativeFunction<FileWriterNative>>,
-);
+typedef FileWriterNative =
+    Int32 Function(Pointer<Utf8> path, Pointer<Uint8> buf, Int32 len);
+typedef RegisterFileWriterNative =
+    Void Function(Pointer<NativeFunction<FileWriterNative>>);
 
 typedef FileDeleteNative = Int32 Function(Pointer<Utf8> path);
-typedef RegisterFileDeleteNative = Void Function(
-  Pointer<NativeFunction<FileDeleteNative>>,
-);
+typedef RegisterFileDeleteNative =
+    Void Function(Pointer<NativeFunction<FileDeleteNative>>);
 
 class FileProvider {
   static final PfsBridge _pfs = PfsBridge();
@@ -43,7 +43,10 @@ class FileProvider {
     _saveDir = dir;
   }
 
-  static void openPfs(String archivePath) {
+  static void openPfs(
+    String archivePath, {
+    String archiveEncoding = 'Shift_JIS',
+  }) {
     close();
     _pfs.initialize();
 
@@ -55,20 +58,21 @@ class FileProvider {
     //                 standalone — if it has a valid PFS header it joins
     //                 the override chain; if it's raw split data it fails
     //                 harmlessly.
-    final candidates = dir
-        .listSync()
-        .whereType<File>()
-        .where((f) {
-          final lower = f.path.toLowerCase();
-          return lower.endsWith('.pfs') ||
-              RegExp(r'\.pfs\.\d{3}$').hasMatch(lower);
-        })
-        .map((f) => f.path)
-        .toList()
-      ..sort();
+    final candidates =
+        dir
+            .listSync()
+            .whereType<File>()
+            .where((f) {
+              final lower = f.path.toLowerCase();
+              return lower.endsWith('.pfs') ||
+                  RegExp(r'\.pfs\.\d{3}$').hasMatch(lower);
+            })
+            .map((f) => f.path)
+            .toList()
+          ..sort();
 
     for (final path in candidates) {
-      final h = _pfs.open(path);
+      final h = _pfs.openWithEncoding(path, archiveEncoding);
       if (h != nullptr) _archives.add(h);
     }
   }
@@ -113,7 +117,12 @@ class FileProvider {
     return null;
   }
 
-  static int _callback(Pointer<Utf8> pathPtr, Pointer<Uint8> buf, int bufSize, int offset) {
+  static int _callback(
+    Pointer<Utf8> pathPtr,
+    Pointer<Uint8> buf,
+    int bufSize,
+    int offset,
+  ) {
     final path = pathPtr.toDartString();
     if (buf == nullptr || bufSize <= 0) {
       final sz = _querySize(path);
@@ -141,7 +150,12 @@ class FileProvider {
     return -1;
   }
 
-  static int _readData(String path, Pointer<Uint8> buf, int bufSize, int offset) {
+  static int _readData(
+    String path,
+    Pointer<Uint8> buf,
+    int bufSize,
+    int offset,
+  ) {
     final saveFile = _saveFile(path);
     if (saveFile != null) {
       final r = _readFromFile(saveFile, buf, bufSize, offset);
@@ -153,13 +167,22 @@ class FileProvider {
     }
     if (_directory != null) {
       final r = _readFromFile(
-        File('$_directory${Platform.pathSeparator}$path'), buf, bufSize, offset);
+        File('$_directory${Platform.pathSeparator}$path'),
+        buf,
+        bufSize,
+        offset,
+      );
       if (r >= 0) return r;
     }
     return -1;
   }
 
-  static int _readFromFile(File file, Pointer<Uint8> buf, int bufSize, int offset) {
+  static int _readFromFile(
+    File file,
+    Pointer<Uint8> buf,
+    int bufSize,
+    int offset,
+  ) {
     try {
       if (offset == -1) {
         return file.existsSync() ? file.lengthSync() : -1;
@@ -171,7 +194,9 @@ class FileProvider {
         final remaining = raf.lengthSync() - offset;
         final toRead = bufSize < remaining ? bufSize : remaining;
         final data = raf.readSync(toRead);
-        for (var i = 0; i < data.length; i++) { buf[i] = data[i]; }
+        for (var i = 0; i < data.length; i++) {
+          buf[i] = data[i];
+        }
         return data.length;
       } finally {
         raf.closeSync();
@@ -189,8 +214,10 @@ class FileProvider {
       Log.warn('[FileProvider] 非法存档路径: $path');
       return null;
     }
-    return File('$_saveDir${Platform.pathSeparator}'
-        '${rel.replaceAll('/', Platform.pathSeparator)}');
+    return File(
+      '$_saveDir${Platform.pathSeparator}'
+      '${rel.replaceAll('/', Platform.pathSeparator)}',
+    );
   }
 
   static String? _normalizeRelativePath(String path) {
@@ -204,7 +231,11 @@ class FileProvider {
     return parts.isEmpty ? null : parts.join('/');
   }
 
-  static int _writeCallback(Pointer<Utf8> pathPtr, Pointer<Uint8> buf, int len) {
+  static int _writeCallback(
+    Pointer<Utf8> pathPtr,
+    Pointer<Uint8> buf,
+    int len,
+  ) {
     try {
       final path = pathPtr.toDartString();
       final file = _saveFile(path);
@@ -236,32 +267,38 @@ class FileProvider {
   }
 
   static void register(DynamicLibrary lib) {
-    final registerFn = lib.lookupFunction<RegisterFileReaderNative,
-        void Function(Pointer<NativeFunction<FileReaderNative>>)>(
-      'art3m1s_register_file_reader',
-    );
+    final registerFn = lib
+        .lookupFunction<
+          RegisterFileReaderNative,
+          void Function(Pointer<NativeFunction<FileReaderNative>>)
+        >('art3m1s_register_file_reader');
     _readerCallable ??= NativeCallable<FileReaderNative>.isolateLocal(
-      _callback, exceptionalReturn: -1,
+      _callback,
+      exceptionalReturn: -1,
     );
     registerFn(_readerCallable!.nativeFunction);
 
     // 写文件回调（存档落盘）
-    final registerWriter = lib.lookupFunction<RegisterFileWriterNative,
-        void Function(Pointer<NativeFunction<FileWriterNative>>)>(
-      'art3m1s_register_file_writer',
-    );
+    final registerWriter = lib
+        .lookupFunction<
+          RegisterFileWriterNative,
+          void Function(Pointer<NativeFunction<FileWriterNative>>)
+        >('art3m1s_register_file_writer');
     _writerCallable ??= NativeCallable<FileWriterNative>.isolateLocal(
-      _writeCallback, exceptionalReturn: -1,
+      _writeCallback,
+      exceptionalReturn: -1,
     );
     registerWriter(_writerCallable!.nativeFunction);
 
     // 删除文件回调（删档）
-    final registerDelete = lib.lookupFunction<RegisterFileDeleteNative,
-        void Function(Pointer<NativeFunction<FileDeleteNative>>)>(
-      'art3m1s_register_file_delete',
-    );
+    final registerDelete = lib
+        .lookupFunction<
+          RegisterFileDeleteNative,
+          void Function(Pointer<NativeFunction<FileDeleteNative>>)
+        >('art3m1s_register_file_delete');
     _deleteCallable ??= NativeCallable<FileDeleteNative>.isolateLocal(
-      _deleteCallback, exceptionalReturn: -1,
+      _deleteCallback,
+      exceptionalReturn: -1,
     );
     registerDelete(_deleteCallable!.nativeFunction);
   }

@@ -26,11 +26,33 @@ class SettingsScreen extends ConsumerWidget {
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: SegmentedButton<int>(
               segments: _availableBackends()
-                  .map((o) => ButtonSegment(value: o.value, label: Text(o.label)))
+                  .map(
+                    (o) => ButtonSegment(value: o.value, label: Text(o.label)),
+                  )
                   .toList(),
               selected: {settings.backend},
               onSelectionChanged: (v) =>
                   ref.read(settingsProvider.notifier).setBackend(v.first),
+            ),
+          ),
+          const Divider(),
+          const _SectionHeader('运行时'),
+          ListTile(
+            title: const Text('启动 OS'),
+            subtitle: const Text('选择 system.ini 使用的启动段'),
+            trailing: DropdownButton<String>(
+              value: settings.runtimePlatform,
+              items: const [
+                DropdownMenuItem(value: 'WINDOWS', child: Text('WINDOWS')),
+                DropdownMenuItem(value: 'ANDROID', child: Text('ANDROID')),
+                DropdownMenuItem(value: 'IOS', child: Text('IOS')),
+                DropdownMenuItem(value: 'WASM', child: Text('WASM')),
+              ],
+              onChanged: (value) {
+                if (value != null) {
+                  ref.read(settingsProvider.notifier).setRuntimePlatform(value);
+                }
+              },
             ),
           ),
           const Divider(),
@@ -39,13 +61,15 @@ class SettingsScreen extends ConsumerWidget {
             title: const Text('调试模式'),
             subtitle: const Text('记录详细日志'),
             value: settings.debugMode,
-            onChanged: (v) => ref.read(settingsProvider.notifier).setDebugMode(v),
+            onChanged: (v) =>
+                ref.read(settingsProvider.notifier).setDebugMode(v),
           ),
           SwitchListTile(
             title: const Text('调试面板'),
             subtitle: const Text('显示浮动监控面板'),
             value: settings.debugOverlay,
-            onChanged: (v) => ref.read(settingsProvider.notifier).setDebugOverlay(v),
+            onChanged: (v) =>
+                ref.read(settingsProvider.notifier).setDebugOverlay(v),
           ),
           ListTile(
             leading: const Icon(Icons.save_alt),
@@ -53,9 +77,9 @@ class SettingsScreen extends ConsumerWidget {
             onTap: () async {
               final file = await Log.exportToFile();
               if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('已导出: ${file.path}')),
-                );
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(SnackBar(content: Text('已导出: ${file.path}')));
               }
             },
           ),
@@ -68,7 +92,10 @@ class SettingsScreen extends ConsumerWidget {
           ),
           const Divider(),
           const _SectionHeader('信息'),
-          const ListTile(title: Text('Art3m1s'), subtitle: Text('Artemis 视觉小说引擎前端')),
+          const ListTile(
+            title: Text('Art3m1s'),
+            subtitle: Text('Artemis 视觉小说引擎前端'),
+          ),
           const ListTile(title: Text('版本'), subtitle: Text('0.1.0')),
         ],
       ),
@@ -122,11 +149,14 @@ class _SectionHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-      child: Text(title,
-          style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.bold,
-              color: Theme.of(context).colorScheme.primary)),
+      child: Text(
+        title,
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.bold,
+          color: Theme.of(context).colorScheme.primary,
+        ),
+      ),
     );
   }
 }

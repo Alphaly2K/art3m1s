@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate, UIDocumentPickerDelegate {
   private var pfsPickResult: FlutterResult?
+  private var libraryPanelResult: FlutterResult?
 
   override func application(
     _ application: UIApplication,
@@ -21,11 +22,31 @@ import UniformTypeIdentifiers
       binaryMessenger: engineBridge.applicationRegistrar.messenger()
     )
     channel.setMethodCallHandler { [weak self] call, result in
-      guard call.method == "pickPfsFilesAndCopy" else {
-        result(FlutterMethodNotImplemented)
+      guard let self else {
+        result(FlutterError(code: "APP_DELEGATE_RELEASED", message: "AppDelegate was released", details: nil))
         return
       }
-      self?.pickPfsFilesAndCopy(result: result)
+      switch call.method {
+      case "pickPfsFilesAndCopy":
+        self.pickPfsFilesAndCopy(result: result)
+      case "showIosLibraryManager":
+        self.showIosLibraryManager(result: result)
+      case "prepareIosAppFolders":
+        do {
+          let root = try self.ensureAppFolders()
+          result(root.path)
+        } catch {
+          result(FlutterError(code: "PREPARE_FOLDERS_FAILED", message: error.localizedDescription, details: nil))
+        }
+      case "scanIosAppGamesFolder":
+        do {
+          result(try self.scanIosAppGamesFolder())
+        } catch {
+          result(FlutterError(code: "SCAN_GAMES_FAILED", message: error.localizedDescription, details: nil))
+        }
+      default:
+        result(FlutterMethodNotImplemented)
+      }
     }
   }
 
@@ -49,6 +70,38 @@ import UniformTypeIdentifiers
     picker.delegate = self
     picker.allowsMultipleSelection = true
     presenter.present(picker, animated: true)
+  }
+
+  private func showIosLibraryManager(result: @escaping FlutterResult) {
+    guard libraryPanelResult == nil else {
+      result(FlutterError(code: "PANEL_IN_PROGRESS", message: "A library panel is already active", details: nil))
+      return
+    }
+    guard let presenter = topViewController() else {
+      result(FlutterError(code: "NO_VIEW_CONTROLLER", message: "No active view controller", details: nil))
+      return
+    }
+
+    do {
+      _ = try ensureAppFolders()
+    } catch {
+      result(FlutterError(code: "PREPARE_FOLDERS_FAILED", message: error.localizedDescription, details: nil))
+      return
+    }
+
+    libraryPanelResult = result
+    let controller = IosLibraryManagerViewController()
+    controller.onAction = { [weak self, weak controller] action in
+      controller?.dismiss(animated: true) {
+        self?.finishLibraryPanel(action)
+      }
+    }
+    controller.modalPresentationStyle = .pageSheet
+    if #available(iOS 15.0, *), let sheet = controller.sheetPresentationController {
+      sheet.detents = [.medium()]
+      sheet.prefersGrabberVisible = true
+    }
+    presenter.present(controller, animated: true)
   }
 
   func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
@@ -84,6 +137,12 @@ import UniformTypeIdentifiers
     result?(value)
   }
 
+  private func finishLibraryPanel(_ value: Any?) {
+    let result = libraryPanelResult
+    libraryPanelResult = nil
+    result?(value)
+  }
+
   private func copySelectedPfsFilesToSandbox(_ urls: [URL]) throws -> String {
     NSLog("[Art3m1s] PFS import selected \(urls.count) files")
 
@@ -100,13 +159,7 @@ import UniformTypeIdentifiers
     let totalSize = files.reduce(0) { $0 + $1.size }
     let gameId = Self.computeGameId(name: base.name, size: totalSize)
     let fm = FileManager.default
-    let appSupport = try fm.url(
-      for: .applicationSupportDirectory,
-      in: .userDomainMask,
-      appropriateFor: nil,
-      create: true
-    )
-    let gamesDir = appSupport.appendingPathComponent("games", isDirectory: true)
+    let gamesDir = try appGamesURL()
     let targetDir = gamesDir.appendingPathComponent(gameId, isDirectory: true)
     try fm.createDirectory(at: gamesDir, withIntermediateDirectories: true)
 
@@ -127,6 +180,74 @@ import UniformTypeIdentifiers
 
     NSLog("[Art3m1s] PFS import completed: \(targetDir.appendingPathComponent(base.name).path)")
     return targetDir.appendingPathComponent(base.name).path
+  }
+
+  private func ensureAppFolders() throws -> URL {
+    let fm = FileManager.default
+    let root = try appRootURL()
+    let games = root.appendingPathComponent("Games", isDirectory: true)
+    let saves = root.appendingPathComponent("Saves", isDirectory: true)
+    try fm.createDirectory(at: games, withIntermediateDirectories: true)
+    try fm.createDirectory(at: saves, withIntermediateDirectories: true)
+    try excludeFromBackup(games)
+    return root
+  }
+
+  private func appRootURL() throws -> URL {
+    try FileManager.default
+      .url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+      .appendingPathComponent("Art3m1s", isDirectory: true)
+  }
+
+  private func appGamesURL() throws -> URL {
+    try ensureAppFolders().appendingPathComponent("Games", isDirectory: true)
+  }
+
+  private func scanIosAppGamesFolder() throws -> [[String: String]] {
+    let games = try appGamesURL()
+    let fm = FileManager.default
+    guard let enumerator = fm.enumerator(
+      at: games,
+      includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey],
+      options: [.skipsHiddenFiles]
+    ) else {
+      return []
+    }
+
+    var seen = Set<String>()
+    var found: [[String: String]] = []
+    for case let url as URL in enumerator {
+      let name = url.lastPathComponent
+      if name.caseInsensitiveCompare("system.ini") == .orderedSame {
+        let projectDir = url.deletingLastPathComponent()
+        if seen.insert(projectDir.path).inserted {
+          found.append([
+            "name": projectDir.lastPathComponent,
+            "path": projectDir.path,
+            "source": "directory",
+          ])
+        }
+      } else if Self.isBasePfsName(name) {
+        if seen.insert(url.path).inserted {
+          found.append([
+            "name": Self.displayName(forPfs: name),
+            "path": url.path,
+            "source": "pfsArchive",
+          ])
+        }
+      }
+    }
+
+    return found.sorted {
+      ($0["name"] ?? "").localizedStandardCompare($1["name"] ?? "") == .orderedAscending
+    }
+  }
+
+  private func excludeFromBackup(_ url: URL) throws {
+    var mutableURL = url
+    var values = URLResourceValues()
+    values.isExcludedFromBackup = true
+    try mutableURL.setResourceValues(values)
   }
 
   private func fileSize(_ url: URL) throws -> Int64 {
@@ -191,10 +312,108 @@ import UniformTypeIdentifiers
     }
     return "\(baseName)_\(String(hash, radix: 16))"
   }
+
+  private static func displayName(forPfs name: String) -> String {
+    name.range(of: #"(?i)\.pfs$"#, options: .regularExpression)
+      .map { String(name[..<$0.lowerBound]) } ?? name
+  }
 }
 
 private struct SelectedPfsFile {
   let url: URL
   let name: String
   let size: Int64
+}
+
+private final class IosLibraryManagerViewController: UIViewController {
+  var onAction: ((String?) -> Void)?
+
+  override func viewDidLoad() {
+    super.viewDidLoad()
+    view.backgroundColor = .clear
+
+    let effectView = UIVisualEffectView(effect: Self.makePanelEffect())
+    effectView.translatesAutoresizingMaskIntoConstraints = false
+    effectView.layer.cornerRadius = 26
+    effectView.layer.cornerCurve = .continuous
+    effectView.clipsToBounds = true
+
+    let title = UILabel()
+    title.text = "Art3m1s 文件夹"
+    title.font = .preferredFont(forTextStyle: .title2)
+    title.adjustsFontForContentSizeCategory = true
+
+    let message = UILabel()
+    message.text = "在 Files app 中把游戏目录或 PFS 分卷放入 Art3m1s/Games。存档会写入 Art3m1s/Saves。"
+    message.font = .preferredFont(forTextStyle: .body)
+    message.textColor = .secondaryLabel
+    message.numberOfLines = 0
+    message.adjustsFontForContentSizeCategory = true
+
+    let scanButton = makeButton(title: "扫描 App 文件夹", image: "folder.badge.gearshape") { [weak self] in
+      self?.onAction?("scan")
+    }
+    let pickerButton = makeButton(title: "选择 PFS 文件", image: "archivebox") { [weak self] in
+      self?.onAction?("pickPfs")
+    }
+    let closeButton = makeButton(title: "关闭", image: "xmark") { [weak self] in
+      self?.onAction?(nil)
+    }
+
+    let stack = UIStackView(arrangedSubviews: [title, message, scanButton, pickerButton, closeButton])
+    stack.axis = .vertical
+    stack.spacing = 14
+    stack.translatesAutoresizingMaskIntoConstraints = false
+
+    view.addSubview(effectView)
+    effectView.contentView.addSubview(stack)
+
+    NSLayoutConstraint.activate([
+      effectView.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 20),
+      effectView.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -20),
+      effectView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+
+      stack.leadingAnchor.constraint(equalTo: effectView.contentView.leadingAnchor, constant: 22),
+      stack.trailingAnchor.constraint(equalTo: effectView.contentView.trailingAnchor, constant: -22),
+      stack.topAnchor.constraint(equalTo: effectView.contentView.topAnchor, constant: 22),
+      stack.bottomAnchor.constraint(equalTo: effectView.contentView.bottomAnchor, constant: -22),
+    ])
+  }
+
+  private func makeButton(title: String, image: String, action: @escaping () -> Void) -> UIButton {
+    let button = ClosureButton(type: .system)
+    button.setTitle(title, for: .normal)
+    button.setImage(UIImage(systemName: image), for: .normal)
+    button.tintColor = .white
+    button.backgroundColor = .systemBlue
+    button.contentEdgeInsets = UIEdgeInsets(top: 12, left: 16, bottom: 12, right: 16)
+    button.imageEdgeInsets = UIEdgeInsets(top: 0, left: -4, bottom: 0, right: 8)
+    button.titleLabel?.font = .preferredFont(forTextStyle: .headline)
+    button.layer.cornerRadius = 14
+    button.layer.cornerCurve = .continuous
+    button.onTap = action
+    button.addTarget(button, action: #selector(ClosureButton.invoke), for: .touchUpInside)
+    button.heightAnchor.constraint(greaterThanOrEqualToConstant: 48).isActive = true
+    return button
+  }
+
+  private static func makePanelEffect() -> UIVisualEffect {
+    if #available(iOS 26.0, *) {
+      for className in ["UIGlassEffect", "UIKit.UIGlassEffect"] {
+        if let glassClass = NSClassFromString(className) as? NSObject.Type,
+           let glassEffect = glassClass.init() as? UIVisualEffect {
+          return glassEffect
+        }
+      }
+    }
+    return UIBlurEffect(style: .systemMaterial)
+  }
+}
+
+private final class ClosureButton: UIButton {
+  var onTap: (() -> Void)?
+
+  @objc func invoke() {
+    onTap?()
+  }
 }
