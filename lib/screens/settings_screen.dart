@@ -3,6 +3,7 @@ import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'about_screen.dart';
 import '../providers/settings_provider.dart';
 import '../services/logger.dart';
 
@@ -92,11 +93,17 @@ class SettingsScreen extends ConsumerWidget {
           ),
           const Divider(),
           const _SectionHeader('信息'),
-          const ListTile(
-            title: Text('Art3m1s'),
-            subtitle: Text('Artemis 视觉小说引擎前端'),
+          ListTile(
+            leading: const Icon(Icons.info_outline),
+            title: const Text('关于 Art3m1s'),
+            subtitle: const Text('许可证、依赖与仓库地址'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () {
+              Navigator.of(
+                context,
+              ).push(MaterialPageRoute(builder: (_) => const AboutScreen()));
+            },
           ),
-          const ListTile(title: Text('版本'), subtitle: Text('0.1.0')),
         ],
       ),
     );
