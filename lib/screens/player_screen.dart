@@ -29,7 +29,7 @@ class PlayerScreen extends ConsumerStatefulWidget {
 }
 
 class _PlayerScreenState extends ConsumerState<PlayerScreen> {
-  final _bridge = CoreBridge();
+  late final CoreBridge _bridge;
   Timer? _timer;
   ui.Image? _frameImage;
   bool _frameInFlight = false;
@@ -49,6 +49,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   final _keyboardCtrl = TextEditingController();
   String _keyboardLast = '';
   bool _keyboardShown = false;
+  bool _engineDialogOpen = false;
 
   // FPS
   double _fps = 0;
@@ -62,9 +63,68 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   @override
   void initState() {
     super.initState();
+    _bridge = CoreBridge(onDialogRequested: _showEngineDialog);
     _keyboardCtrl.addListener(_onKeyboardInput);
     _lockOrientation();
     _init();
+  }
+
+  Future<void> _showEngineDialog(EngineDialogRequest request) async {
+    if (!mounted || _closing || _engineDialogOpen) return;
+    _engineDialogOpen = true;
+    final controller = TextEditingController(text: request.initialText);
+    try {
+      final accepted = await showDialog<bool>(
+        context: context,
+        barrierDismissible: request.hasCancel,
+        builder: (dialogContext) {
+          final localizations = MaterialLocalizations.of(dialogContext);
+          return AlertDialog(
+            title: request.title.isEmpty ? null : Text(request.title),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (request.message.isNotEmpty) Text(request.message),
+                if (request.message.isNotEmpty && request.hasTextField)
+                  const SizedBox(height: 16),
+                if (request.hasTextField)
+                  TextField(
+                    controller: controller,
+                    autofocus: true,
+                    maxLines: 1,
+                    inputFormatters: [
+                      if (request.textFieldSize case final limit?)
+                        LengthLimitingTextInputFormatter(limit),
+                    ],
+                    onSubmitted: (_) => Navigator.of(dialogContext).pop(true),
+                  ),
+              ],
+            ),
+            actions: [
+              if (request.hasCancel)
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(false),
+                  child: Text(localizations.cancelButtonLabel),
+                ),
+              FilledButton(
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                child: Text(localizations.okButtonLabel),
+              ),
+            ],
+          );
+        },
+      );
+      if (!_closing) {
+        _bridge.submitDialog(accepted == true, controller.text);
+      }
+    } finally {
+      controller.dispose();
+      _engineDialogOpen = false;
+      if (mounted && !_closing) {
+        _gameFocusNode.requestFocus();
+      }
+    }
   }
 
   Future<void> _init() async {

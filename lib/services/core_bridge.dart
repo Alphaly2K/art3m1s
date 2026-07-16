@@ -18,6 +18,10 @@ typedef MediaCommandCallbackNative =
     Void Function(Pointer<Int8> kind, Pointer<Int8> payloadJson);
 typedef RegisterMediaCommandCallbackNative =
     Void Function(Pointer<NativeFunction<MediaCommandCallbackNative>>);
+typedef UiCommandCallbackNative =
+    Void Function(Pointer<Int8> kind, Pointer<Int8> payloadJson);
+typedef RegisterUiCommandCallbackNative =
+    Void Function(Pointer<NativeFunction<UiCommandCallbackNative>>);
 
 int _logCallback(Pointer<Int8> levelPtr, Pointer<Int8> msgPtr) {
   final level = levelPtr.cast<Utf8>().toDartString();
@@ -51,6 +55,56 @@ void _mediaCommandCallback(Pointer<Int8> kindPtr, Pointer<Int8> payloadPtr) {
   }
 }
 
+void _uiCommandCallback(Pointer<Int8> kindPtr, Pointer<Int8> payloadPtr) {
+  try {
+    final kind = kindPtr.cast<Utf8>().toDartString();
+    final rawPayload = payloadPtr.cast<Utf8>().toDartString();
+    final decoded = jsonDecode(rawPayload);
+    final payload = decoded is Map
+        ? decoded.map((key, value) => MapEntry(key.toString(), value))
+        : <String, dynamic>{};
+    final bridge = CoreBridge._activeBridge;
+    if (kind == 'dialog_show' && bridge?.onDialogRequested != null) {
+      final request = EngineDialogRequest.fromJson(payload);
+      scheduleMicrotask(() => bridge!.onDialogRequested!(request));
+    }
+  } catch (e) {
+    Log.error('[CoreBridge] UI 命令解析失败: $e');
+  }
+}
+
+class EngineDialogRequest {
+  const EngineDialogRequest({
+    required this.title,
+    required this.message,
+    required this.hasCancel,
+    required this.hasTextField,
+    required this.textFieldSize,
+    required this.initialText,
+  });
+
+  factory EngineDialogRequest.fromJson(Map<String, dynamic> json) {
+    return EngineDialogRequest(
+      title: json['title']?.toString() ?? '',
+      message: json['message']?.toString() ?? '',
+      hasCancel: json['hasCancel'] == true,
+      hasTextField: json['textfield'] == true,
+      textFieldSize: switch (json['textfieldSize']) {
+        final num value when value > 0 => value.toInt(),
+        _ => null,
+      },
+      initialText: json['initialText']?.toString() ?? '',
+    );
+  }
+
+  final String title;
+  final String message;
+  final bool hasCancel;
+  final bool hasTextField;
+  final int? textFieldSize;
+  final String initialText;
+}
+
 // ── Core FFI type definitions ───────────────────────────────────
 
 typedef RuntimeCreateNative =
@@ -71,6 +125,8 @@ typedef RuntimeFeedMouseButtonNative =
     Void Function(Pointer<Void> rt, Uint32 button, Int32 pressed);
 typedef RuntimeFeedKeyNative =
     Void Function(Pointer<Void> rt, Uint32 vk, Int32 pressed);
+typedef RuntimeSubmitDialogNative =
+    Int32 Function(Pointer<Void> rt, Int32 accepted, Pointer<Utf8> text);
 typedef RuntimeStageWidthNative = Uint32 Function(Pointer<Void> rt);
 typedef RuntimeStageHeightNative = Uint32 Function(Pointer<Void> rt);
 typedef RuntimePixelBufferSizeNative = Uint32 Function(Pointer<Void> rt);
@@ -104,8 +160,12 @@ typedef RuntimeUploadVideoLayerFrame =
 class CoreBridge {
   static NativeCallable<LogCallbackNative>? _sharedLogCallable;
   static NativeCallable<MediaCommandCallbackNative>? _sharedMediaCallable;
+  static NativeCallable<UiCommandCallbackNative>? _sharedUiCallable;
   static CoreBridge? _activeBridge;
 
+  CoreBridge({this.onDialogRequested});
+
+  final void Function(EngineDialogRequest request)? onDialogRequested;
   bool _initialized = false;
   DynamicLibrary? _lib;
   Pointer<Void>? _runtime;
@@ -183,6 +243,16 @@ class CoreBridge {
         );
     _activeBridge = this;
     registerMediaFn(_sharedMediaCallable!.nativeFunction);
+
+    final registerUiFn = _lib!
+        .lookupFunction<
+          RegisterUiCommandCallbackNative,
+          void Function(Pointer<NativeFunction<UiCommandCallbackNative>>)
+        >('art3m1s_register_ui_command_callback');
+    _sharedUiCallable ??= NativeCallable<UiCommandCallbackNative>.isolateLocal(
+      _uiCommandCallback,
+    );
+    registerUiFn(_sharedUiCallable!.nativeFunction);
   }
 
   void setDebug(bool enabled) {
@@ -354,6 +424,21 @@ class CoreBridge {
           void Function(Pointer<Void>, int, int)
         >('art3m1s_runtime_feed_key');
     fn(_runtime!, vk, pressed ? 1 : 0);
+  }
+
+  bool submitDialog(bool accepted, String text) {
+    if (_runtime == null || _lib == null) return false;
+    final fn = _lib!
+        .lookupFunction<
+          RuntimeSubmitDialogNative,
+          int Function(Pointer<Void>, int, Pointer<Utf8>)
+        >('art3m1s_runtime_submit_dialog');
+    final textPtr = text.toNativeUtf8();
+    try {
+      return fn(_runtime!, accepted ? 1 : 0, textPtr) != 0;
+    } finally {
+      malloc.free(textPtr);
+    }
   }
 
   Uint8List? advanceAndRender(int deltaMs) {

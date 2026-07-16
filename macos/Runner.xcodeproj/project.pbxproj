@@ -245,6 +245,7 @@
 				33CC110E2044A8840003C045 /* Bundle Framework */,
 				3399D490228B24CF009A79C7 /* ShellScript */,
 				AF1CF067E7BBF37D8B4EF4A3 /* [CP] Embed Pods Frameworks */,
+				A13C0DE00000000000000001 /* Bundle Art3m1s Core */,
 			);
 			buildRules = (
 			);
@@ -431,6 +432,27 @@
 			shellPath = /bin/sh;
 			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-Runner/Pods-Runner-frameworks.sh\"\n";
 			showEnvVarsInLog = 0;
+		};
+		A13C0DE00000000000000001 /* Bundle Art3m1s Core */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/../libart3m1s_core.dylib",
+			);
+			name = "Bundle Art3m1s Core";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(EXECUTABLE_FOLDER_PATH)/libart3m1s_core.dylib",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -e\nSOURCE=\"${SRCROOT}/../libart3m1s_core.dylib\"\nDEST=\"${TARGET_BUILD_DIR}/${EXECUTABLE_FOLDER_PATH}/libart3m1s_core.dylib\"\nif [ ! -f \"${SOURCE}\" ]; then\n  echo \"error: Missing ${SOURCE}. Build and copy art3m1s-core before building the app.\" >&2\n  exit 1\nfi\n/bin/cp -f \"${SOURCE}\" \"${DEST}\"\nSIGN_IDENTITY=\"${EXPANDED_CODE_SIGN_IDENTITY}\"\nif [ -z \"${SIGN_IDENTITY}\" ]; then\n  SIGN_IDENTITY=\"-\"\nfi\n/usr/bin/codesign --force --sign \"${SIGN_IDENTITY}\" --timestamp=none \"${DEST}\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
