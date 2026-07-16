@@ -87,6 +87,17 @@ typedef RuntimeNotifyVideoFinishedNative =
     Void Function(Pointer<Void> rt, Pointer<Utf8> id);
 typedef RuntimeNotifySoundFinishedNative =
     Void Function(Pointer<Void> rt, Pointer<Utf8> id);
+typedef RuntimeUploadVideoLayerFrameNative =
+    Int32 Function(
+      Pointer<Void> rt,
+      Pointer<Utf8> id,
+      Uint32 width,
+      Uint32 height,
+      Pointer<Uint8> rgba,
+      IntPtr rgbaLen,
+    );
+typedef RuntimeUploadVideoLayerFrame =
+    int Function(Pointer<Void>, Pointer<Utf8>, int, int, Pointer<Uint8>, int);
 
 // ── CoreBridge — manages the core runtime lifecycle ─────────────
 
@@ -98,11 +109,14 @@ class CoreBridge {
   bool _initialized = false;
   DynamicLibrary? _lib;
   Pointer<Void>? _runtime;
+  RuntimeUploadVideoLayerFrame? _uploadVideoLayerFrame;
+  final Map<String, Pointer<Utf8>> _videoLayerIds = {};
   int _stageWidth = 1280;
   int _stageHeight = 720;
   late final MediaBridge media = MediaBridge(
     onVideoFinished: notifyVideoFinished,
     onSoundFinished: notifySoundFinished,
+    uploadVideoLayerFrame: _uploadLayerVideoFrame,
   );
 
   bool get isInitialized => _initialized;
@@ -344,6 +358,7 @@ class CoreBridge {
 
   Uint8List? advanceAndRender(int deltaMs) {
     if (_runtime == null || _lib == null) return null;
+    media.pumpLayerVideoFrames();
     final fn = _lib!
         .lookupFunction<
           RuntimeAdvanceRenderNative,
@@ -358,6 +373,25 @@ class CoreBridge {
     } finally {
       malloc.free(out);
     }
+  }
+
+  bool _uploadLayerVideoFrame(
+    String id,
+    int width,
+    int height,
+    Pointer<Uint8> rgba,
+    int rgbaLen,
+  ) {
+    final runtime = _runtime;
+    final lib = _lib;
+    if (runtime == null || lib == null) return false;
+    final fn = _uploadVideoLayerFrame ??= lib
+        .lookupFunction<
+          RuntimeUploadVideoLayerFrameNative,
+          RuntimeUploadVideoLayerFrame
+        >('art3m1s_runtime_upload_video_layer_frame');
+    final idPtr = _videoLayerIds.putIfAbsent(id, id.toNativeUtf8);
+    return fn(runtime, idPtr, width, height, rgba, rgbaLen) != 0;
   }
 
   bool isExitRequested() {
@@ -411,6 +445,11 @@ class CoreBridge {
     final lib = _lib;
     _runtime = null;
     _initialized = false;
+    _uploadVideoLayerFrame = null;
+    for (final id in _videoLayerIds.values) {
+      malloc.free(id);
+    }
+    _videoLayerIds.clear();
 
     if (runtime != null && lib != null) {
       try {
