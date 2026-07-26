@@ -224,9 +224,8 @@ flutter test
 
 ## 版本说明
 
-- [Art3m1s 1.1.0-0.2.0c Release Note](RELEASE_NOTES_1.1.0-0.2.0c.md)
-- [完整变更记录](CHANGELOG.md)
+[完整变更记录](CHANGELOG.md)
 
 ## 许可证
 
-[GNU Affero 通用公共许可证第三版](LICENSE)
+[AGPLv3](LICENSE)
