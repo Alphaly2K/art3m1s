@@ -37,7 +37,13 @@ class _DebugOverlayHostState extends ConsumerState<DebugOverlayHost> {
     if (_entry != null || !mounted) return;
     final overlay = Overlay.maybeOf(context, rootOverlay: true);
     if (overlay == null) return;
-    _entry = OverlayEntry(builder: (_) => const DebugOverlay());
+    _entry = OverlayEntry(
+      builder: (_) => DebugOverlay(
+        onClose: () {
+          ref.read(settingsProvider.notifier).setDebugOverlay(false);
+        },
+      ),
+    );
     overlay.insert(_entry!);
   }
 

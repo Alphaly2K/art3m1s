@@ -29,6 +29,54 @@ class VndbService {
   static final HttpClient _client = HttpClient()
     ..connectionTimeout = _timeout;
 
+  /// 智能查询：把「脏」标题（caption 常含汉化译名 / 版本号 / 补丁公告，或目录名含
+  /// 噪音）切成候选片段、滤掉版本/公告类垃圾，逐段查 VNDB，返回第一个命中的。
+  ///
+  /// 例：`NekoMiko - 神社里的猫巫女 - Ver 1.0.3H 本汉化补丁仅供学习交流…` →
+  /// 候选 `[NekoMiko, 神社里的猫巫女]`（两者 VNDB 都能命中），版本/公告段被丢弃。
+  static Future<VndbGameInfo?> lookupGame(String rawTitle) async {
+    for (final candidate in _candidateQueries(rawTitle)) {
+      final info = await lookup(candidate);
+      if (info != null) return info;
+    }
+    return null;
+  }
+
+  /// 把原始标题拆成按优先级排序的候选查询词（去重、滤垃圾、限 3 个）。
+  static List<String> _candidateQueries(String raw) {
+    final seen = <String>{};
+    final out = <String>[];
+    void add(String s) {
+      final t = s.trim();
+      if (t.isEmpty || t.length > 50 || _looksLikeJunk(t)) return;
+      if (seen.add(t.toLowerCase())) out.add(t);
+    }
+
+    // 常见分隔符：- – — / ~ ｜ | 全角空格，以及各种括号。
+    for (final seg in raw.split(
+      RegExp(r'\s*[-–—/~｜|　]\s*|[「」『』【】\[\]()（）]'),
+    )) {
+      add(seg);
+    }
+    // 一个候选都没有时，退回整串 trim（多半也查不到，但聊胜于无）。
+    if (out.isEmpty) add(raw);
+    return out.take(3).toList();
+  }
+
+  /// 是否是版本号 / 补丁公告等非标题垃圾段。
+  static bool _looksLikeJunk(String s) {
+    // 版本号：Ver 1.0 / v1.0.3 / 1.0.3H 开头。
+    if (RegExp(r'^[vV]er?\.?\s*\d').hasMatch(s)) return true;
+    if (RegExp(r'^\d+\.\d').hasMatch(s)) return true;
+    const junkWords = [
+      '汉化', '補丁', '补丁', '下载', '下載', '删除', '刪除', '学习交流',
+      '學習交流', '仅供', '僅供', '请于', '請於', '体験版', '體験版',
+      '体验版', 'trial', 'demo', 'デモ', 'patch',
+    ];
+    final lower = s.toLowerCase();
+    return junkWords.any((w) => lower.contains(w.toLowerCase()));
+  }
+
   /// 用 [query] 查 VNDB，返回首个匹配的标题 + 封面 URL；无匹配或失败返回 null。
   static Future<VndbGameInfo?> lookup(String query) async {
     final trimmed = query.trim();

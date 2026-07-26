@@ -119,7 +119,10 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
           TranslationProviderConfig.defaults(selectedProvider);
       state = SettingsState(
         debugMode: debugMode,
-        debugOverlay: prefs.getBool('debugOverlay') ?? false,
+        debugOverlay:
+            prefs.getBool('debug_overlay') ??
+            prefs.getBool('debugOverlay') ??
+            false,
         showFps: prefs.getBool('show_fps') ?? false,
         backend:
             prefs.getInt('gfx_backend') ??
@@ -158,9 +161,9 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
 
   Future<void> setDebugOverlay(bool v) async {
     Log.setOverlay(v);
+    state = state.copyWith(debugOverlay: v);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('debug_overlay', v);
-    state = state.copyWith(debugOverlay: v);
   }
 
   Future<void> setShowFps(bool v) async {

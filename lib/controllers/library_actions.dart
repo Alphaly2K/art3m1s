@@ -158,10 +158,12 @@ class LibraryActions {
       platform: ref.read(settingsProvider).runtimePlatform,
     );
     if (!context.mounted) return;
-    final query = (caption != null && caption.trim().isNotEmpty)
-        ? caption.trim()
+    // caption 常是「脏」的（含汉化译名/版本号/补丁公告），lookupGame 会切段滤垃圾
+    // 逐段查；探测不到则退回目录名。
+    final rawTitle = (caption != null && caption.trim().isNotEmpty)
+        ? caption
         : defaultName;
-    final info = await VndbService.lookup(query);
+    final info = await VndbService.lookupGame(rawTitle);
     if (!context.mounted) return;
     var initialName = defaultName;
     String? initialCover;

@@ -16,6 +16,7 @@ import '../providers/library_provider.dart';
 import '../providers/settings_provider.dart';
 import '../screens/licenses_macos.dart';
 import '../screens/translation_settings_screen.dart';
+import 'macos_menu_bar.dart';
 import '../services/logger.dart';
 import '../widgets/debug_overlay_host.dart';
 import '../widgets/game_grid.dart';
@@ -57,51 +58,55 @@ class _MacosHomeState extends State<_MacosHome> {
 
   @override
   Widget build(BuildContext context) {
-    return DebugOverlayHost(
-      child: MacosWindow(
-        sidebarState: NSVisualEffectViewState.active,
-        sidebar: Sidebar(
-          minWidth: 190,
-          builder: (context, scrollController) => SidebarItems(
-            currentIndex: _index,
-            scrollController: scrollController,
-            onChanged: (i) => setState(() => _index = i),
-            itemSize: SidebarItemSize.large,
-            // macos_ui 默认选中色带 0.75 透明度且随窗口主/非主状态切换，
-            // textLuminance 的黑白判定会与实际视觉亮度脱节，文字间歇性
-            // 撞色不可读。固定为不透明系统蓝 → 文字恒为白色。
-            selectedColor: const MacosColor.fromRGBO(22, 105, 229, 1.0),
-            items: const [
-              SidebarItem(
-                leading: MacosIcon(CupertinoIcons.square_grid_2x2),
-                label: Text('资料库'),
-              ),
-              SidebarItem(
-                leading: MacosIcon(CupertinoIcons.gear),
-                label: Text('设置'),
-              ),
-              SidebarItem(
-                leading: MacosIcon(CupertinoIcons.info_circle),
-                label: Text('关于'),
-              ),
-            ],
-          ),
-          bottom: const Padding(
-            padding: EdgeInsets.all(12),
-            child: Text(
-              'Art3m1s 1.0.0',
-              style: TextStyle(
-                fontSize: 11,
-                color: MacosColors.systemGrayColor,
+    return MacosMenuBar(
+      onOpenSettings: () => setState(() => _index = 1),
+      onOpenAbout: () => setState(() => _index = 2),
+      child: DebugOverlayHost(
+        child: MacosWindow(
+          sidebarState: NSVisualEffectViewState.active,
+          sidebar: Sidebar(
+            minWidth: 190,
+            builder: (context, scrollController) => SidebarItems(
+              currentIndex: _index,
+              scrollController: scrollController,
+              onChanged: (i) => setState(() => _index = i),
+              itemSize: SidebarItemSize.large,
+              // macos_ui 默认选中色带 0.75 透明度且随窗口主/非主状态切换，
+              // textLuminance 的黑白判定会与实际视觉亮度脱节，文字间歇性
+              // 撞色不可读。固定为不透明系统蓝 → 文字恒为白色。
+              selectedColor: const MacosColor.fromRGBO(22, 105, 229, 1.0),
+              items: const [
+                SidebarItem(
+                  leading: MacosIcon(CupertinoIcons.square_grid_2x2),
+                  label: Text('资料库'),
+                ),
+                SidebarItem(
+                  leading: MacosIcon(CupertinoIcons.gear),
+                  label: Text('设置'),
+                ),
+                SidebarItem(
+                  leading: MacosIcon(CupertinoIcons.info_circle),
+                  label: Text('关于'),
+                ),
+              ],
+            ),
+            bottom: const Padding(
+              padding: EdgeInsets.all(12),
+              child: Text(
+                'Art3m1s 1.0.0',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: MacosColors.systemGrayColor,
+                ),
               ),
             ),
           ),
+          child: switch (_index) {
+            0 => const _MacosLibraryPage(),
+            1 => const _MacosSettingsPage(),
+            _ => const _MacosAboutPage(),
+          },
         ),
-        child: switch (_index) {
-          0 => const _MacosLibraryPage(),
-          1 => const _MacosSettingsPage(),
-          _ => const _MacosAboutPage(),
-        },
       ),
     );
   }
@@ -254,9 +259,11 @@ class _MacosSettingsPage extends ConsumerWidget {
                           controlSize: ControlSize.regular,
                           secondary: true,
                           onPressed: () {
+                            // 与「第三方许可证」一致用 CupertinoPageRoute，带滑入动画
+                            //（原 PageRouteBuilder 未给 transitionsBuilder，无动画）。
                             Navigator.of(context).push(
-                              PageRouteBuilder<void>(
-                                pageBuilder: (_, _, _) =>
+                              CupertinoPageRoute<void>(
+                                builder: (_) =>
                                     const TranslationSettingsScreen(),
                               ),
                             );

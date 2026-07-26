@@ -109,7 +109,9 @@ class LogEntry {
 
 /// Draggable + resizable debug console overlay.
 class DebugOverlay extends StatefulWidget {
-  const DebugOverlay({super.key});
+  final VoidCallback onClose;
+
+  const DebugOverlay({super.key, required this.onClose});
 
   @override
   State<DebugOverlay> createState() => _DebugOverlayState();
@@ -119,6 +121,13 @@ class _DebugOverlayState extends State<DebugOverlay> {
   Offset _pos = const Offset(60, 200);
   Size _size = const Size(520, 300);
   static const _minSize = Size(300, 150);
+  static String get _fontFamily {
+    if (Platform.isMacOS || Platform.isIOS) return 'Menlo';
+    if (Platform.isWindows) return 'Consolas';
+    if (Platform.isLinux) return 'DejaVu Sans Mono';
+    return 'monospace';
+  }
+
   final _scroll = ScrollController();
   bool _autoScroll = true;
   bool _refreshScheduled = false;
@@ -162,16 +171,26 @@ class _DebugOverlayState extends State<DebugOverlay> {
       top: _pos.dy,
       width: _size.width,
       height: _size.height,
-      child: GestureDetector(
-        onPanUpdate: _move,
-        child: Material(
-          elevation: 12,
-          borderRadius: BorderRadius.circular(8),
+      // 自成一体的深色控制台：显式浅色文字，不依赖环境主题（浮层在根 Overlay，
+      // 拿不到 app 主题的文字色，之前正文因此在深色下不可见）。
+      child: Material(
+        color: Colors.transparent,
+        elevation: 16,
+        borderRadius: BorderRadius.circular(10),
+        child: DefaultTextStyle(
+          style: TextStyle(
+            fontFamily: _fontFamily,
+            fontSize: 11,
+            height: 1.35,
+            color: Color(0xFFD4D4D8),
+            decoration: TextDecoration.none,
+          ),
           child: Container(
+            clipBehavior: Clip.antiAlias,
             decoration: BoxDecoration(
-              color: const Color(0xEE1A1A2E),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.white24),
+              color: const Color(0xF218181B),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: const Color(0x1FFFFFFF)),
             ),
             child: Column(
               children: [
@@ -187,49 +206,76 @@ class _DebugOverlayState extends State<DebugOverlay> {
   }
 
   Widget _buildHeader(int count, List<LogEntry> entries) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: const BoxDecoration(
-        color: Color(0xCC000000),
-        borderRadius: BorderRadius.vertical(top: Radius.circular(7)),
-      ),
-      child: Row(
-        children: [
-          const Text(
-            '调试',
-            style: TextStyle(fontSize: 11, color: Colors.white54),
-          ),
-          const Spacer(),
-          Text(
-            '$count',
-            style: const TextStyle(fontSize: 10, color: Colors.white30),
-          ),
-          const SizedBox(width: 8),
-          _btn(
-            Icons.pause,
-            _autoScroll,
-            () => setState(() => _autoScroll = !_autoScroll),
-          ),
-          _btn(Icons.copy, false, () async {
-            final text = entries
-                .map((e) => '[${e.timestamp}] [${e.level}] ${e.message}')
-                .join('\n');
-            await Clipboard.setData(ClipboardData(text: text));
-          }),
-          _btn(Icons.delete_outline, false, Log.clear),
-          _btn(Icons.close, false, () => _close()),
-        ],
+    // 顶栏兼作拖动把手（之前整块面板可拖，会和日志列表滚动抢手势）。
+    return GestureDetector(
+      onPanUpdate: _move,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(10, 7, 6, 7),
+        decoration: const BoxDecoration(
+          color: Color(0xFF232329),
+          border: Border(bottom: BorderSide(color: Color(0x14FFFFFF))),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.terminal, size: 13, color: Color(0xFF8B8B93)),
+            const SizedBox(width: 6),
+            const Text(
+              '调试控制台',
+              style: TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFFE4E4E7),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+              decoration: BoxDecoration(
+                color: const Color(0x1FFFFFFF),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                '$count',
+                style: const TextStyle(fontSize: 10, color: Color(0xFFA1A1AA)),
+              ),
+            ),
+            const Spacer(),
+            _btn(
+              _autoScroll ? Icons.vertical_align_bottom : Icons.pause,
+              _autoScroll ? '自动滚动（点击暂停）' : '已暂停（点击恢复）',
+              _autoScroll,
+              () => setState(() => _autoScroll = !_autoScroll),
+            ),
+            _btn(Icons.copy_all_outlined, '复制全部', false, () async {
+              final text = entries
+                  .map((e) => '[${e.timestamp}] [${e.level}] ${e.message}')
+                  .join('\n');
+              await Clipboard.setData(ClipboardData(text: text));
+            }),
+            _btn(Icons.delete_outline, '清空', false, Log.clear),
+            _btn(Icons.close, '关闭', false, _close),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _btn(IconData icon, bool active, VoidCallback onTap) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Icon(
-        icon,
-        size: 14,
-        color: active ? Colors.greenAccent : Colors.white54,
+  Widget _btn(IconData icon, String tip, bool active, VoidCallback onTap) {
+    return Tooltip(
+      message: tip,
+      waitDuration: const Duration(milliseconds: 500),
+      child: GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+          child: Icon(
+            icon,
+            size: 15,
+            color: active ? const Color(0xFF4ADE80) : const Color(0xFF9CA3AF),
+          ),
+        ),
       ),
     );
   }
@@ -238,63 +284,65 @@ class _DebugOverlayState extends State<DebugOverlay> {
     if (entries.isEmpty) {
       return const Center(
         child: Text(
-          '等待日志...',
-          style: TextStyle(color: Colors.white30, fontSize: 12),
+          '等待日志…',
+          style: TextStyle(color: Color(0xFF6B7280), fontSize: 12),
         ),
       );
     }
-    return ListView.builder(
+    return Scrollbar(
       controller: _scroll,
-      padding: const EdgeInsets.symmetric(horizontal: 6),
-      itemCount: entries.length,
-      itemBuilder: (_, i) {
-        final e = entries[i];
-        return Padding(
-          padding: const EdgeInsets.symmetric(vertical: 0.5),
-          child: Text.rich(
-            TextSpan(
-              children: [
-                TextSpan(
-                  text: '${_ts(e.timestamp)} ',
-                  style: const TextStyle(fontSize: 10, color: Colors.grey),
-                ),
-                TextSpan(
-                  text: '[${e.level}] ',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                    color: _lc(e.level),
+      child: ListView.builder(
+        controller: _scroll,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        itemCount: entries.length,
+        itemBuilder: (_, i) {
+          final e = entries[i];
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 1.5),
+            child: Text.rich(
+              TextSpan(
+                children: [
+                  TextSpan(
+                    text: '${_ts(e.timestamp)}  ',
+                    style: const TextStyle(
+                      fontSize: 10.5,
+                      color: Color(0xFF6B7280),
+                    ),
                   ),
-                ),
-                TextSpan(text: e.message, style: const TextStyle(fontSize: 11)),
-              ],
+                  TextSpan(
+                    text: '${e.level}  ',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: _lc(e.level),
+                    ),
+                  ),
+                  // 正文：显式浅色，深色控制台上清晰可读。
+                  TextSpan(
+                    text: e.message,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: Color(0xFFD4D4D8),
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-        );
-      },
+          );
+        },
+      ),
     );
   }
 
   Widget _buildResizeHandle() {
-    return GestureDetector(
-      onPanUpdate: _resize,
-      child: Align(
-        alignment: Alignment.bottomRight,
-        child: Container(
-          width: 16,
-          height: 16,
-          decoration: const BoxDecoration(
-            color: Colors.white12,
-            borderRadius: BorderRadius.only(
-              topLeft: Radius.circular(4),
-              bottomRight: Radius.circular(6),
-            ),
-          ),
-          child: const Icon(
-            Icons.drag_indicator,
-            size: 10,
-            color: Colors.white30,
-          ),
+    return Align(
+      alignment: Alignment.bottomRight,
+      child: GestureDetector(
+        onPanUpdate: _resize,
+        behavior: HitTestBehavior.opaque,
+        child: const Padding(
+          padding: EdgeInsets.all(3),
+          child: Icon(Icons.south_east, size: 12, color: Color(0xFF6B7280)),
         ),
       ),
     );
@@ -314,17 +362,18 @@ class _DebugOverlayState extends State<DebugOverlay> {
   }
 
   void _close() {
-    Log.setOverlay(false);
+    widget.onClose();
   }
 
   String _ts(DateTime t) =>
       '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}:${t.second.toString().padLeft(2, '0')}.${t.millisecond.toString().padLeft(3, '0')}';
 
+  // 深色控制台上高对比的级别色。
   Color _lc(String l) => switch (l) {
-    'D' => Colors.cyan,
-    'I' => Colors.green,
-    'W' => Colors.orange,
-    'E' => Colors.red,
-    _ => Colors.white,
+    'D' => const Color(0xFF38BDF8), // sky
+    'I' => const Color(0xFF4ADE80), // green
+    'W' => const Color(0xFFFBBF24), // amber
+    'E' => const Color(0xFFF87171), // red
+    _ => const Color(0xFF9CA3AF),
   };
 }
