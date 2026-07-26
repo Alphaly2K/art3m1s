@@ -773,6 +773,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                 _feedPointerPosition(event, ox, oy, scale),
             onPointerMove: (event) {
               _feedPointerPosition(event, ox, oy, scale);
+              _feedTouch(event, 1, ox, oy, scale);
               _syncPointerButtons(event.buttons);
             },
             onPointerDown: (event) {
@@ -782,6 +783,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
               }
               _gameFocusNode.requestFocus();
               _feedPointerPosition(event, ox, oy, scale);
+              _feedTouch(event, 0, ox, oy, scale);
               _syncPointerButtons(event.buttons);
             },
             onPointerUp: (event) {
@@ -790,6 +792,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
               }
               _activePointers.remove(event.pointer);
               _feedPointerPosition(event, ox, oy, scale);
+              _feedTouch(event, 2, ox, oy, scale);
               _syncPointerButtons(event.buttons);
             },
             onPointerCancel: (event) {
@@ -797,6 +800,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                 _bridge.feedMouseButton(2, false);
               }
               _activePointers.remove(event.pointer);
+              _feedTouch(event, 2, ox, oy, scale);
               _releasePointerButtons();
             },
             onPointerSignal: _handlePointerSignal,
@@ -854,6 +858,20 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   ) {
     final point = _stagePoint(event.localPosition, ox, oy, scale);
     _bridge.feedMouse(point.dx.toInt(), point.dy.toInt());
+  }
+
+  /// 把真实触摸事件转发给 core（驱动 getTouchCount/Point、flick、多点触控）。
+  /// 只对触摸类指针发；鼠标/触控板仍走原鼠标路径。phase：0=down/1=move/2=up。
+  void _feedTouch(
+    PointerEvent event,
+    int phase,
+    double ox,
+    double oy,
+    double scale,
+  ) {
+    if (event.kind != PointerDeviceKind.touch) return;
+    final point = _stagePoint(event.localPosition, ox, oy, scale);
+    _bridge.feedTouch(event.pointer, phase, point.dx.toInt(), point.dy.toInt());
   }
 
   Offset _stagePoint(Offset localPosition, double ox, double oy, double scale) {

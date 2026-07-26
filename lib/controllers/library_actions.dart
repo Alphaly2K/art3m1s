@@ -9,9 +9,12 @@ import '../adaptive/dialogs.dart';
 import '../adaptive/feedback.dart';
 import '../models/game_entry.dart';
 import '../providers/library_provider.dart';
+import '../providers/settings_provider.dart';
+import '../services/core_bridge.dart';
 import '../screens/player_screen.dart';
 import '../services/game_importer.dart';
 import '../services/logger.dart';
+import '../services/vndb_service.dart';
 
 /// 资料库的全部业务流程，三个壳共用；壳只负责入口控件的平台样式。
 class LibraryActions {
@@ -146,10 +149,36 @@ class LibraryActions {
     String path,
     GameSource source,
   ) async {
+    // 先 headless 探测真实 caption（游戏标题）作 VNDB 查询词——比目录名/文件名准得多
+    // （目录名常是罗马音缩写，会命中错的 VN）；探测失败回退目录名。全 best-effort。
+    notify(context, '正在获取游戏信息…');
+    final caption = await CoreBridge().probeCaption(
+      projectPath: path,
+      isPfsArchive: source == GameSource.pfsArchive,
+      platform: ref.read(settingsProvider).runtimePlatform,
+    );
+    if (!context.mounted) return;
+    final query = (caption != null && caption.trim().isNotEmpty)
+        ? caption.trim()
+        : defaultName;
+    final info = await VndbService.lookup(query);
+    if (!context.mounted) return;
+    var initialName = defaultName;
+    String? initialCover;
+    if (info != null) {
+      initialName = info.title;
+      final imageUrl = info.imageUrl;
+      if (imageUrl != null) {
+        initialCover = await VndbService.downloadCover(imageUrl, defaultName);
+        if (!context.mounted) return;
+      }
+    }
+
     final result = await showGameEditDialog(
       context,
       title: '添加项目',
-      initialName: defaultName,
+      initialName: initialName,
+      initialCoverPath: initialCover,
     );
     if (result == null || !context.mounted) return;
 

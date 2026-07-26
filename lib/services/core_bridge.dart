@@ -132,7 +132,7 @@ void _uiCommandCallback(Pointer<Int8> kindPtr, Pointer<Int8> payloadPtr) {
         final ruby = payload['ruby']?.toString();
         if (serial != null && text != null) {
           scheduleMicrotask(
-            () => bridge._translateAndSubmit(serial, text, ruby: ruby),
+            () => bridge._queueTranslation(serial, text, ruby: ruby),
           );
         }
       case 'avoid':
@@ -150,14 +150,16 @@ void _uiCommandCallback(Pointer<Int8> kindPtr, Pointer<Int8> payloadPtr) {
         final hide = _asBool(payload['hide']) || _asBool(payload['hidden']);
         bridge.cursorHidden.value = hide;
       case 'caption':
-        final title = payload['caption']?.toString() ?? payload['text']?.toString();
+        // core 发的字段是 data（events.rs），旧代码读 caption/text 一直取不到值。
+        final title =
+            payload['data']?.toString() ??
+            payload['caption']?.toString() ??
+            payload['text']?.toString();
         if (title != null) bridge.windowTitle.value = title;
       case 'write_clipboard':
         final text = payload['text']?.toString();
         if (text != null) {
-          scheduleMicrotask(
-            () => Clipboard.setData(ClipboardData(text: text)),
-          );
+          scheduleMicrotask(() => Clipboard.setData(ClipboardData(text: text)));
         }
       case 'vibrate':
         scheduleMicrotask(HapticFeedback.mediumImpact);
@@ -168,12 +170,37 @@ void _uiCommandCallback(Pointer<Int8> kindPtr, Pointer<Int8> payloadPtr) {
             show ? SystemUiMode.edgeToEdge : SystemUiMode.immersiveSticky,
           ),
         );
+      case 'openbrowser':
+        // [openbrowser]：用系统默认浏览器打开 url。桌面无依赖走 Process.run
+        //（open / cmd start / xdg-open）；移动端无外部命令路径，暂不支持。
+        final url = payload['url']?.toString();
+        if (url != null && url.isNotEmpty) {
+          scheduleMicrotask(() => _openInBrowser(url));
+        }
       default:
-        // 未处理的 kind（openbrowser/http_request/callnative 等）暂由宿主按需扩展。
+        // 未处理的 kind（http_request/callnative 等）暂由宿主按需扩展。
         break;
     }
   } catch (e) {
     Log.error('[CoreBridge] UI 命令解析失败: $e');
+  }
+}
+
+/// 用系统默认浏览器打开 url（桌面无依赖方案）。Windows 的 `start` 需一个空标题
+/// 占位参数，否则含空格/& 的 url 会被当成窗口标题。移动端无外部命令，静默忽略。
+Future<void> _openInBrowser(String url) async {
+  try {
+    if (Platform.isMacOS) {
+      await Process.run('open', [url]);
+    } else if (Platform.isWindows) {
+      await Process.run('cmd', ['/c', 'start', '', url]);
+    } else if (Platform.isLinux) {
+      await Process.run('xdg-open', [url]);
+    } else {
+      Log.warn('[CoreBridge] openbrowser 在此平台不支持: $url');
+    }
+  } catch (e) {
+    Log.error('[CoreBridge] openbrowser 失败: $e');
   }
 }
 
@@ -259,6 +286,17 @@ typedef RuntimeFeedMouseNative =
 typedef RuntimeFeedClickNative = Void Function(Pointer<Void> rt);
 typedef RuntimeFeedMouseButtonNative =
     Void Function(Pointer<Void> rt, Uint32 button, Int32 pressed);
+typedef RuntimeFeedTouchNative =
+    Void Function(Pointer<Void> rt, Uint32 id, Uint8 phase, Int32 x, Int32 y);
+// Headless caption 探测（导入时用）：不需要 runtime，只需 lib + 已注册文件读回调。
+typedef ProbeCaptionNative =
+    Int32 Function(
+      Pointer<Uint8> ini,
+      IntPtr iniLen,
+      Pointer<Utf8> platform,
+      Pointer<Uint8> outBuf,
+      Int32 cap,
+    );
 typedef RuntimeFeedKeyNative =
     Void Function(Pointer<Void> rt, Uint32 vk, Int32 pressed);
 typedef RuntimeSubmitDialogNative =
@@ -357,6 +395,7 @@ class CoreBridge {
       'SimSun',
     ];
   }
+
   late final MediaBridge media = MediaBridge(
     onVideoFinished: notifyVideoFinished,
     onSoundFinished: notifySoundFinished,
@@ -492,18 +531,21 @@ class CoreBridge {
     }
   }
 
-  Future<void> _translateAndSubmit(
-    int serial,
-    String source, {
-    String? ruby,
-  }) async {
+  void _queueTranslation(int serial, String source, {String? ruby}) {
     final service = translation;
     if (service == null) {
       submitTextTranslation(serial, null);
       return;
     }
-    final translated = await service.translate(source, ruby: ruby);
-    submitTextTranslation(serial, translated);
+    service.enqueue(
+      source,
+      ruby: ruby,
+      onComplete: (translated) {
+        if (translation == service) {
+          submitTextTranslation(serial, translated);
+        }
+      },
+    );
   }
 
   void setDebug(bool enabled) {
@@ -618,6 +660,74 @@ class CoreBridge {
     }
   }
 
+  /// Headless 探测游戏 caption（导入时用）：把文件供给指向候选游戏、读 system.ini，
+  /// 只跑解释器到发出第一个 `[caption]` 就返回其文本（不建 runtime/GL，近乎瞬时）。
+  /// 任何失败（库加载不了、system.ini 读不到、boot 在发 caption 前阻塞/出错）返回 null。
+  /// 独立于 player 的 CoreBridge：只用 lib + 进程级 FileProvider，不动 _activeBridge。
+  Future<String?> probeCaption({
+    required String projectPath,
+    required bool isPfsArchive,
+    String platform = 'WINDOWS',
+  }) async {
+    try {
+      _loadLibrary();
+    } catch (e) {
+      Log.warn('[CoreBridge] probeCaption 加载库失败: $e');
+      return null;
+    }
+    final lib = _lib;
+    if (lib == null) return null;
+
+    Uint8List? iniContent;
+    try {
+      if (isPfsArchive) {
+        FileProvider.openPfs(projectPath);
+        iniContent = FileProvider.readFile('system.ini');
+      } else {
+        FileProvider.openDirectory(projectPath);
+        iniContent = File(
+          '$projectPath${Platform.pathSeparator}system.ini',
+        ).readAsBytesSync();
+      }
+    } catch (e) {
+      Log.warn('[CoreBridge] probeCaption 读取 system.ini 失败: $e');
+      FileProvider.close();
+      return null;
+    }
+    if (iniContent == null || iniContent.isEmpty) {
+      FileProvider.close();
+      return null;
+    }
+
+    // boot 脚本经 core 的 request_file 回调到 FileProvider，须先注册文件读回调。
+    FileProvider.register(lib);
+
+    final fn = lib
+        .lookupFunction<
+          ProbeCaptionNative,
+          int Function(Pointer<Uint8>, int, Pointer<Utf8>, Pointer<Uint8>, int)
+        >('art3m1s_probe_caption');
+
+    const cap = 1024;
+    final iniPtr = malloc.allocate<Uint8>(iniContent.length);
+    final platPtr = platform.trim().toUpperCase().toNativeUtf8();
+    final outBuf = malloc.allocate<Uint8>(cap);
+    try {
+      iniPtr.asTypedList(iniContent.length).setAll(0, iniContent);
+      final len = fn(iniPtr, iniContent.length, platPtr, outBuf, cap);
+      if (len <= 0) return null;
+      return utf8.decode(outBuf.asTypedList(len), allowMalformed: true);
+    } catch (e) {
+      Log.warn('[CoreBridge] probeCaption 调用失败: $e');
+      return null;
+    } finally {
+      malloc.free(iniPtr);
+      malloc.free(platPtr);
+      malloc.free(outBuf);
+      FileProvider.close();
+    }
+  }
+
   void _updateStageSize() {
     if (_runtime == null || _lib == null) return;
     try {
@@ -665,6 +775,18 @@ class CoreBridge {
           void Function(Pointer<Void>, int, int)
         >('art3m1s_runtime_feed_mouse_button');
     fn(_runtime!, button, pressed ? 1 : 0);
+  }
+
+  /// 转发真实触摸点给 core（驱动 getTouchCount/Point、flick、多点触控）。
+  /// phase：0=down / 1=move / 2=up；id 用 Flutter 的 pointer 唯一标识。
+  void feedTouch(int id, int phase, int x, int y) {
+    if (_runtime == null || _lib == null) return;
+    final fn = _lib!
+        .lookupFunction<
+          RuntimeFeedTouchNative,
+          void Function(Pointer<Void>, int, int, int, int)
+        >('art3m1s_runtime_feed_touch');
+    fn(_runtime!, id, phase, x, y);
   }
 
   void feedKey(int vk, bool pressed) {
@@ -765,9 +887,10 @@ class CoreBridge {
   void notifyLifecycle(int state) {
     if (_runtime == null || _lib == null) return;
     try {
-      final fn = _lib!.lookupFunction<NotifyLifecycleNative, NotifyLifecycleDart>(
-        'art3m1s_runtime_notify_lifecycle',
-      );
+      final fn = _lib!
+          .lookupFunction<NotifyLifecycleNative, NotifyLifecycleDart>(
+            'art3m1s_runtime_notify_lifecycle',
+          );
       fn(_runtime!, state);
     } catch (e) {
       Log.warn('[CoreBridge] notifyLifecycle 不可用: $e');
