@@ -6,8 +6,12 @@ import 'package:path_provider/path_provider.dart';
 
 class Log {
   static final _logs = <LogEntry>[];
+  static final _runtimeSessionLogs = <LogEntry>[];
   static final _notifier = ValueNotifier<int>(0);
+  static Future<void> _fileWriteQueue = Future<void>.value();
   static bool _debugEnabled = false;
+  static bool _runtimeSessionActive = false;
+  static bool _hasRuntimeSession = false;
   static bool overlayVisible = false;
   static VoidCallback? _onOverlayToggle;
 
@@ -25,11 +29,26 @@ class Log {
     _onOverlayToggle = onToggle;
   }
 
+  static void startRuntimeSession() {
+    _runtimeSessionLogs.clear();
+    _runtimeSessionActive = true;
+    _hasRuntimeSession = true;
+    _fileWriteQueue = _fileWriteQueue.then((_) => _truncateCurrentLog());
+  }
+
+  static void endRuntimeSession() {
+    _runtimeSessionActive = false;
+  }
+
   static void _add(String level, String msg) {
-    _logs.add(LogEntry(DateTime.now(), level, msg));
+    final entry = LogEntry(DateTime.now(), level, msg);
+    _logs.add(entry);
+    if (_runtimeSessionActive) {
+      _runtimeSessionLogs.add(entry);
+    }
     if (_logs.length > 5000) _logs.removeRange(0, _logs.length - 5000);
     _notifier.value = _logs.length;
-    _writeFile(level, msg);
+    _fileWriteQueue = _fileWriteQueue.then((_) => _writeFile(entry));
   }
 
   static void debug(String msg) {
@@ -42,10 +61,15 @@ class Log {
 
   static Future<File> exportToFile() async {
     final dir = await getApplicationDocumentsDirectory();
-    final file = File('${dir.path}/art3m1s_${DateTime.now().millisecondsSinceEpoch}.log');
+    final file = File(
+      '${dir.path}/art3m1s_${DateTime.now().millisecondsSinceEpoch}.log',
+    );
     final sink = file.openWrite();
-    for (final e in _logs) {
-      sink.writeln('[${e.timestamp.toIso8601String()}] [${e.level}] ${e.message}');
+    final entries = _hasRuntimeSession ? _runtimeSessionLogs : _logs;
+    for (final e in entries) {
+      sink.writeln(
+        '[${e.timestamp.toIso8601String()}] [${e.level}] ${e.message}',
+      );
     }
     await sink.close();
     return file;
@@ -56,12 +80,20 @@ class Log {
     _notifier.value = 0;
   }
 
-  static Future<void> _writeFile(String level, String msg) async {
+  static Future<void> _truncateCurrentLog() async {
+    try {
+      final dir = await getApplicationDocumentsDirectory();
+      final file = File('${dir.path}/art3m1s.log');
+      await file.writeAsString('');
+    } catch (_) {}
+  }
+
+  static Future<void> _writeFile(LogEntry entry) async {
     try {
       final dir = await getApplicationDocumentsDirectory();
       final file = File('${dir.path}/art3m1s.log');
       await file.writeAsString(
-        '[${DateTime.now().toIso8601String()}] [$level] $msg\n',
+        '[${entry.timestamp.toIso8601String()}] [${entry.level}] ${entry.message}\n',
         mode: FileMode.append,
       );
     } catch (_) {}
@@ -163,13 +195,25 @@ class _DebugOverlayState extends State<DebugOverlay> {
       ),
       child: Row(
         children: [
-          const Text('调试', style: TextStyle(fontSize: 11, color: Colors.white54)),
+          const Text(
+            '调试',
+            style: TextStyle(fontSize: 11, color: Colors.white54),
+          ),
           const Spacer(),
-          Text('$count', style: const TextStyle(fontSize: 10, color: Colors.white30)),
+          Text(
+            '$count',
+            style: const TextStyle(fontSize: 10, color: Colors.white30),
+          ),
           const SizedBox(width: 8),
-          _btn(Icons.pause, _autoScroll, () => setState(() => _autoScroll = !_autoScroll)),
+          _btn(
+            Icons.pause,
+            _autoScroll,
+            () => setState(() => _autoScroll = !_autoScroll),
+          ),
           _btn(Icons.copy, false, () async {
-            final text = entries.map((e) => '[${e.timestamp}] [${e.level}] ${e.message}').join('\n');
+            final text = entries
+                .map((e) => '[${e.timestamp}] [${e.level}] ${e.message}')
+                .join('\n');
             await Clipboard.setData(ClipboardData(text: text));
           }),
           _btn(Icons.delete_outline, false, Log.clear),
@@ -182,13 +226,22 @@ class _DebugOverlayState extends State<DebugOverlay> {
   Widget _btn(IconData icon, bool active, VoidCallback onTap) {
     return GestureDetector(
       onTap: onTap,
-      child: Icon(icon, size: 14, color: active ? Colors.greenAccent : Colors.white54),
+      child: Icon(
+        icon,
+        size: 14,
+        color: active ? Colors.greenAccent : Colors.white54,
+      ),
     );
   }
 
   Widget _buildLogList(List<LogEntry> entries) {
     if (entries.isEmpty) {
-      return const Center(child: Text('等待日志...', style: TextStyle(color: Colors.white30, fontSize: 12)));
+      return const Center(
+        child: Text(
+          '等待日志...',
+          style: TextStyle(color: Colors.white30, fontSize: 12),
+        ),
+      );
     }
     return ListView.builder(
       controller: _scroll,
@@ -199,13 +252,23 @@ class _DebugOverlayState extends State<DebugOverlay> {
         return Padding(
           padding: const EdgeInsets.symmetric(vertical: 0.5),
           child: Text.rich(
-            TextSpan(children: [
-              TextSpan(text: '${_ts(e.timestamp)} ',
-                  style: const TextStyle(fontSize: 10, color: Colors.grey)),
-              TextSpan(text: '[${e.level}] ',
-                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: _lc(e.level))),
-              TextSpan(text: e.message, style: const TextStyle(fontSize: 11)),
-            ]),
+            TextSpan(
+              children: [
+                TextSpan(
+                  text: '${_ts(e.timestamp)} ',
+                  style: const TextStyle(fontSize: 10, color: Colors.grey),
+                ),
+                TextSpan(
+                  text: '[${e.level}] ',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: _lc(e.level),
+                  ),
+                ),
+                TextSpan(text: e.message, style: const TextStyle(fontSize: 11)),
+              ],
+            ),
           ),
         );
       },
@@ -218,7 +281,8 @@ class _DebugOverlayState extends State<DebugOverlay> {
       child: Align(
         alignment: Alignment.bottomRight,
         child: Container(
-          width: 16, height: 16,
+          width: 16,
+          height: 16,
           decoration: const BoxDecoration(
             color: Colors.white12,
             borderRadius: BorderRadius.only(
@@ -226,7 +290,11 @@ class _DebugOverlayState extends State<DebugOverlay> {
               bottomRight: Radius.circular(6),
             ),
           ),
-          child: const Icon(Icons.drag_indicator, size: 10, color: Colors.white30),
+          child: const Icon(
+            Icons.drag_indicator,
+            size: 10,
+            color: Colors.white30,
+          ),
         ),
       ),
     );
@@ -253,6 +321,10 @@ class _DebugOverlayState extends State<DebugOverlay> {
       '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}:${t.second.toString().padLeft(2, '0')}.${t.millisecond.toString().padLeft(3, '0')}';
 
   Color _lc(String l) => switch (l) {
-        'D' => Colors.cyan, 'I' => Colors.green, 'W' => Colors.orange, 'E' => Colors.red, _ => Colors.white,
-      };
+    'D' => Colors.cyan,
+    'I' => Colors.green,
+    'W' => Colors.orange,
+    'E' => Colors.red,
+    _ => Colors.white,
+  };
 }

@@ -63,6 +63,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   @override
   void initState() {
     super.initState();
+    Log.startRuntimeSession();
     _bridge = CoreBridge(onDialogRequested: _showEngineDialog);
     _keyboardCtrl.addListener(_onKeyboardInput);
     _lockOrientation();
@@ -407,6 +408,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     _keyboardCtrl.dispose();
     _keyboardNode.dispose();
     _bridge.shutdown();
+    Log.endRuntimeSession();
     super.dispose();
   }
 
@@ -510,7 +512,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
 
   Widget _buildFpsDisplay() {
     return Positioned(
-      top: 8,
+      // macOS 沉浸式标题栏下红绿灯悬浮在左上角，往下让开。
+      top: Platform.isMacOS ? 36 : 8,
       left: 8,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),

@@ -1,9 +1,8 @@
-import 'dart:io' show Platform;
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'about_screen.dart';
+import '../models/render_backend.dart';
 import '../providers/settings_provider.dart';
 import '../services/logger.dart';
 
@@ -21,12 +20,12 @@ class SettingsScreen extends ConsumerWidget {
           const _SectionHeader('渲染'),
           ListTile(
             title: const Text('图形后端'),
-            subtitle: Text(_backendName(settings.backend)),
+            subtitle: Text(backendName(settings.backend)),
           ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: SegmentedButton<int>(
-              segments: _availableBackends()
+              segments: availableBackends()
                   .map(
                     (o) => ButtonSegment(value: o.value, label: Text(o.label)),
                   )
@@ -43,11 +42,9 @@ class SettingsScreen extends ConsumerWidget {
             subtitle: const Text('选择 system.ini 使用的启动段'),
             trailing: DropdownButton<String>(
               value: settings.runtimePlatform,
-              items: const [
-                DropdownMenuItem(value: 'WINDOWS', child: Text('WINDOWS')),
-                DropdownMenuItem(value: 'ANDROID', child: Text('ANDROID')),
-                DropdownMenuItem(value: 'IOS', child: Text('IOS')),
-                DropdownMenuItem(value: 'WASM', child: Text('WASM')),
+              items: [
+                for (final p in runtimePlatforms)
+                  DropdownMenuItem(value: p, child: Text(p)),
               ],
               onChanged: (value) {
                 if (value != null) {
@@ -109,43 +106,6 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
-  List<_Option> _availableBackends() {
-    final list = <_Option>[];
-    if (Platform.isMacOS) {
-      list.add(const _Option(3, 'Metal'));
-      list.add(const _Option(0, 'CGL'));
-    }
-    if (Platform.isIOS) {
-      list.add(const _Option(3, 'Metal'));
-    }
-    if (Platform.isLinux) {
-      list.add(const _Option(2, 'Vulkan'));
-    }
-    if (Platform.isWindows) {
-      list.add(const _Option(2, 'Vulkan'));
-      list.add(const _Option(4, 'D3D11'));
-    }
-
-    list.add(const _Option(1, 'GL'));
-    return list;
-  }
-
-  static String _backendName(int v) {
-    return switch (v) {
-      0 => 'CGL (macOS Core OpenGL)',
-      1 => 'ANGLE / OpenGL ES',
-      2 => 'ANGLE / Vulkan',
-      3 => 'ANGLE / Metal',
-      4 => 'ANGLE / D3D11',
-      _ => '未知',
-    };
-  }
-}
-
-class _Option {
-  final int value;
-  final String label;
-  const _Option(this.value, this.label);
 }
 
 class _SectionHeader extends StatelessWidget {
