@@ -605,18 +605,36 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
           setState(() => _panelOpen = !_panelOpen);
           if (_panelOpen) _resetPanelTimer();
         },
-        onPanUpdate: (d) {
-          setState(() => _ballPos += d.delta);
-        },
-        child: Container(
-          width: 44,
-          height: 44,
+        onPanUpdate: (d) => setState(() => _ballPos += d.delta),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          curve: Curves.easeOut,
+          width: 46,
+          height: 46,
           decoration: BoxDecoration(
-            color: Colors.black.withAlpha(180),
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color(0xF23A3A42), Color(0xF218181B)],
+            ),
             shape: BoxShape.circle,
-            border: Border.all(color: Colors.white54, width: 1.5),
+            border: Border.all(
+              color: _panelOpen ? const Color(0x66FFFFFF) : const Color(0x2EFFFFFF),
+              width: 1,
+            ),
+            boxShadow: const [
+              BoxShadow(color: Color(0x59000000), blurRadius: 12, offset: Offset(0, 3)),
+            ],
           ),
-          child: const Icon(Icons.menu, color: Colors.white, size: 20),
+          child: AnimatedRotation(
+            turns: _panelOpen ? 0.125 : 0,
+            duration: const Duration(milliseconds: 160),
+            child: Icon(
+              _panelOpen ? Icons.close : Icons.tune,
+              color: const Color(0xFFE4E4E7),
+              size: 20,
+            ),
+          ),
         ),
       ),
     );
@@ -625,73 +643,60 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   Widget _buildControlPanel() {
     if (!_panelOpen) return const SizedBox.shrink();
     final showFps = ref.watch(settingsProvider.select((s) => s.showFps));
-    final top = _ballPos.dy + 52;
-    final left = _ballPos.dx;
 
     return Positioned(
-      top: top,
-      left: left,
+      top: _ballPos.dy + 54,
+      left: _ballPos.dx,
       child: Listener(
         behavior: HitTestBehavior.translucent,
         onPointerHover: (_) => _resetPanelTimer(),
         onPointerMove: (_) => _resetPanelTimer(),
-        child: Material(
-          elevation: 8,
-          borderRadius: BorderRadius.circular(10),
-          child: Container(
-            constraints: const BoxConstraints(maxWidth: 220),
-            decoration: BoxDecoration(
-              color: const Color(0xEE1A1A2E),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: Colors.white24),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _panelBtn(Icons.arrow_back, '退出', _closePlayer),
-                _panelBtn(
-                  Icons.speed,
-                  'FPS ${showFps ? "开" : "关"}',
-                  () =>
-                      ref.read(settingsProvider.notifier).setShowFps(!showFps),
-                ),
-                _panelBtn(
-                  Icons.keyboard,
-                  '键盘 ${_keyboardShown ? "开" : "关"}',
-                  _toggleKeyboard,
-                ),
-                IconTheme(
-                  data: const IconThemeData(color: Colors.white38, size: 16),
-                  child: Padding(
-                    padding: const EdgeInsets.only(bottom: 4),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const SizedBox(width: 32),
-                        Expanded(
-                          child: Text(
-                            widget.projectPath.split('/').last,
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              color: Colors.white24,
-                              fontSize: 10,
-                            ),
-                          ),
-                        ),
-                        GestureDetector(
-                          onTap: () => setState(() => _panelOpen = false),
-                          child: const Padding(
-                            padding: EdgeInsets.all(4),
-                            child: Icon(Icons.close, size: 14),
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                      ],
-                    ),
+        // 显式浅色，浮层不受游戏/主题文字色影响。
+        child: DefaultTextStyle(
+          style: const TextStyle(
+            color: Color(0xFFE4E4E7),
+            fontSize: 13,
+            decoration: TextDecoration.none,
+          ),
+          child: Material(
+            color: Colors.transparent,
+            elevation: 14,
+            borderRadius: BorderRadius.circular(14),
+            child: Container(
+              width: 212,
+              clipBehavior: Clip.antiAlias,
+              decoration: BoxDecoration(
+                color: const Color(0xF218181B),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0x1FFFFFFF)),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _panelHeader(),
+                  _panelTile(
+                    icon: Icons.speed_rounded,
+                    label: '帧率',
+                    on: showFps,
+                    onTap: () =>
+                        ref.read(settingsProvider.notifier).setShowFps(!showFps),
                   ),
-                ),
-              ],
+                  _panelTile(
+                    icon: Icons.keyboard_rounded,
+                    label: '虚拟键盘',
+                    on: _keyboardShown,
+                    onTap: _toggleKeyboard,
+                  ),
+                  const Divider(height: 1, thickness: 1, color: Color(0x14FFFFFF)),
+                  _panelTile(
+                    icon: Icons.logout_rounded,
+                    label: '退出游戏',
+                    destructive: true,
+                    onTap: _closePlayer,
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -699,23 +704,98 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     );
   }
 
-  Widget _panelBtn(IconData icon, String label, VoidCallback onTap) {
+  Widget _panelHeader() {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 8, 6, 8),
+      decoration: const BoxDecoration(
+        color: Color(0xFF232329),
+        border: Border(bottom: BorderSide(color: Color(0x14FFFFFF))),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              widget.projectPath.split('/').last,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFFD4D4D8),
+              ),
+            ),
+          ),
+          GestureDetector(
+            onTap: () => setState(() => _panelOpen = false),
+            behavior: HitTestBehavior.opaque,
+            child: const Padding(
+              padding: EdgeInsets.all(4),
+              child: Icon(Icons.close_rounded, size: 16, color: Color(0xFF9CA3AF)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _panelTile({
+    required IconData icon,
+    required String label,
+    VoidCallback? onTap,
+    bool? on,
+    bool destructive = false,
+  }) {
+    final accent = destructive
+        ? const Color(0xFFF87171)
+        : (on == true ? const Color(0xFF4ADE80) : const Color(0xFF9CA3AF));
     return GestureDetector(
       onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        decoration: const BoxDecoration(
-          border: Border(bottom: BorderSide(color: Colors.white10)),
-        ),
+      behavior: HitTestBehavior.opaque,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
         child: Row(
           children: [
-            Icon(icon, size: 16, color: Colors.white54),
-            const SizedBox(width: 10),
-            Text(
-              label,
-              style: const TextStyle(color: Colors.white70, fontSize: 13),
+            Icon(icon, size: 18, color: accent),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: destructive
+                      ? const Color(0xFFF87171)
+                      : const Color(0xFFE4E4E7),
+                ),
+              ),
             ),
+            if (on != null) _miniToggle(on),
           ],
+        ),
+      ),
+    );
+  }
+
+  /// 迷你开关，明确显示开/关态。
+  Widget _miniToggle(bool on) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 150),
+      width: 32,
+      height: 18,
+      padding: const EdgeInsets.all(2),
+      decoration: BoxDecoration(
+        color: on ? const Color(0xFF4ADE80) : const Color(0x33FFFFFF),
+        borderRadius: BorderRadius.circular(9),
+      ),
+      child: AnimatedAlign(
+        duration: const Duration(milliseconds: 150),
+        curve: Curves.easeOut,
+        alignment: on ? Alignment.centerRight : Alignment.centerLeft,
+        child: Container(
+          width: 14,
+          height: 14,
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            shape: BoxShape.circle,
+          ),
         ),
       ),
     );

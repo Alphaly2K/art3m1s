@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../services/app_info.dart';
+
 class AboutScreen extends StatelessWidget {
   const AboutScreen({super.key});
 
@@ -30,7 +32,7 @@ class AboutScreen extends StatelessWidget {
               showLicensePage(
                 context: context,
                 applicationName: 'Art3m1s',
-                applicationVersion: '1.0.0+1',
+                applicationVersion: AppInfo.displayVersion,
                 applicationLegalese: 'AGPL-3.0',
               );
             },
@@ -93,20 +95,13 @@ class _AppHeader extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(16, 24, 16, 20),
       child: Row(
         children: [
-          Container(
-            width: 56,
-            height: 56,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.primaryContainer,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Text(
-              'A3',
-              style: textTheme.titleLarge?.copyWith(
-                color: Theme.of(context).colorScheme.onPrimaryContainer,
-                fontWeight: FontWeight.w700,
-              ),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: Image.asset(
+              AppInfo.logoAsset,
+              width: 56,
+              height: 56,
+              fit: BoxFit.cover,
             ),
           ),
           const SizedBox(width: 16),
@@ -129,7 +124,7 @@ class _AppHeader extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  '版本 1.0.0+1',
+                  '版本 ${AppInfo.displayVersion}',
                   style: textTheme.bodySmall?.copyWith(
                     color: Theme.of(context).colorScheme.onSurfaceVariant,
                   ),

@@ -1,188 +1,232 @@
+<p align="center">
+  <img src="assets/branding/art3m1s-logo-v1.png" alt="Art3m1s icon" width="168">
+</p>
+
 # Art3m1s
 
-Flutter + Rust 的 Artemis visual novel runtime 前端。Flutter 负责窗口、UI、输入、文件 I/O、音视频播放和存档沙箱；Rust `art3m1s-core` 负责脚本执行、图层合成、文本渲染和离屏 RGBA 帧输出。
+Art3m1s 是使用 Flutter 编写的跨平台 Artemis 视觉小说运行时宿主。Flutter 负责资料库、
+原生窗口、输入、文件沙箱、音视频解码和平台服务；Rust
+[`art3m1s-core`](https://github.com/Alphaly2K/art3m1s-core) 负责脚本执行、游戏状态和
+离屏图层合成。
 
-## 仓库关系
+当前应用版本为 **1.1.0-0.2.0c**，对应 `art3m1s-core 0.2.0` 兼容周期。
 
-| 路径                                                 | 职责 |
-|----------------------------------------------------|------|
-| `https://github.com/Alphaly2K/art3m1s`             | Flutter 宿主 app |
-| `https://github.com/Alphaly2K/art3m1s-core`        | Rust runtime + C FFI dylib |
-| `https://github.com/Alphaly2K/art3m1s-interpreter` | ASB/AST/IET 解释器、Lua bridge、tag/event 层 |
+## 功能
 
-## 运行时架构
+- 从解包目录、单卷/分卷 PFS 和移动端应用目录导入游戏
+- 启动时无界面读取游戏标题，并通过 VNDB 补全标题和封面
+- 按平台使用 macOS、Cupertino、Fluent、Yaru/Material 3 风格的原生化界面
+- 以约 60 FPS 驱动 Rust runtime，转发鼠标、键盘、触摸、右键、悬停和拖动
+- 播放 BGM、SE、Voice、全屏视频与参与 core 合成的图层视频
+- 将游戏文件与存档隔离到应用可访问的位置，支持通过 iOS 文件 App 导入导出
+- 提供渲染后端、启动 OS、脚本字符集、翻译和调试选项
+- 支持本地翻译补丁以及 OpenAI、Anthropic、DeepL、Google、百度和有道在线翻译
+- 提供会话日志、可拖动/缩放的等宽字体调试浮窗、日志导出和关于/许可证页面
 
-```text
-PlayerScreen
-  ├─ 读取 game source
-  │   ├─ PFS: FileProvider.openPfs()
-  │   └─ directory: FileProvider.openDirectory()
-  ├─ 解析 system.ini 初始舞台尺寸
-  ├─ 设置 saveDir: appSupport/art3m1s/saves/<gameId>
-  ├─ CoreBridge.createRuntime()
-  ├─ CoreBridge.loadProject()
-  └─ 60fps frame loop
-      ├─ feed mouse/key input
-      ├─ art3m1s_runtime_advance_and_render()
-      ├─ RGBA → ui.Image
-      └─ RawImage 显示
-
-CoreBridge
-  ├─ 加载 libart3m1s_core.dylib
-  ├─ 注册 log callback
-  ├─ 注册 media command callback
-  ├─ 注册 FileProvider reader/writer/delete callbacks
-  ├─ 转发输入和每帧 render
-  └─ 通知 core: video/sound finished
-
-FileProvider
-  ├─ PFS / split PFS / patch PFS 读取
-  ├─ 解包目录读取
-  └─ app support 存档读写删除
-
-MediaBridge
-  ├─ BGM / SE / Voice: audioplayers
-  ├─ fullscreen video: media_kit
-  ├─ layer video: 当前不渲染，保留 TODO
-  └─ 播放完成后回调 core
-```
-
-## 数据流
-
-### 画面
+## 架构
 
 ```text
-Rust CoreRuntime::advance_and_render(delta_ms)
-  → GL offscreen FBO
-  → RGBA bytes
-  → Dart Uint8List
-  → ui.decodeImageFromPixels()
-  → RawImage
+平台界面
+  macOS / Cupertino / Fluent / Material
+        │
+        ├─ LibraryActions
+        │   ├─ 原生文件选择器 / 文件 App 可见目录
+        │   ├─ 游戏标题探测
+        │   └─ VNDB 元数据与封面查询
+        │
+        └─ PlayerScreen
+            ├─ 输入与生命周期
+            ├─ 60 FPS 运行时循环
+            ├─ MediaBridge
+            └─ RGBA 帧显示
+                     │
+                  CoreBridge
+            ┌────────┼────────┐
+            │        │        │
+       FileProvider  UI      翻译
+       PFS/目录回调与宿主服务
+                     │ C FFI
+                     ▼
+                art3m1s-core
 ```
 
-Core 不创建窗口。Flutter 是唯一窗口 owner。
+### CoreBridge
 
-### 输入
+`lib/services/core_bridge.dart` 负责加载目标平台的 native library、持有 runtime handle，
+并注册以下回调：
 
-Flutter `Listener` 把指针事件转为舞台坐标，交给 core：
+- 项目和存档文件的读取、写入、删除、状态查询与复制；
+- 媒体命令以及音频/视频播放完成通知；
+- 对话框、标题、浏览器/平台请求和窗口状态；
+- 字体查找与文本注入；
+- 同步帧渲染与图层视频纹理上传。
 
-- hover/move：`art3m1s_runtime_feed_mouse`
-- mouse button：`art3m1s_runtime_feed_mouse_button`
-- keyboard：`art3m1s_runtime_feed_key`
-- scroll：映射为 runtime 支持的输入事件
+同一 runtime 的 core 调用会串行执行。关闭 runtime 时会先解除回调并停止媒体任务，
+再销毁 native handle。
 
-视频 overlay 存在时会吸收鼠标事件，防止点击穿透到底层游戏导致剧情推进。可跳过全屏视频通过 opaque `GestureDetector` 吸收点击并调用 `MediaBridge.skipVideo()`。
+### FileProvider
 
-### 文件与存档
+`lib/services/file_provider.dart` 向 core 提供统一的逻辑文件命名空间：
 
-Core 不直接读写物理文件。所有文件操作都走 FFI callback：
+- PFS、分卷 PFS 和补丁 PFS 资源；
+- 已解包的游戏目录；
+- 由应用管理的存档文件。
+
+core 不需要接触用户文件的物理路径。在 iOS 上，文件 App 可见的数据按以下结构保存：
 
 ```text
-core logical path
-  → FileProvider._saveFile / PFS lookup / directory lookup
-  → host filesystem
+Documents/Art3m1s/
+  Games/
+  Saves/
 ```
 
-存档统一放在：
+原生 `UIDocumentPicker` 通过 security-scoped URL 复制用户选中的 PFS 分卷。Android
+使用 Storage Access Framework 将选定目录复制到沙箱，从而避免 Dart 无法直接访问
+`content://`，也避免在 Dart 中把整个文件读入内存。
 
-```text
-<Application Support>/art3m1s/saves/<gameId>/<SAVEPATH>/
-```
+### MediaBridge
 
-这样 PFS 游戏和目录游戏都使用 app sandbox，避免 iOS/macOS 沙箱写入限制，也避免修改原游戏目录。
+`lib/services/media_bridge.dart` 负责实际解码：
 
-### 媒体
+- BGM/SE/Voice 使用 `audioplayers`；
+- 全屏视频与图层视频使用 `media_kit`/mpv；
+- 全屏视频显示在游戏画面上方并吸收鼠标和触摸输入；
+- 图层视频在 worker isolate 中解码，只保留最新 RGBA8 帧，再将其指针借给 core
+  同步上传为 GL 纹理。
 
-Core 发出 JSON media command：
+视频解码节奏与游戏帧循环相互独立，因此 24 FPS 视频不会把 runtime 一同限制在
+24 FPS。
 
-- `audio_bgm_play`
-- `audio_se_play`
-- `audio_voice_play`
-- `audio_set_volume`
-- `audio_stop_all`
-- `video_play`
-- `video_stop_all`
+### 翻译
 
-Flutter `MediaBridge` 负责实际播放。全屏 video 完成后调用 `art3m1s_runtime_notify_video_finished`，sound 完成后调用 `art3m1s_runtime_notify_sound_finished`。
+翻译功能需要在全局设置和项目设置中分别启用。支持以下翻译来源：
 
-目前 layer video 不以 Flutter overlay 实现。`MediaBridge` 会记录 TODO 并直接通知完成，避免无限遮挡或阻塞。
+- JSON 字符串映射；
+- 由 `source` 和 `translation` 字段组成的 JSON/JSONL 条目；
+- 使用 Tab 分隔原文和译文的对照文件；
+- OpenAI、Anthropic、DeepL、Google 翻译、百度翻译和有道翻译 API。
+
+本地补丁的匹配结果优先于在线翻译。在线任务会去重、缓存并交给限制并发数的异步队列，
+因此脚本执行和逐字动画不会被网络延迟阻塞。Ruby 注音会作为上下文提供给翻译服务，
+只有正文会被替换。
+
+旧版资料库和设置数据仍然兼容：缺少项目翻译字段时默认关闭翻译；第一版在线翻译设置
+会迁移到 OpenAI 兼容服务配置。
+
+## 平台界面
+
+| 平台 | 界面 | 导入方式 |
+|---|---|---|
+| macOS | `macos_ui`、沉浸式原生标题栏和应用菜单 | 目录或 PFS 选择器 |
+| iOS | Cupertino、原生文件与资料库管理器 | UIDocumentPicker 或 `Art3m1s/Games` |
+| Windows | Fluent UI | 目录或 PFS 选择器 |
+| Linux | Yaru/Material 界面 | 目录或 PFS 选择器 |
+| Android | Material 3 | 原生 SAF 目录复制 |
+
+设置和关于页面共用相同的数据与功能，但会使用符合目标平台习惯的控件进行渲染。
+Fable 的本轮 macOS UI 更新还加入了原生应用菜单、更加清晰的明暗主题图标状态和紧凑
+的游戏控制面板。
 
 ## 关键文件
 
-| 文件 | 说明 |
-|------|------|
-| `lib/screens/player_screen.dart` | 游戏主屏幕、帧循环、输入、视频 overlay |
-| `lib/services/core_bridge.dart` | Rust dylib FFI 入口、runtime lifecycle、回调注册 |
-| `lib/services/file_provider.dart` | PFS/目录/存档统一读取与写删 callback |
-| `lib/services/media_bridge.dart` | 音频、全屏视频、媒体完成通知 |
-| `lib/services/pfs_bridge.dart` | PFS native bridge |
-| `lib/services/logger.dart` | Flutter/Rust 日志落盘 |
+| 路径 | 职责 |
+|---|---|
+| `lib/screens/player_screen.dart` | Runtime 生命周期、帧循环、输入和视频浮层 |
+| `lib/services/core_bridge.dart` | Native C ABI 与回调注册 |
+| `lib/services/file_provider.dart` | PFS/目录/存档逻辑文件系统 |
+| `lib/services/game_importer.dart` | 移动端原生导入与沙箱复制 |
+| `lib/services/media_bridge.dart` | 音频、全屏视频和图层视频解码 |
+| `lib/services/text_translation_service.dart` | 补丁查找、翻译服务、队列与缓存 |
+| `lib/services/vndb_service.dart` | 资料库标题和封面元数据 |
+| `lib/widgets/debug_overlay_host.dart` | Runtime 监控和会话日志浮窗 |
+| `lib/shell/` | 各平台应用界面 |
+| `scripts/ios_build_rust.sh` | 将 Rust library 构建并打包为 iOS framework |
 
 ## 构建
 
-### 1. 构建 Rust core
+### 前置要求
+
+- Flutter 稳定版
+- Rust 稳定版
+- 对应目标平台的 SDK
+- 为目标平台编译的 `art3m1s-core` native library
+- 当前平台所需的 mpv/media_kit 运行时依赖
+
+### macOS 开发
 
 ```bash
-cd /Users/alphaly/RustroverProjects/art3m1s-core
+cd /path/to/art3m1s-core
 cargo test
 cargo build --release
 
-cp target/release/libart3m1s_core.dylib /Users/alphaly/IdeaProjects/Art3m1s/libart3m1s_core.dylib
-codesign --force --sign - /Users/alphaly/IdeaProjects/Art3m1s/libart3m1s_core.dylib
-```
+cp target/release/libart3m1s_core.dylib /path/to/Art3m1s/
+codesign --force --sign - /path/to/Art3m1s/libart3m1s_core.dylib
 
-如修改了 `/Users/alphaly/RustroverProjects/asb-interpreter`，确保 `art3m1s-core` 当前依赖指向正确版本，再重建 core dylib。
-
-### 2. 准备其他 native dylib
-
-项目根通常还需要：
-
-- `libpfs_upk.dylib`
-- `libEGL.dylib`
-- `libGLESv2.dylib`
-
-macOS 下可能需要签名：
-
-```bash
-codesign --force --sign - libpfs_upk.dylib
-codesign --force --sign - libEGL.dylib
-codesign --force --sign - libGLESv2.dylib
-```
-
-### 3. 运行 Flutter
-
-```bash
+cd /path/to/Art3m1s
+flutter pub get
 flutter run -d macos
-# macOS
-flutter run -d linux
-# Linux
-flutter run -d android
-# Android
 ```
 
-## 验证
+应用包还需要当前桌面打包方案使用的 PFS 和 EGL/GLES library。不能从同一 framework
+的多个副本重复加载 native library，否则可能产生重复 Objective-C class 或运行时崩溃。
+
+### iOS framework
+
+先安装 Rust target，然后运行：
+
+```bash
+rustup target add aarch64-apple-ios aarch64-apple-ios-sim
+
+CORE_SRC=/path/to/art3m1s-core \
+PFS_SRC=/path/to/pfs-upk-rust \
+./scripts/ios_build_rust.sh --release
+```
+
+只为真机构建时使用 `--device-only`；需要在打包过程中直接签署 framework 时使用
+`--sign "证书名称"`。`ios/Frameworks/` 中必须存在 MetalANGLE。
+
+### 验证
 
 ```bash
 flutter analyze
+flutter test
 ```
 
-涉及 native/core 改动时还应运行：
-
-```bash
-# in core repo
-cargo test
-```
+修改 native/runtime 后还应在 `art3m1s-core` 中通过 `cargo test`，并使用真实游戏日志
+验证。仅能成功编译并不能证明脚本兼容性。
 
 ## 调试
 
-- Rust 日志通过 `CoreBridge` 注册的 log callback 进入 Flutter logger。
-- 最近一次日志通常在 `~/Documents/art3m1s_*.log`。
-- 存档目录日志会显示为 `[CoreBridge] 存档目录已设置: ...`。
-- Core 事件可搜索 `[runtime] Event::SaveGame`、`[runtime] Event::LoadGame`、`VideoPlay`、`LayerCreate`。
+- Rust 日志通过已注册回调进入当前游戏会话的统一日志记录器。
+- 调试浮窗显示 runtime、帧和媒体状态，日志部分使用等宽字体。
+- 关闭调试浮窗时会同步更新持久化开关，切换场景后不会再次自行出现。
+- 可以在设置中导出日志。Apple 平台会将其存入应用 Documents 目录，可通过文件
+  App 或 Finder 共享。
+
+常用的 runtime 日志标记包括 `Event::SaveGame`、`Event::LoadGame`、`VideoPlay`、
+`LayerCreate`、对话框请求和翻译序号。
 
 ## 当前限制
 
-- Layer video 未实现 Flutter overlay 渲染。
-- 音频由 Dart 插件播放，core 只维护逻辑状态和完成 handler。
-- 每帧 RGBA 回读路径简单可靠，但不是最终性能形态。
-- 大文件导入不要走会整文件读入内存的 picker 流程；资源读取应优先走路径/PFS/目录。
+- 画面显示仍会把 CPU RGBA buffer 转换成 `ui.Image`，目前不是共享 GPU surface。
+- Artemis HLSL 和 E-Mote 兼容层只覆盖测试游戏中观察到的变体，并不支持所有私有
+  引擎版本。
+- 部分引擎平台事件仍依赖各目标平台的宿主实现。
+- 移动端大型游戏应通过原生目录/文件导入流程添加，不能使用会把整个归档读入内存的
+  API。
+
+## 相关仓库
+
+| 仓库 | 职责 |
+|---|---|
+| [Alphaly2K/art3m1s](https://github.com/Alphaly2K/art3m1s) | Flutter 宿主应用 |
+| [Alphaly2K/art3m1s-core](https://github.com/Alphaly2K/art3m1s-core) | Rust runtime、解释器、合成器和支持 crate |
+
+## 版本说明
+
+- [Art3m1s 1.1.0-0.2.0c Release Note](RELEASE_NOTES_1.1.0-0.2.0c.md)
+- [完整变更记录](CHANGELOG.md)
+
+## 许可证
+
+[GNU Affero 通用公共许可证第三版](LICENSE)

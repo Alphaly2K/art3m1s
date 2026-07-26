@@ -9,6 +9,7 @@ import '../models/game_entry.dart';
 import '../models/render_backend.dart';
 import '../providers/library_provider.dart';
 import '../providers/settings_provider.dart';
+import '../services/app_info.dart';
 import '../screens/licenses_cupertino.dart';
 import '../screens/translation_settings_screen.dart';
 import '../services/logger.dart';
@@ -298,27 +299,27 @@ class _CupertinoAboutScreen extends StatelessWidget {
       child: SafeArea(
         child: ListView(
           children: [
-            const Padding(
-              padding: EdgeInsets.fromLTRB(20, 24, 20, 8),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 24, 20, 8),
               child: Row(
                 children: [
-                  _AppBadge(),
-                  SizedBox(width: 16),
+                  const _AppBadge(),
+                  const SizedBox(width: 16),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
+                        const Text(
                           'Art3m1s',
                           style: TextStyle(
                             fontSize: 22,
                             fontWeight: FontWeight.w700,
                           ),
                         ),
-                        SizedBox(height: 4),
+                        const SizedBox(height: 4),
                         Text(
-                          'Artemis 视觉小说引擎前端\n版本 1.0.0+1 · AGPL-3.0',
-                          style: TextStyle(
+                          'Artemis 视觉小说引擎前端\n版本 ${AppInfo.displayVersion} · AGPL-3.0',
+                          style: const TextStyle(
                             fontSize: 13,
                             color: CupertinoColors.secondaryLabel,
                           ),
@@ -384,21 +385,13 @@ class _AppBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 56,
-      height: 56,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: CupertinoColors.systemPurple,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: const Text(
-        'A3',
-        style: TextStyle(
-          color: CupertinoColors.white,
-          fontSize: 20,
-          fontWeight: FontWeight.w700,
-        ),
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: Image.asset(
+        AppInfo.logoAsset,
+        width: 56,
+        height: 56,
+        fit: BoxFit.cover,
       ),
     );
   }

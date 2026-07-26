@@ -9,6 +9,7 @@ import '../models/game_entry.dart';
 import '../models/render_backend.dart';
 import '../providers/library_provider.dart';
 import '../providers/settings_provider.dart';
+import '../services/app_info.dart';
 import '../services/logger.dart';
 import '../screens/translation_settings_screen.dart';
 import '../widgets/debug_overlay_host.dart';
@@ -349,21 +350,13 @@ class _FluentAboutPage extends StatelessWidget {
       children: [
         Row(
           children: [
-            Container(
-              width: 56,
-              height: 56,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: theme.accentColor,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Text(
-                'A3',
-                style: TextStyle(
-                  color: Color(0xFFFFFFFF),
-                  fontSize: 20,
-                  fontWeight: FontWeight.w700,
-                ),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Image.asset(
+                AppInfo.logoAsset,
+                width: 56,
+                height: 56,
+                fit: BoxFit.cover,
               ),
             ),
             const SizedBox(width: 16),
@@ -372,7 +365,7 @@ class _FluentAboutPage extends StatelessWidget {
               children: [
                 Text('Art3m1s', style: theme.typography.subtitle),
                 Text(
-                  'Artemis 视觉小说引擎前端 · 版本 1.0.0+1 · AGPL-3.0',
+                  'Artemis 视觉小说引擎前端 · 版本 ${AppInfo.displayVersion} · AGPL-3.0',
                   style: theme.typography.caption?.copyWith(
                     color: theme.resources.textFillColorSecondary,
                   ),

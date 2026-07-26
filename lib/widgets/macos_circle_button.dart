@@ -34,6 +34,8 @@ class _MacosCircleButtonState extends State<MacosCircleButton> {
     final dark = MacosTheme.of(context).brightness == Brightness.dark;
     final base = dark ? const Color(0x33FFFFFF) : const Color(0x14000000);
     final hover = dark ? const Color(0x4DFFFFFF) : const Color(0x22000000);
+    // 图标前景显式随亮暗自适应，避免深色下用主题默认色偏暗看不清。
+    final iconColor = dark ? const Color(0xFFE4E4E7) : const Color(0xFF1D1D1F);
     return MacosTooltip(
       message: widget.tooltip,
       child: MouseRegion(
@@ -53,7 +55,7 @@ class _MacosCircleButtonState extends State<MacosCircleButton> {
               color: _hover ? hover : base,
               shape: BoxShape.circle,
             ),
-            child: MacosIcon(widget.icon, size: 16),
+            child: MacosIcon(widget.icon, size: 16, color: iconColor),
           ),
         ),
       ),

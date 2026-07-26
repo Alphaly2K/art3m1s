@@ -14,6 +14,7 @@ import '../models/game_entry.dart';
 import '../models/render_backend.dart';
 import '../providers/library_provider.dart';
 import '../providers/settings_provider.dart';
+import '../services/app_info.dart';
 import '../screens/licenses_macos.dart';
 import '../screens/translation_settings_screen.dart';
 import 'macos_menu_bar.dart';
@@ -32,8 +33,18 @@ class MacosShellApp extends StatelessWidget {
     return MacosApp(
       title: 'Art3m1s',
       debugShowCheckedModeBanner: false,
-      theme: MacosThemeData.light(),
-      darkTheme: MacosThemeData.dark(),
+      // 钉死强调色为标准蓝，避免随系统强调色漂移。
+      //
+      // 关键修复：macos_ui 默认把 iconTheme.color 设成了**强调色(蓝)**，导致所有未
+      // 显式着色的 MacosIcon 都是蓝的——深色下蓝图标压深底/蓝底(如 MacosIconButton
+      // 默认蓝底)对比极差甚至隐形。这里全局覆盖为随亮暗的中性前景色，一次修好返回钮/
+      // 复制钮/侧栏等所有图标。
+      theme: MacosThemeData.light(accentColor: AccentColor.blue).copyWith(
+        iconTheme: const MacosIconThemeData(color: Color(0xFF1D1D1F), size: 20),
+      ),
+      darkTheme: MacosThemeData.dark(accentColor: AccentColor.blue).copyWith(
+        iconTheme: const MacosIconThemeData(color: Color(0xFFE4E4E7), size: 20),
+      ),
       themeMode: ThemeMode.system,
       // PlayerScreen 及其对话框是 Material 组件，需要这些 delegates。
       localizationsDelegates: const [
@@ -90,11 +101,11 @@ class _MacosHomeState extends State<_MacosHome> {
                 ),
               ],
             ),
-            bottom: const Padding(
-              padding: EdgeInsets.all(12),
+            bottom: Padding(
+              padding: const EdgeInsets.all(12),
               child: Text(
-                'Art3m1s 1.0.0',
-                style: TextStyle(
+                'Art3m1s ${AppInfo.version}',
+                style: const TextStyle(
                   fontSize: 11,
                   color: MacosColors.systemGrayColor,
                 ),
@@ -451,21 +462,13 @@ class _MacosAboutPage extends StatelessWidget {
                 children: [
                   Row(
                     children: [
-                      Container(
-                        width: 56,
-                        height: 56,
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                          color: MacosColors.systemPurpleColor,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Text(
-                          'A3',
-                          style: TextStyle(
-                            color: Color(0xFFFFFFFF),
-                            fontSize: 20,
-                            fontWeight: FontWeight.w700,
-                          ),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: Image.asset(
+                          AppInfo.logoAsset,
+                          width: 56,
+                          height: 56,
+                          fit: BoxFit.cover,
                         ),
                       ),
                       const SizedBox(width: 16),
@@ -474,7 +477,7 @@ class _MacosAboutPage extends StatelessWidget {
                         children: [
                           Text('Art3m1s', style: theme.typography.title1),
                           Text(
-                            'Artemis 视觉小说引擎前端 · 版本 1.0.0+1 · AGPL-3.0',
+                            'Artemis 视觉小说引擎前端 · 版本 ${AppInfo.displayVersion} · AGPL-3.0',
                             style: theme.typography.caption1.copyWith(
                               color: MacosColors.systemGrayColor,
                             ),
@@ -549,11 +552,19 @@ class _RepoRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final dark = MacosTheme.of(context).brightness == Brightness.dark;
     return _SettingRow(
       label: label,
       caption: url,
+      // MacosIconButton 默认蓝底（activeBlue），在深色页面上是个突兀的蓝方块且图标
+      // 对比不足。改透明底 + 显式自适应图标色，作纯图标复制按钮。
       control: MacosIconButton(
-        icon: const MacosIcon(CupertinoIcons.doc_on_doc, size: 16),
+        backgroundColor: MacosColors.transparent,
+        icon: MacosIcon(
+          CupertinoIcons.doc_on_doc,
+          size: 16,
+          color: dark ? const Color(0xFFE4E4E7) : const Color(0xFF1D1D1F),
+        ),
         onPressed: () async {
           await Clipboard.setData(ClipboardData(text: url));
           if (context.mounted) notify(context, '已复制');
