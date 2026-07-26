@@ -2,13 +2,15 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 import '../services/logger.dart';
 import 'file_provider.dart';
 import 'media_bridge.dart';
+import 'text_translation_service.dart';
 
 typedef LogCallbackNative =
     Int32 Function(Pointer<Int8> level, Pointer<Int8> msg);
@@ -22,6 +24,59 @@ typedef UiCommandCallbackNative =
     Void Function(Pointer<Int8> kind, Pointer<Int8> payloadJson);
 typedef RegisterUiCommandCallbackNative =
     Void Function(Pointer<NativeFunction<UiCommandCallbackNative>>);
+typedef TextInjectCallbackNative =
+    Int32 Function(Pointer<Int8> text, Pointer<Uint8> output, Int32 capacity);
+typedef RegisterTextInjectCallbackNative =
+    Void Function(Pointer<NativeFunction<TextInjectCallbackNative>>);
+
+// var system=get_font：core 传入 monospace/vertical 偏好，宿主把换行分隔的字体名
+// 写入 buf（≤cap 字节），返回写入字节数；容量不足或无字体返回 0。
+typedef FontQueryCallbackNative =
+    Int32 Function(
+      Int32 monospace,
+      Int32 vertical,
+      Pointer<Uint8> buf,
+      Int32 cap,
+    );
+typedef RegisterFontQueryNative =
+    Void Function(Pointer<NativeFunction<FontQueryCallbackNative>>);
+
+// var system=fullscreen/minimize：宿主返回位标志 bit0=全屏 bit1=最小化。
+typedef WindowStateCallbackNative = Int32 Function();
+typedef RegisterWindowStateNative =
+    Void Function(Pointer<NativeFunction<WindowStateCallbackNative>>);
+
+// 生命周期通知：state 0=退出 / 1=切后台 / 2=回前台（驱动 [autosave allow=1]）。
+typedef NotifyLifecycleNative = Void Function(Pointer<Void> rt, Int32 state);
+typedef NotifyLifecycleDart = void Function(Pointer<Void> rt, int state);
+
+int _fontQueryCallback(
+  int monospace,
+  int vertical,
+  Pointer<Uint8> buf,
+  int cap,
+) {
+  try {
+    final names =
+        CoreBridge._activeBridge?.enumerateFonts(
+          monospace: monospace != 0,
+          vertical: vertical != 0,
+        ) ??
+        const <String>[];
+    if (names.isEmpty || cap <= 0) return 0;
+    final bytes = utf8.encode(names.join('\n'));
+    if (bytes.length > cap) return 0;
+    buf.asTypedList(cap).setRange(0, bytes.length, bytes);
+    return bytes.length;
+  } catch (e) {
+    Log.error('[CoreBridge] 字体枚举失败: $e');
+    return 0;
+  }
+}
+
+int _windowStateCallback() {
+  return CoreBridge._activeBridge?.windowStateBits ?? 0;
+}
 
 int _logCallback(Pointer<Int8> levelPtr, Pointer<Int8> msgPtr) {
   final level = levelPtr.cast<Utf8>().toDartString();
@@ -64,12 +119,87 @@ void _uiCommandCallback(Pointer<Int8> kindPtr, Pointer<Int8> payloadPtr) {
         ? decoded.map((key, value) => MapEntry(key.toString(), value))
         : <String, dynamic>{};
     final bridge = CoreBridge._activeBridge;
-    if (kind == 'dialog_show' && bridge?.onDialogRequested != null) {
-      final request = EngineDialogRequest.fromJson(payload);
-      scheduleMicrotask(() => bridge!.onDialogRequested!(request));
+    if (bridge == null) return;
+    switch (kind) {
+      case 'dialog_show':
+        if (bridge.onDialogRequested != null) {
+          final request = EngineDialogRequest.fromJson(payload);
+          scheduleMicrotask(() => bridge.onDialogRequested!(request));
+        }
+      case 'text_translate':
+        final serial = (payload['serial'] as num?)?.toInt();
+        final text = payload['text']?.toString();
+        final ruby = payload['ruby']?.toString();
+        if (serial != null && text != null) {
+          scheduleMicrotask(
+            () => bridge._translateAndSubmit(serial, text, ruby: ruby),
+          );
+        }
+      case 'avoid':
+        // 紧急回避：show 时全屏覆盖（可带图），hide 时撤除。UI 层观察此 notifier。
+        final action = payload['action']?.toString();
+        if (action == 'show') {
+          bridge.avoidOverlay.value = AvoidOverlay(
+            file: payload['file']?.toString(),
+          );
+        } else {
+          bridge.avoidOverlay.value = null;
+        }
+      case 'mouse':
+        // 光标控制：hide=1 隐藏光标（config 里「隐藏鼠标」等），否则显示。
+        final hide = _asBool(payload['hide']) || _asBool(payload['hidden']);
+        bridge.cursorHidden.value = hide;
+      case 'caption':
+        final title = payload['caption']?.toString() ?? payload['text']?.toString();
+        if (title != null) bridge.windowTitle.value = title;
+      case 'write_clipboard':
+        final text = payload['text']?.toString();
+        if (text != null) {
+          scheduleMicrotask(
+            () => Clipboard.setData(ClipboardData(text: text)),
+          );
+        }
+      case 'vibrate':
+        scheduleMicrotask(HapticFeedback.mediumImpact);
+      case 'statusbar':
+        final show = _asBool(payload['show']) || _asBool(payload['visible']);
+        scheduleMicrotask(
+          () => SystemChrome.setEnabledSystemUIMode(
+            show ? SystemUiMode.edgeToEdge : SystemUiMode.immersiveSticky,
+          ),
+        );
+      default:
+        // 未处理的 kind（openbrowser/http_request/callnative 等）暂由宿主按需扩展。
+        break;
     }
   } catch (e) {
     Log.error('[CoreBridge] UI 命令解析失败: $e');
+  }
+}
+
+bool _asBool(dynamic v) {
+  if (v is bool) return v;
+  if (v is num) return v != 0;
+  if (v is String) return v == '1' || v.toLowerCase() == 'true';
+  return false;
+}
+
+int _textInjectCallback(
+  Pointer<Int8> textPtr,
+  Pointer<Uint8> output,
+  int capacity,
+) {
+  try {
+    final source = textPtr.cast<Utf8>().toDartString();
+    return CoreBridge._activeBridge?.translation?.inject(
+          source,
+          output,
+          capacity,
+        ) ??
+        -1;
+  } catch (error) {
+    Log.error('[Translation] 注入回调失败: $error');
+    return -1;
   }
 }
 
@@ -105,6 +235,12 @@ class EngineDialogRequest {
   final String initialText;
 }
 
+/// 紧急回避覆盖状态（[avoid] 触发）。`file` 为覆盖图资源名（null 表示纯黑遮罩）。
+class AvoidOverlay {
+  const AvoidOverlay({this.file});
+  final String? file;
+}
+
 // ── Core FFI type definitions ───────────────────────────────────
 
 typedef RuntimeCreateNative =
@@ -127,6 +263,8 @@ typedef RuntimeFeedKeyNative =
     Void Function(Pointer<Void> rt, Uint32 vk, Int32 pressed);
 typedef RuntimeSubmitDialogNative =
     Int32 Function(Pointer<Void> rt, Int32 accepted, Pointer<Utf8> text);
+typedef RuntimeSubmitTextTranslationNative =
+    Int32 Function(Pointer<Void> rt, Uint64 serial, Pointer<Utf8> text);
 typedef RuntimeStageWidthNative = Uint32 Function(Pointer<Void> rt);
 typedef RuntimeStageHeightNative = Uint32 Function(Pointer<Void> rt);
 typedef RuntimePixelBufferSizeNative = Uint32 Function(Pointer<Void> rt);
@@ -161,6 +299,9 @@ class CoreBridge {
   static NativeCallable<LogCallbackNative>? _sharedLogCallable;
   static NativeCallable<MediaCommandCallbackNative>? _sharedMediaCallable;
   static NativeCallable<UiCommandCallbackNative>? _sharedUiCallable;
+  static NativeCallable<TextInjectCallbackNative>? _sharedTextInjectCallable;
+  static NativeCallable<FontQueryCallbackNative>? _sharedFontQueryCallable;
+  static NativeCallable<WindowStateCallbackNative>? _sharedWindowStateCallable;
   static CoreBridge? _activeBridge;
 
   CoreBridge({this.onDialogRequested});
@@ -170,9 +311,52 @@ class CoreBridge {
   DynamicLibrary? _lib;
   Pointer<Void>? _runtime;
   RuntimeUploadVideoLayerFrame? _uploadVideoLayerFrame;
+  TextTranslationService? translation;
   final Map<String, Pointer<Utf8>> _videoLayerIds = {};
   int _stageWidth = 1280;
   int _stageHeight = 720;
+
+  /// 紧急回避（[avoid] + keyconfig role15）：非 null 时 UI 层显示全屏覆盖。
+  final ValueNotifier<AvoidOverlay?> avoidOverlay = ValueNotifier(null);
+
+  /// 是否隐藏鼠标光标（config「隐藏鼠标」等，经 ui_command mouse 驱动）。
+  final ValueNotifier<bool> cursorHidden = ValueNotifier(false);
+
+  /// 脚本请求的窗口标题（ui_command caption），壳层可观察后落实到平台窗口。
+  final ValueNotifier<String?> windowTitle = ValueNotifier(null);
+
+  /// 窗口状态位（bit0=全屏 bit1=最小化），由壳层随窗口事件更新，供
+  /// var system=fullscreen/minimize 同步查询。默认 0（非全屏、非最小化）。
+  int _windowStateBits = 0;
+  int get windowStateBits => _windowStateBits;
+  void setWindowStateBits({bool? fullscreen, bool? minimized}) {
+    var bits = _windowStateBits;
+    if (fullscreen != null) {
+      bits = fullscreen ? (bits | 0x1) : (bits & ~0x1);
+    }
+    if (minimized != null) {
+      bits = minimized ? (bits | 0x2) : (bits & ~0x2);
+    }
+    _windowStateBits = bits;
+  }
+
+  /// 可枚举字体族（var system=get_font）。Flutter 无系统字体枚举 API，故返回
+  /// 随包字体 + 各平台常见 CJK 字体的保守清单；宿主可按需扩充/换成平台通道枚举。
+  List<String> enumerateFonts({bool monospace = false, bool vertical = false}) {
+    if (monospace) {
+      return const ['Menlo', 'Consolas', 'DejaVu Sans Mono', 'Courier New'];
+    }
+    return const [
+      'Source Han Sans',
+      'Noto Sans CJK',
+      'PingFang SC',
+      'Hiragino Sans',
+      'Yu Gothic',
+      'MS Gothic',
+      'Microsoft YaHei',
+      'SimSun',
+    ];
+  }
   late final MediaBridge media = MediaBridge(
     onVideoFinished: notifyVideoFinished,
     onSoundFinished: notifySoundFinished,
@@ -253,6 +437,73 @@ class CoreBridge {
       _uiCommandCallback,
     );
     registerUiFn(_sharedUiCallable!.nativeFunction);
+
+    final registerTextInjectFn = _lib!
+        .lookupFunction<
+          RegisterTextInjectCallbackNative,
+          void Function(Pointer<NativeFunction<TextInjectCallbackNative>>)
+        >('art3m1s_register_text_inject_callback');
+    _sharedTextInjectCallable ??=
+        NativeCallable<TextInjectCallbackNative>.isolateLocal(
+          _textInjectCallback,
+          exceptionalReturn: -1,
+        );
+    registerTextInjectFn(_sharedTextInjectCallable!.nativeFunction);
+
+    // 字体枚举与窗口状态查询是可选回调：老版本 core 可能未导出，查不到就跳过（不崩）。
+    try {
+      final registerFontFn = _lib!
+          .lookupFunction<
+            RegisterFontQueryNative,
+            void Function(Pointer<NativeFunction<FontQueryCallbackNative>>)
+          >('art3m1s_register_font_query');
+      _sharedFontQueryCallable ??=
+          NativeCallable<FontQueryCallbackNative>.isolateLocal(
+            _fontQueryCallback,
+            exceptionalReturn: 0,
+          );
+      registerFontFn(_sharedFontQueryCallable!.nativeFunction);
+    } catch (e) {
+      Log.warn('[CoreBridge] 字体枚举回调不可用（core 未导出）: $e');
+    }
+
+    try {
+      final registerWindowFn = _lib!
+          .lookupFunction<
+            RegisterWindowStateNative,
+            void Function(Pointer<NativeFunction<WindowStateCallbackNative>>)
+          >('art3m1s_register_window_state_query');
+      _sharedWindowStateCallable ??=
+          NativeCallable<WindowStateCallbackNative>.isolateLocal(
+            _windowStateCallback,
+            exceptionalReturn: 0,
+          );
+      registerWindowFn(_sharedWindowStateCallable!.nativeFunction);
+    } catch (e) {
+      Log.warn('[CoreBridge] 窗口状态回调不可用（core 未导出）: $e');
+    }
+  }
+
+  void configureTranslation(TextTranslationService? service) {
+    final previous = translation;
+    translation = service;
+    if (previous != null && previous != service) {
+      unawaited(previous.dispose());
+    }
+  }
+
+  Future<void> _translateAndSubmit(
+    int serial,
+    String source, {
+    String? ruby,
+  }) async {
+    final service = translation;
+    if (service == null) {
+      submitTextTranslation(serial, null);
+      return;
+    }
+    final translated = await service.translate(source, ruby: ruby);
+    submitTextTranslation(serial, translated);
   }
 
   void setDebug(bool enabled) {
@@ -441,6 +692,22 @@ class CoreBridge {
     }
   }
 
+  bool submitTextTranslation(int serial, String? text) {
+    if (_runtime == null || _lib == null) return false;
+    final fn = _lib!
+        .lookupFunction<
+          RuntimeSubmitTextTranslationNative,
+          int Function(Pointer<Void>, int, Pointer<Utf8>)
+        >('art3m1s_runtime_submit_text_translation');
+    final textPtr = text?.toNativeUtf8();
+    try {
+      return fn(_runtime!, serial, textPtr ?? Pointer<Utf8>.fromAddress(0)) !=
+          0;
+    } finally {
+      if (textPtr != null) malloc.free(textPtr);
+    }
+  }
+
   Uint8List? advanceAndRender(int deltaMs) {
     if (_runtime == null || _lib == null) return null;
     media.pumpLayerVideoFrames();
@@ -493,6 +760,20 @@ class CoreBridge {
     }
   }
 
+  /// 应用生命周期通知：state 0=退出 / 1=切后台 / 2=回前台。
+  /// 驱动 [autosave allow=1]（切后台时自动存档）。core 未导出该符号时静默跳过。
+  void notifyLifecycle(int state) {
+    if (_runtime == null || _lib == null) return;
+    try {
+      final fn = _lib!.lookupFunction<NotifyLifecycleNative, NotifyLifecycleDart>(
+        'art3m1s_runtime_notify_lifecycle',
+      );
+      fn(_runtime!, state);
+    } catch (e) {
+      Log.warn('[CoreBridge] notifyLifecycle 不可用: $e');
+    }
+  }
+
   void notifyVideoFinished(String? id) {
     if (_runtime == null || _lib == null) return;
     final fn = _lib!
@@ -526,6 +807,11 @@ class CoreBridge {
   void shutdown() {
     if (_activeBridge == this) _activeBridge = null;
     unawaited(media.dispose());
+    final translationService = translation;
+    translation = null;
+    if (translationService != null) {
+      unawaited(translationService.dispose());
+    }
     final runtime = _runtime;
     final lib = _lib;
     _runtime = null;

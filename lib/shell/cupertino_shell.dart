@@ -10,6 +10,7 @@ import '../models/render_backend.dart';
 import '../providers/library_provider.dart';
 import '../providers/settings_provider.dart';
 import '../screens/licenses_cupertino.dart';
+import '../screens/translation_settings_screen.dart';
 import '../services/logger.dart';
 import '../widgets/debug_overlay_host.dart';
 import '../widgets/game_grid.dart';
@@ -199,6 +200,18 @@ class _CupertinoSettingsScreen extends ConsumerWidget {
                       options: [for (final p in runtimePlatforms) (p, p)],
                     );
                     if (v != null) notifier.setRuntimePlatform(v);
+                  },
+                ),
+                CupertinoListTile.notched(
+                  title: const Text('文本翻译'),
+                  additionalInfo: Text(settings.translation.mode.label),
+                  trailing: const CupertinoListTileChevron(),
+                  onTap: () {
+                    Navigator.of(context).push(
+                      CupertinoPageRoute(
+                        builder: (_) => const TranslationSettingsScreen(),
+                      ),
+                    );
                   },
                 ),
               ],

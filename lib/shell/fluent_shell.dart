@@ -10,6 +10,7 @@ import '../models/render_backend.dart';
 import '../providers/library_provider.dart';
 import '../providers/settings_provider.dart';
 import '../services/logger.dart';
+import '../screens/translation_settings_screen.dart';
 import '../widgets/debug_overlay_host.dart';
 import '../widgets/game_grid.dart';
 import '../widgets/license_data.dart';
@@ -184,6 +185,21 @@ class _FluentSettingsPage extends ConsumerWidget {
                 onChanged: (v) {
                   if (v != null) notifier.setRuntimePlatform(v);
                 },
+              ),
+            ),
+            _FluentSettingRow(
+              label: '文本翻译',
+              caption: settings.translation.mode.label,
+              control: Button(
+                onPressed: () {
+                  Navigator.of(context).push(
+                    PageRouteBuilder<void>(
+                      pageBuilder: (_, _, _) =>
+                          const TranslationSettingsScreen(),
+                    ),
+                  );
+                },
+                child: const Text('配置'),
               ),
             ),
           ],

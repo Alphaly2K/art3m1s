@@ -10,8 +10,13 @@ import 'package:macos_ui/macos_ui.dart';
 class GameEditData {
   final String name;
   final String? coverPath;
+  final bool translationEnabled;
 
-  const GameEditData({required this.name, this.coverPath});
+  const GameEditData({
+    required this.name,
+    this.coverPath,
+    required this.translationEnabled,
+  });
 }
 
 /// 平台自适应的确认框。返回 true 表示用户确认。
@@ -133,6 +138,7 @@ Future<GameEditData?> showGameEditDialog(
   required String title,
   required String initialName,
   String? initialCoverPath,
+  bool initialTranslationEnabled = false,
 }) {
   if (Platform.isMacOS) {
     return showMacosAlertDialog<GameEditData>(
@@ -141,6 +147,7 @@ Future<GameEditData?> showGameEditDialog(
         title: title,
         initialName: initialName,
         initialCover: initialCoverPath,
+        initialTranslationEnabled: initialTranslationEnabled,
       ),
     );
   }
@@ -151,6 +158,7 @@ Future<GameEditData?> showGameEditDialog(
         title: title,
         initialName: initialName,
         initialCover: initialCoverPath,
+        initialTranslationEnabled: initialTranslationEnabled,
       ),
     );
   }
@@ -161,6 +169,7 @@ Future<GameEditData?> showGameEditDialog(
         title: title,
         initialName: initialName,
         initialCover: initialCoverPath,
+        initialTranslationEnabled: initialTranslationEnabled,
       ),
     );
   }
@@ -170,6 +179,7 @@ Future<GameEditData?> showGameEditDialog(
       title: title,
       initialName: initialName,
       initialCover: initialCoverPath,
+      initialTranslationEnabled: initialTranslationEnabled,
     ),
   );
 }
@@ -180,11 +190,13 @@ class _MacosEditDialog extends StatefulWidget {
   final String title;
   final String initialName;
   final String? initialCover;
+  final bool initialTranslationEnabled;
 
   const _MacosEditDialog({
     required this.title,
     required this.initialName,
     this.initialCover,
+    required this.initialTranslationEnabled,
   });
 
   @override
@@ -192,14 +204,17 @@ class _MacosEditDialog extends StatefulWidget {
 }
 
 class _MacosEditDialogState extends State<_MacosEditDialog> {
-  late final TextEditingController _name =
-      TextEditingController(text: widget.initialName);
+  late final TextEditingController _name = TextEditingController(
+    text: widget.initialName,
+  );
   String? _cover;
+  late bool _translationEnabled;
 
   @override
   void initState() {
     super.initState();
     _cover = widget.initialCover;
+    _translationEnabled = widget.initialTranslationEnabled;
   }
 
   @override
@@ -251,12 +266,27 @@ class _MacosEditDialogState extends State<_MacosEditDialog> {
               ],
             ],
           ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              const Expanded(child: Text('启用文本翻译')),
+              MacosSwitch(
+                value: _translationEnabled,
+                onChanged: (value) =>
+                    setState(() => _translationEnabled = value),
+              ),
+            ],
+          ),
         ],
       ),
       primaryButton: PushButton(
         controlSize: ControlSize.large,
         onPressed: () => Navigator.of(context).pop(
-          GameEditData(name: _name.text.trim(), coverPath: _cover),
+          GameEditData(
+            name: _name.text.trim(),
+            coverPath: _cover,
+            translationEnabled: _translationEnabled,
+          ),
         ),
         child: const Text('保存'),
       ),
@@ -276,11 +306,13 @@ class _CupertinoEditDialog extends StatefulWidget {
   final String title;
   final String initialName;
   final String? initialCover;
+  final bool initialTranslationEnabled;
 
   const _CupertinoEditDialog({
     required this.title,
     required this.initialName,
     this.initialCover,
+    required this.initialTranslationEnabled,
   });
 
   @override
@@ -288,14 +320,17 @@ class _CupertinoEditDialog extends StatefulWidget {
 }
 
 class _CupertinoEditDialogState extends State<_CupertinoEditDialog> {
-  late final TextEditingController _name =
-      TextEditingController(text: widget.initialName);
+  late final TextEditingController _name = TextEditingController(
+    text: widget.initialName,
+  );
   String? _cover;
+  late bool _translationEnabled;
 
   @override
   void initState() {
     super.initState();
     _cover = widget.initialCover;
+    _translationEnabled = widget.initialTranslationEnabled;
   }
 
   @override
@@ -338,6 +373,17 @@ class _CupertinoEditDialogState extends State<_CupertinoEditDialog> {
                 ),
             ],
           ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              const Expanded(child: Text('启用文本翻译')),
+              CupertinoSwitch(
+                value: _translationEnabled,
+                onChanged: (value) =>
+                    setState(() => _translationEnabled = value),
+              ),
+            ],
+          ),
         ],
       ),
       actions: [
@@ -348,7 +394,11 @@ class _CupertinoEditDialogState extends State<_CupertinoEditDialog> {
         CupertinoDialogAction(
           isDefaultAction: true,
           onPressed: () => Navigator.of(context).pop(
-            GameEditData(name: _name.text.trim(), coverPath: _cover),
+            GameEditData(
+              name: _name.text.trim(),
+              coverPath: _cover,
+              translationEnabled: _translationEnabled,
+            ),
           ),
           child: const Text('保存'),
         ),
@@ -363,11 +413,13 @@ class _MaterialEditDialog extends StatefulWidget {
   final String title;
   final String initialName;
   final String? initialCover;
+  final bool initialTranslationEnabled;
 
   const _MaterialEditDialog({
     required this.title,
     required this.initialName,
     this.initialCover,
+    required this.initialTranslationEnabled,
   });
 
   @override
@@ -375,14 +427,17 @@ class _MaterialEditDialog extends StatefulWidget {
 }
 
 class _MaterialEditDialogState extends State<_MaterialEditDialog> {
-  late final TextEditingController _name =
-      TextEditingController(text: widget.initialName);
+  late final TextEditingController _name = TextEditingController(
+    text: widget.initialName,
+  );
   String? _cover;
+  late bool _translationEnabled;
 
   @override
   void initState() {
     super.initState();
     _cover = widget.initialCover;
+    _translationEnabled = widget.initialTranslationEnabled;
   }
 
   @override
@@ -426,6 +481,12 @@ class _MaterialEditDialogState extends State<_MaterialEditDialog> {
                 ),
             ],
           ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('启用文本翻译'),
+            value: _translationEnabled,
+            onChanged: (value) => setState(() => _translationEnabled = value),
+          ),
         ],
       ),
       actions: [
@@ -435,7 +496,11 @@ class _MaterialEditDialogState extends State<_MaterialEditDialog> {
         ),
         FilledButton(
           onPressed: () => Navigator.of(context).pop(
-            GameEditData(name: _name.text.trim(), coverPath: _cover),
+            GameEditData(
+              name: _name.text.trim(),
+              coverPath: _cover,
+              translationEnabled: _translationEnabled,
+            ),
           ),
           child: const Text('保存'),
         ),
@@ -480,18 +545,19 @@ class _CoverThumb extends StatelessWidget {
   }
 }
 
-
 // ── Windows (Fluent) ───────────────────────────────────────────
 
 class _FluentEditDialog extends StatefulWidget {
   final String title;
   final String initialName;
   final String? initialCover;
+  final bool initialTranslationEnabled;
 
   const _FluentEditDialog({
     required this.title,
     required this.initialName,
     this.initialCover,
+    required this.initialTranslationEnabled,
   });
 
   @override
@@ -499,14 +565,17 @@ class _FluentEditDialog extends StatefulWidget {
 }
 
 class _FluentEditDialogState extends State<_FluentEditDialog> {
-  late final TextEditingController _name =
-      TextEditingController(text: widget.initialName);
+  late final TextEditingController _name = TextEditingController(
+    text: widget.initialName,
+  );
   String? _cover;
+  late bool _translationEnabled;
 
   @override
   void initState() {
     super.initState();
     _cover = widget.initialCover;
+    _translationEnabled = widget.initialTranslationEnabled;
   }
 
   @override
@@ -552,6 +621,17 @@ class _FluentEditDialogState extends State<_FluentEditDialog> {
               ],
             ],
           ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              const Expanded(child: Text('启用文本翻译')),
+              fluent.ToggleSwitch(
+                checked: _translationEnabled,
+                onChanged: (value) =>
+                    setState(() => _translationEnabled = value),
+              ),
+            ],
+          ),
         ],
       ),
       actions: [
@@ -561,7 +641,11 @@ class _FluentEditDialogState extends State<_FluentEditDialog> {
         ),
         fluent.FilledButton(
           onPressed: () => Navigator.of(context).pop(
-            GameEditData(name: _name.text.trim(), coverPath: _cover),
+            GameEditData(
+              name: _name.text.trim(),
+              coverPath: _cover,
+              translationEnabled: _translationEnabled,
+            ),
           ),
           child: const Text('保存'),
         ),

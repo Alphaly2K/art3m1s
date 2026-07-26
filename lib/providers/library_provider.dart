@@ -10,10 +10,12 @@ final storageServiceProvider = Provider<StorageService>((ref) {
   return StorageService.instance;
 });
 
-final libraryProvider = StateNotifierProvider<LibraryNotifier, List<GameEntry>>((ref) {
-  final storage = ref.read(storageServiceProvider);
-  return LibraryNotifier(storage);
-});
+final libraryProvider = StateNotifierProvider<LibraryNotifier, List<GameEntry>>(
+  (ref) {
+    final storage = ref.read(storageServiceProvider);
+    return LibraryNotifier(storage);
+  },
+);
 
 class LibraryNotifier extends StateNotifier<List<GameEntry>> {
   final StorageService _storage;
@@ -37,6 +39,7 @@ class LibraryNotifier extends StateNotifier<List<GameEntry>> {
             addedAt: entry.addedAt,
             displayName: entry.displayName,
             coverPath: entry.coverPath,
+            translationEnabled: entry.translationEnabled,
           );
           Log.info('[Library] 已切换到沙箱路径: $sandboxPath');
         }
@@ -62,13 +65,19 @@ class LibraryNotifier extends StateNotifier<List<GameEntry>> {
     state = _storage.getLibrary();
   }
 
-  Future<void> update(String path, {String? displayName, String? coverPath}) async {
+  Future<void> update(
+    String path, {
+    String? displayName,
+    String? coverPath,
+    bool? translationEnabled,
+  }) async {
     final lib = _storage.getLibrary();
     final i = lib.indexWhere((g) => g.path == path);
     if (i < 0) return;
     final updated = lib[i].copyWith(
       displayName: displayName,
       coverPath: coverPath,
+      translationEnabled: translationEnabled,
     );
     lib[i] = updated;
     await _storage.saveLibrary(lib);

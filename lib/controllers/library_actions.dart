@@ -153,7 +153,9 @@ class LibraryActions {
     );
     if (result == null || !context.mounted) return;
 
-    await ref.read(libraryProvider.notifier).add(
+    await ref
+        .read(libraryProvider.notifier)
+        .add(
           GameEntry(
             name: defaultName,
             path: path,
@@ -161,6 +163,7 @@ class LibraryActions {
             addedAt: DateTime.now(),
             displayName: result.name.isNotEmpty ? result.name : null,
             coverPath: result.coverPath,
+            translationEnabled: result.translationEnabled,
           ),
         );
     Log.info('已添加: ${result.name.isNotEmpty ? result.name : defaultName}');
@@ -174,13 +177,17 @@ class LibraryActions {
       title: '编辑项目',
       initialName: entry.displayNameOrName,
       initialCoverPath: entry.coverPath,
+      initialTranslationEnabled: entry.translationEnabled,
     );
     if (result == null || !context.mounted) return;
 
-    await ref.read(libraryProvider.notifier).update(
+    await ref
+        .read(libraryProvider.notifier)
+        .update(
           entry.path,
           displayName: result.name.isNotEmpty ? result.name : null,
           coverPath: result.coverPath,
+          translationEnabled: result.translationEnabled,
         );
   }
 
@@ -202,7 +209,11 @@ class LibraryActions {
     Navigator.of(context, rootNavigator: true).push(
       MaterialPageRoute(
         builder: (_) => wrapPlayerRoute(
-          PlayerScreen(projectPath: entry.path, source: entry.source),
+          PlayerScreen(
+            projectPath: entry.path,
+            source: entry.source,
+            translationEnabled: entry.translationEnabled,
+          ),
         ),
       ),
     );

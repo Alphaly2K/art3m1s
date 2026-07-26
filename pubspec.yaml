@@ -46,6 +46,7 @@ dependencies:
   macos_window_utils: ^1.9.1
   fluent_ui: ^4.16.0
   yaru: ^10.2.0
+  crypto: ^3.0.7
 dev_dependencies:
   flutter_test:
     sdk: flutter

@@ -15,6 +15,7 @@ import '../models/render_backend.dart';
 import '../providers/library_provider.dart';
 import '../providers/settings_provider.dart';
 import '../screens/licenses_macos.dart';
+import '../screens/translation_settings_screen.dart';
 import '../services/logger.dart';
 import '../widgets/debug_overlay_host.dart';
 import '../widgets/game_grid.dart';
@@ -89,7 +90,10 @@ class _MacosHomeState extends State<_MacosHome> {
             padding: EdgeInsets.all(12),
             child: Text(
               'Art3m1s 1.0.0',
-              style: TextStyle(fontSize: 11, color: MacosColors.systemGrayColor),
+              style: TextStyle(
+                fontSize: 11,
+                color: MacosColors.systemGrayColor,
+              ),
             ),
           ),
         ),
@@ -241,6 +245,23 @@ class _MacosSettingsPage extends ConsumerWidget {
                           onChanged: (v) {
                             if (v != null) notifier.setRuntimePlatform(v);
                           },
+                        ),
+                      ),
+                      _SettingRow(
+                        label: '文本翻译',
+                        caption: settings.translation.mode.label,
+                        control: PushButton(
+                          controlSize: ControlSize.regular,
+                          secondary: true,
+                          onPressed: () {
+                            Navigator.of(context).push(
+                              PageRouteBuilder<void>(
+                                pageBuilder: (_, _, _) =>
+                                    const TranslationSettingsScreen(),
+                              ),
+                            );
+                          },
+                          child: const Text('配置'),
                         ),
                       ),
                     ],
@@ -534,7 +555,6 @@ class _RepoRow extends StatelessWidget {
     );
   }
 }
-
 
 /// Finder 风格页头：纯文字大标题 + 可选尾部控件。
 class _GlassHeader extends StatelessWidget {

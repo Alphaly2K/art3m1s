@@ -13,22 +13,26 @@ import '../providers/settings_provider.dart';
 import '../services/core_bridge.dart';
 import '../services/file_provider.dart';
 import '../services/logger.dart';
+import '../services/text_translation_service.dart';
 
 class PlayerScreen extends ConsumerStatefulWidget {
   final String projectPath;
   final GameSource source;
+  final bool translationEnabled;
 
   const PlayerScreen({
     super.key,
     required this.projectPath,
     required this.source,
+    required this.translationEnabled,
   });
 
   @override
   ConsumerState<PlayerScreen> createState() => _PlayerScreenState();
 }
 
-class _PlayerScreenState extends ConsumerState<PlayerScreen> {
+class _PlayerScreenState extends ConsumerState<PlayerScreen>
+    with WidgetsBindingObserver {
   late final CoreBridge _bridge;
   Timer? _timer;
   ui.Image? _frameImage;
@@ -65,9 +69,28 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     super.initState();
     Log.startRuntimeSession();
     _bridge = CoreBridge(onDialogRequested: _showEngineDialog);
+    WidgetsBinding.instance.addObserver(this);
     _keyboardCtrl.addListener(_onKeyboardInput);
     _lockOrientation();
     _init();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // 生命周期 → core：驱动 [autosave allow=1]（切后台自动存档）+ 同步最小化位。
+    switch (state) {
+      case AppLifecycleState.resumed:
+        _bridge.setWindowStateBits(minimized: false);
+        _bridge.notifyLifecycle(2); // 回前台
+      case AppLifecycleState.paused:
+      case AppLifecycleState.hidden:
+        _bridge.setWindowStateBits(minimized: true);
+        _bridge.notifyLifecycle(1); // 切后台
+      case AppLifecycleState.detached:
+        _bridge.notifyLifecycle(0); // 退出
+      case AppLifecycleState.inactive:
+        break;
+    }
   }
 
   Future<void> _showEngineDialog(EngineDialogRequest request) async {
@@ -129,6 +152,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   }
 
   Future<void> _init() async {
+    await ref.read(settingsProvider.notifier).ready;
     await _bridge.initialize();
     if (!mounted || _closing) {
       _bridge.shutdown();
@@ -189,6 +213,22 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     final saveDir =
         '$appSupport${Platform.pathSeparator}$saveFolderName${Platform.pathSeparator}$gameId';
     _bridge.setSaveDir(saveDir);
+
+    if (widget.translationEnabled) {
+      final translation = await TextTranslationService.create(
+        settings: ref.read(settingsProvider).translation,
+        cacheFile: File(
+          '$appSupport${Platform.pathSeparator}translations'
+          '${Platform.pathSeparator}$gameId.json',
+        ),
+      );
+      if (!mounted || _closing) {
+        await translation.dispose();
+        _bridge.shutdown();
+        return;
+      }
+      _bridge.configureTranslation(translation);
+    }
 
     _bridge.registerFileReader();
     _bridge.createRuntime(
@@ -399,6 +439,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   @override
   void dispose() {
     _closing = true;
+    WidgetsBinding.instance.removeObserver(this);
     _unlockOrientation();
     _timer?.cancel();
     _panelTimer?.cancel();
@@ -494,19 +535,41 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
 
     return Scaffold(
       backgroundColor: Colors.black,
-      body: Stack(
-        children: [
-          if (_frameImage != null)
-            _buildGameView()
-          else
-            const Center(child: CircularProgressIndicator()),
-          _buildVideoLayer(),
-          if (showFps) _buildFpsDisplay(),
-          _buildFloatingBall(),
-          _buildControlPanel(),
-          _buildHiddenKeyboard(),
-        ],
+      body: ValueListenableBuilder<bool>(
+        valueListenable: _bridge.cursorHidden,
+        builder: (context, cursorHidden, child) => MouseRegion(
+          cursor: cursorHidden ? SystemMouseCursors.none : MouseCursor.defer,
+          child: child,
+        ),
+        child: Stack(
+          children: [
+            if (_frameImage != null)
+              _buildGameView()
+            else
+              const Center(child: CircularProgressIndicator()),
+            _buildVideoLayer(),
+            if (showFps) _buildFpsDisplay(),
+            _buildFloatingBall(),
+            _buildControlPanel(),
+            _buildHiddenKeyboard(),
+            _buildAvoidOverlay(),
+          ],
+        ),
       ),
+    );
+  }
+
+  /// 紧急回避覆盖（[avoid] + keyconfig role15）：core 触发时静音并发 ui_command，
+  /// 宿主即时以全屏不透明遮罩隐藏画面（避免旁人看到游戏内容）。再次触发时撤除。
+  Widget _buildAvoidOverlay() {
+    return ValueListenableBuilder<AvoidOverlay?>(
+      valueListenable: _bridge.avoidOverlay,
+      builder: (context, avoid, _) {
+        if (avoid == null) return const SizedBox.shrink();
+        return const Positioned.fill(
+          child: ColoredBox(color: Colors.black),
+        );
+      },
     );
   }
 
