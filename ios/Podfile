@@ -1,0 +1,95 @@
+# Uncomment this line to define a global platform for your project
+platform :ios, '13.0'
+
+# CocoaPods analytics sends network stats synchronously affecting flutter build latency.
+ENV['COCOAPODS_DISABLE_STATS'] = 'true'
+
+project 'Runner', {
+  'Debug' => :debug,
+  'Profile' => :release,
+  'Release' => :release,
+}
+
+def flutter_root
+  generated_xcode_build_settings_path = File.expand_path(File.join('..', 'Flutter', 'Generated.xcconfig'), __FILE__)
+  unless File.exist?(generated_xcode_build_settings_path)
+    raise "#{generated_xcode_build_settings_path} must exist. If you're running pod install manually, make sure flutter pub get is executed first"
+  end
+
+  File.foreach(generated_xcode_build_settings_path) do |line|
+    matches = line.match(/FLUTTER_ROOT\=(.*)/)
+    return matches[1].strip if matches
+  end
+  raise "FLUTTER_ROOT not found in #{generated_xcode_build_settings_path}. Try deleting Generated.xcconfig, then run flutter pub get"
+end
+
+require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelper'), flutter_root)
+
+flutter_ios_podfile_setup
+
+# ── 确保 vendored framework 骨架存在（避免首次 pod install 失败）────
+FRAMEWORKS_DIR = File.expand_path('Frameworks', __dir__)
+STUB_FRAMEWORKS = [
+  { name: 'art3m1s_core', id: 'moe.alphaly.art3m1s.core' },
+  { name: 'pfs_upk',       id: 'moe.alphaly.art3m1s.pfs' },
+  { name: 'EGL',           id: 'moe.alphaly.art3m1s.egl' },
+  { name: 'GLESv2',        id: 'moe.alphaly.art3m1s.glesv2' },
+]
+
+def ensure_framework_stub(name, bundle_id)
+  fw_path = File.join(FRAMEWORKS_DIR, "#{name}.framework")
+  bin_path = File.join(fw_path, name)
+  return if File.exist?(bin_path) && File.size(bin_path) > 0
+
+  FileUtils.mkdir_p(fw_path)
+
+  File.write(File.join(fw_path, 'Info.plist'), <<~PLIST)
+    <?xml version="1.0" encoding="UTF-8"?>
+    <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+    <plist version="1.0">
+    <dict>
+      <key>CFBundleExecutable</key>
+      <string>#{name}</string>
+      <key>CFBundleIdentifier</key>
+      <string>#{bundle_id}</string>
+      <key>CFBundleName</key>
+      <string>#{name}</string>
+      <key>CFBundlePackageType</key>
+      <string>FMWK</string>
+      <key>CFBundleVersion</key>
+      <string>0.1.0</string>
+      <key>CFBundleShortVersionString</key>
+      <string>0.1.0</string>
+      <key>MinimumOSVersion</key>
+      <string>13.0</string>
+    </dict>
+    </plist>
+  PLIST
+
+  # 创建占位空二进制（运行 ios_build_rust.sh 后会覆盖为真实 dylib）
+  FileUtils.touch(bin_path)
+  FileUtils.chmod(0755, bin_path)
+end
+
+STUB_FRAMEWORKS.each { |fw| ensure_framework_stub(fw[:name], fw[:id]) }
+
+target 'Runner' do
+  use_frameworks!
+
+  flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
+
+  # ── 本地 vendored frameworks ──────────────────────────────────────────
+  pod 'Art3m1sCore', :path => 'Frameworks'
+  pod 'PfsUpk',       :path => 'Frameworks'
+  pod 'MetalANGLE',   :path => 'Frameworks'
+
+  target 'RunnerTests' do
+    inherit! :search_paths
+  end
+end
+
+post_install do |installer|
+  installer.pods_project.targets.each do |target|
+    flutter_additional_ios_build_settings(target)
+  end
+end

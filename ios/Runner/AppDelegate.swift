@@ -143,43 +143,73 @@ import UniformTypeIdentifiers
     result?(value)
   }
 
-  private func copySelectedPfsFilesToSandbox(_ urls: [URL]) throws -> String {
+  private func copySelectedPfsFilesToSandbox(_ urls: [URL]) throws -> [String] {
     NSLog("[Art3m1s] PFS import selected \(urls.count) files")
 
     let files = try urls.map { url in
       SelectedPfsFile(url: url, name: url.lastPathComponent, size: try fileSize(url))
     }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
 
-    guard let base = files.first(where: { Self.isBasePfsName($0.name) }) else {
+    let bases = files.filter { Self.isBasePfsName($0.name) }
+    guard !bases.isEmpty else {
       throw NSError(domain: "Art3m1s", code: 1, userInfo: [
         NSLocalizedDescriptionKey: "请选择 base .pfs 文件"
       ])
     }
 
-    let totalSize = files.reduce(0) { $0 + $1.size }
-    let gameId = Self.computeGameId(name: base.name, size: totalSize)
+    let duplicateBaseNames = Dictionary(grouping: bases) { $0.name.lowercased() }
+      .filter { $0.value.count > 1 }
+      .keys
+    guard duplicateBaseNames.isEmpty else {
+      throw NSError(domain: "Art3m1s", code: 2, userInfo: [
+        NSLocalizedDescriptionKey: "一次不能导入多个同名 PFS：\(duplicateBaseNames.sorted().joined(separator: ", "))"
+      ])
+    }
+    let orphanVolumes = files.filter { file in
+      Self.isPfsVolumeName(file.name)
+        && !bases.contains { Self.isPfsVolumeName(file.name, forBase: $0.name) }
+    }
+    guard orphanVolumes.isEmpty else {
+      throw NSError(domain: "Art3m1s", code: 3, userInfo: [
+        NSLocalizedDescriptionKey: "分卷缺少对应的 base .pfs：\(orphanVolumes.map(\.name).joined(separator: ", "))"
+      ])
+    }
+
     let fm = FileManager.default
     let gamesDir = try appGamesURL()
-    let targetDir = gamesDir.appendingPathComponent(gameId, isDirectory: true)
     try fm.createDirectory(at: gamesDir, withIntermediateDirectories: true)
+    var importedPaths: [String] = []
 
-    if try isComplete(files: files, targetDir: targetDir) {
-      return targetDir.appendingPathComponent(base.name).path
+    for base in bases {
+      let volumes = files.filter {
+        Self.isPfsVolumeName($0.name, forBase: base.name)
+      }
+      let gameFiles = [base] + volumes
+      let totalSize = gameFiles.reduce(0) { $0 + $1.size }
+      let gameId = Self.computeGameId(name: base.name, size: totalSize)
+      let targetDir = gamesDir.appendingPathComponent(gameId, isDirectory: true)
+      let importedBase = targetDir.appendingPathComponent(base.name).path
+
+      if try isComplete(files: gameFiles, targetDir: targetDir) {
+        importedPaths.append(importedBase)
+        continue
+      }
+
+      if fm.fileExists(atPath: targetDir.path) {
+        try fm.removeItem(at: targetDir)
+      }
+      try fm.createDirectory(at: targetDir, withIntermediateDirectories: true)
+
+      for file in gameFiles {
+        let dest = targetDir.appendingPathComponent(file.name, isDirectory: false)
+        NSLog("[Art3m1s] PFS import copy \(file.name)")
+        try copyFile(from: file.url, to: dest)
+      }
+      importedPaths.append(importedBase)
     }
 
-    if fm.fileExists(atPath: targetDir.path) {
-      try fm.removeItem(at: targetDir)
-    }
-    try fm.createDirectory(at: targetDir, withIntermediateDirectories: true)
-
-    for file in files {
-      let dest = targetDir.appendingPathComponent(file.name, isDirectory: false)
-      NSLog("[Art3m1s] PFS import copy \(file.name)")
-      try copyFile(from: file.url, to: dest)
-    }
-
-    NSLog("[Art3m1s] PFS import completed: \(targetDir.appendingPathComponent(base.name).path)")
-    return targetDir.appendingPathComponent(base.name).path
+    NSLog("[Art3m1s] PFS import completed: \(importedPaths.joined(separator: ", "))")
+    return importedPaths
   }
 
   private func ensureAppFolders() throws -> URL {
@@ -265,6 +295,17 @@ import UniformTypeIdentifiers
   private func isComplete(files: [SelectedPfsFile], targetDir: URL) throws -> Bool {
     let fm = FileManager.default
     guard fm.fileExists(atPath: targetDir.path) else { return false }
+    let expectedNames = Set(files.map(\.name))
+    let existingNames = Set(
+      try fm.contentsOfDirectory(
+        at: targetDir,
+        includingPropertiesForKeys: [.isRegularFileKey],
+        options: [.skipsHiddenFiles]
+      ).filter {
+        (try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
+      }.map(\.lastPathComponent)
+    )
+    guard existingNames == expectedNames else { return false }
     for file in files {
       let dest = targetDir.appendingPathComponent(file.name)
       guard fm.fileExists(atPath: dest.path) else { return false }
@@ -300,6 +341,15 @@ import UniformTypeIdentifiers
   private static func isBasePfsName(_ name: String) -> Bool {
     let lower = name.lowercased()
     return lower.hasSuffix(".pfs") && lower.range(of: #"(?i)\.pfs\.\d{3}$"#, options: .regularExpression) == nil
+  }
+
+  private static func isPfsVolumeName(_ name: String, forBase base: String? = nil) -> Bool {
+    let lower = name.lowercased()
+    guard lower.range(of: #"(?i)\.pfs\.\d{3}$"#, options: .regularExpression) != nil else {
+      return false
+    }
+    guard let base else { return true }
+    return lower.hasPrefix("\(displayName(forPfs: base).lowercased()).pfs.")
   }
 
   private static func computeGameId(name: String, size: Int64) -> String {

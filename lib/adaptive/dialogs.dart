@@ -11,11 +11,13 @@ class GameEditData {
   final String name;
   final String? coverPath;
   final bool translationEnabled;
+  final bool environmentPatchEnabled;
 
   const GameEditData({
     required this.name,
     this.coverPath,
     required this.translationEnabled,
+    required this.environmentPatchEnabled,
   });
 }
 
@@ -139,6 +141,7 @@ Future<GameEditData?> showGameEditDialog(
   required String initialName,
   String? initialCoverPath,
   bool initialTranslationEnabled = false,
+  bool initialEnvironmentPatchEnabled = false,
 }) {
   if (Platform.isMacOS) {
     return showMacosAlertDialog<GameEditData>(
@@ -148,6 +151,7 @@ Future<GameEditData?> showGameEditDialog(
         initialName: initialName,
         initialCover: initialCoverPath,
         initialTranslationEnabled: initialTranslationEnabled,
+        initialEnvironmentPatchEnabled: initialEnvironmentPatchEnabled,
       ),
     );
   }
@@ -159,6 +163,7 @@ Future<GameEditData?> showGameEditDialog(
         initialName: initialName,
         initialCover: initialCoverPath,
         initialTranslationEnabled: initialTranslationEnabled,
+        initialEnvironmentPatchEnabled: initialEnvironmentPatchEnabled,
       ),
     );
   }
@@ -170,6 +175,7 @@ Future<GameEditData?> showGameEditDialog(
         initialName: initialName,
         initialCover: initialCoverPath,
         initialTranslationEnabled: initialTranslationEnabled,
+        initialEnvironmentPatchEnabled: initialEnvironmentPatchEnabled,
       ),
     );
   }
@@ -180,6 +186,7 @@ Future<GameEditData?> showGameEditDialog(
       initialName: initialName,
       initialCover: initialCoverPath,
       initialTranslationEnabled: initialTranslationEnabled,
+      initialEnvironmentPatchEnabled: initialEnvironmentPatchEnabled,
     ),
   );
 }
@@ -191,12 +198,14 @@ class _MacosEditDialog extends StatefulWidget {
   final String initialName;
   final String? initialCover;
   final bool initialTranslationEnabled;
+  final bool initialEnvironmentPatchEnabled;
 
   const _MacosEditDialog({
     required this.title,
     required this.initialName,
     this.initialCover,
     required this.initialTranslationEnabled,
+    required this.initialEnvironmentPatchEnabled,
   });
 
   @override
@@ -209,12 +218,14 @@ class _MacosEditDialogState extends State<_MacosEditDialog> {
   );
   String? _cover;
   late bool _translationEnabled;
+  late bool _environmentPatchEnabled;
 
   @override
   void initState() {
     super.initState();
     _cover = widget.initialCover;
     _translationEnabled = widget.initialTranslationEnabled;
+    _environmentPatchEnabled = widget.initialEnvironmentPatchEnabled;
   }
 
   @override
@@ -277,6 +288,17 @@ class _MacosEditDialogState extends State<_MacosEditDialog> {
               ),
             ],
           ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              const Expanded(child: Text('环境兼容补丁')),
+              MacosSwitch(
+                value: _environmentPatchEnabled,
+                onChanged: (value) =>
+                    setState(() => _environmentPatchEnabled = value),
+              ),
+            ],
+          ),
         ],
       ),
       primaryButton: PushButton(
@@ -286,6 +308,7 @@ class _MacosEditDialogState extends State<_MacosEditDialog> {
             name: _name.text.trim(),
             coverPath: _cover,
             translationEnabled: _translationEnabled,
+            environmentPatchEnabled: _environmentPatchEnabled,
           ),
         ),
         child: const Text('保存'),
@@ -307,12 +330,14 @@ class _CupertinoEditDialog extends StatefulWidget {
   final String initialName;
   final String? initialCover;
   final bool initialTranslationEnabled;
+  final bool initialEnvironmentPatchEnabled;
 
   const _CupertinoEditDialog({
     required this.title,
     required this.initialName,
     this.initialCover,
     required this.initialTranslationEnabled,
+    required this.initialEnvironmentPatchEnabled,
   });
 
   @override
@@ -325,12 +350,14 @@ class _CupertinoEditDialogState extends State<_CupertinoEditDialog> {
   );
   String? _cover;
   late bool _translationEnabled;
+  late bool _environmentPatchEnabled;
 
   @override
   void initState() {
     super.initState();
     _cover = widget.initialCover;
     _translationEnabled = widget.initialTranslationEnabled;
+    _environmentPatchEnabled = widget.initialEnvironmentPatchEnabled;
   }
 
   @override
@@ -384,6 +411,17 @@ class _CupertinoEditDialogState extends State<_CupertinoEditDialog> {
               ),
             ],
           ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              const Expanded(child: Text('环境兼容补丁')),
+              CupertinoSwitch(
+                value: _environmentPatchEnabled,
+                onChanged: (value) =>
+                    setState(() => _environmentPatchEnabled = value),
+              ),
+            ],
+          ),
         ],
       ),
       actions: [
@@ -398,6 +436,7 @@ class _CupertinoEditDialogState extends State<_CupertinoEditDialog> {
               name: _name.text.trim(),
               coverPath: _cover,
               translationEnabled: _translationEnabled,
+              environmentPatchEnabled: _environmentPatchEnabled,
             ),
           ),
           child: const Text('保存'),
@@ -414,12 +453,14 @@ class _MaterialEditDialog extends StatefulWidget {
   final String initialName;
   final String? initialCover;
   final bool initialTranslationEnabled;
+  final bool initialEnvironmentPatchEnabled;
 
   const _MaterialEditDialog({
     required this.title,
     required this.initialName,
     this.initialCover,
     required this.initialTranslationEnabled,
+    required this.initialEnvironmentPatchEnabled,
   });
 
   @override
@@ -432,12 +473,14 @@ class _MaterialEditDialogState extends State<_MaterialEditDialog> {
   );
   String? _cover;
   late bool _translationEnabled;
+  late bool _environmentPatchEnabled;
 
   @override
   void initState() {
     super.initState();
     _cover = widget.initialCover;
     _translationEnabled = widget.initialTranslationEnabled;
+    _environmentPatchEnabled = widget.initialEnvironmentPatchEnabled;
   }
 
   @override
@@ -487,6 +530,13 @@ class _MaterialEditDialogState extends State<_MaterialEditDialog> {
             value: _translationEnabled,
             onChanged: (value) => setState(() => _translationEnabled = value),
           ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('环境兼容补丁'),
+            value: _environmentPatchEnabled,
+            onChanged: (value) =>
+                setState(() => _environmentPatchEnabled = value),
+          ),
         ],
       ),
       actions: [
@@ -500,6 +550,7 @@ class _MaterialEditDialogState extends State<_MaterialEditDialog> {
               name: _name.text.trim(),
               coverPath: _cover,
               translationEnabled: _translationEnabled,
+              environmentPatchEnabled: _environmentPatchEnabled,
             ),
           ),
           child: const Text('保存'),
@@ -552,12 +603,14 @@ class _FluentEditDialog extends StatefulWidget {
   final String initialName;
   final String? initialCover;
   final bool initialTranslationEnabled;
+  final bool initialEnvironmentPatchEnabled;
 
   const _FluentEditDialog({
     required this.title,
     required this.initialName,
     this.initialCover,
     required this.initialTranslationEnabled,
+    required this.initialEnvironmentPatchEnabled,
   });
 
   @override
@@ -570,12 +623,14 @@ class _FluentEditDialogState extends State<_FluentEditDialog> {
   );
   String? _cover;
   late bool _translationEnabled;
+  late bool _environmentPatchEnabled;
 
   @override
   void initState() {
     super.initState();
     _cover = widget.initialCover;
     _translationEnabled = widget.initialTranslationEnabled;
+    _environmentPatchEnabled = widget.initialEnvironmentPatchEnabled;
   }
 
   @override
@@ -632,6 +687,17 @@ class _FluentEditDialogState extends State<_FluentEditDialog> {
               ),
             ],
           ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              const Expanded(child: Text('环境兼容补丁')),
+              fluent.ToggleSwitch(
+                checked: _environmentPatchEnabled,
+                onChanged: (value) =>
+                    setState(() => _environmentPatchEnabled = value),
+              ),
+            ],
+          ),
         ],
       ),
       actions: [
@@ -645,6 +711,7 @@ class _FluentEditDialogState extends State<_FluentEditDialog> {
               name: _name.text.trim(),
               coverPath: _cover,
               translationEnabled: _translationEnabled,
+              environmentPatchEnabled: _environmentPatchEnabled,
             ),
           ),
           child: const Text('保存'),

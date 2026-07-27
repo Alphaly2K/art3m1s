@@ -9,12 +9,14 @@ Art3m1s 是使用 Flutter 编写的跨平台 Artemis 视觉小说运行时宿主
 [`art3m1s-core`](https://github.com/Alphaly2K/art3m1s-core) 负责脚本执行、游戏状态和
 离屏图层合成。
 
-当前应用版本为 **1.1.0-0.2.0c**，对应 `art3m1s-core 0.2.0` 兼容周期。
+当前应用版本为 **1.1.1-0.2.1c**，对应 `art3m1s-core 0.2.1` 兼容周期。
 
 ## 功能
 
-- 从解包目录、单卷/分卷 PFS 和移动端应用目录导入游戏
+- 从解包目录、单卷/分卷 PFS 和移动端应用目录导入游戏；同一目录中的多个 PFS
+  会分别建立项目条目
 - 启动时无界面读取游戏标题，并通过 VNDB 补全标题和封面
+- 以稳定项目 ID 映射游戏目录、具体 PFS、存档、封面和设置，避免同名文件互相串档
 - 按平台使用 macOS、Cupertino、Fluent、Yaru/Material 3 风格的原生化界面
 - 以约 60 FPS 驱动 Rust runtime，转发鼠标、键盘、触摸、右键、悬停和拖动
 - 播放 BGM、SE、Voice、全屏视频与参与 core 合成的图层视频
@@ -72,6 +74,9 @@ Art3m1s 是使用 Flutter 编写的跨平台 Artemis 视觉小说运行时宿主
 - 已解包的游戏目录；
 - 由应用管理的存档文件。
 
+PFS 条目绑定到具体的基础 `.pfs` 文件，而不是只绑定父目录。资源路径会依据
+`system.ini` 的 `CHARSET` 以 Shift_JIS 或 UTF-8 解码；大型加密资源支持分块读取。
+
 core 不需要接触用户文件的物理路径。在 iOS 上，文件 App 可见的数据按以下结构保存：
 
 ```text
@@ -80,7 +85,9 @@ Documents/Art3m1s/
   Saves/
 ```
 
-原生 `UIDocumentPicker` 通过 security-scoped URL 复制用户选中的 PFS 分卷。Android
+原生 `UIDocumentPicker` 通过 security-scoped URL 复制用户选中的 PFS 分卷。导入时
+会先扫描 table 中的 `gametitle`，找不到时再使用启用环境补丁的 headless runtime
+探测标题。Android
 使用 Storage Access Framework 将选定目录复制到沙箱，从而避免 Dart 无法直接访问
 `content://`，也避免在 Dart 中把整个文件读入内存。
 
@@ -150,21 +157,30 @@ Fable 的本轮 macOS UI 更新还加入了原生应用菜单、更加清晰的�
 - Rust 稳定版
 - 对应目标平台的 SDK
 - 为目标平台编译的 `art3m1s-core` native library
+- 与 core 固定版本一致的 `pfs-upk-rust` native library
 - 当前平台所需的 mpv/media_kit 运行时依赖
 
 ### macOS 开发
 
 ```bash
 cd /path/to/art3m1s-core
+git submodule update --init --recursive
 cargo test
 cargo build --release
+cargo build --release --manifest-path crates/pfs-upk-rust/Cargo.toml
 
 cp target/release/libart3m1s_core.dylib /path/to/Art3m1s/
+cp crates/pfs-upk-rust/target/release/libpfs_upk.dylib /path/to/Art3m1s/
 codesign --force --sign - /path/to/Art3m1s/libart3m1s_core.dylib
+codesign --force --sign - /path/to/Art3m1s/libpfs_upk.dylib
 
 cd /path/to/Art3m1s
 flutter pub get
-flutter run -d macos
+COMMIT=$(git rev-parse HEAD)
+VERSION=$(sed -n 's/^version: //p' pubspec.yaml)
+flutter run -d macos \
+  --dart-define=GIT_COMMIT="$COMMIT" \
+  --dart-define=APP_VERSION="$VERSION"
 ```
 
 应用包还需要当前桌面打包方案使用的 PFS 和 EGL/GLES library。不能从同一 framework
@@ -221,6 +237,7 @@ flutter test
 |---|---|
 | [Alphaly2K/art3m1s](https://github.com/Alphaly2K/art3m1s) | Flutter 宿主应用 |
 | [Alphaly2K/art3m1s-core](https://github.com/Alphaly2K/art3m1s-core) | Rust runtime、解释器、合成器和支持 crate |
+| [Alphaly2K/pfs-upk-rust](https://github.com/Alphaly2K/pfs-upk-rust) | PFS reader 与流式 FFI |
 
 ## 版本说明
 

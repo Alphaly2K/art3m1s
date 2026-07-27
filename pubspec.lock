@@ -413,6 +413,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.20.2"
+  jis0208:
+    dependency: "direct main"
+    description:
+      name: jis0208
+      sha256: a9746973cc55330728fc4b642cfbff16d68dcbc2c0475fd5fa58381bae4d3e60
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.0.1"
   jni:
     dependency: transitive
     description:

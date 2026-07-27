@@ -1,7 +1,7 @@
 import 'dart:io';
+import 'dart:math';
 
 import 'package:file_selector/file_selector.dart';
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -39,50 +39,48 @@ class LibraryActions {
   }
 
   Future<void> pickPfs() async {
-    String? filePath;
+    var filePaths = <String>[];
     if (Platform.isAndroid || Platform.isIOS) {
-      // 移动平台：通过原生 SAF 选目录，拷贝整个目录（含分卷）到沙箱。
+      // 移动平台：通过原生选择器复制数据，再让每个 base PFS 独立成为项目。
       // 避免 file_selector 在 Android 上返回无法用 dart:io 访问的 content URI。
       if (Platform.isAndroid) {
         final sandboxDir = await GameImporter.pickDirectoryAndCopy();
         if (sandboxDir == null || !context.mounted) return;
-        // 在沙箱里找 base .pfs 文件。
-        final pfsFile = Directory(sandboxDir)
-            .listSync()
-            .whereType<File>()
-            .where((f) => f.path.toLowerCase().endsWith('.pfs'))
-            .where(
-              (f) => !RegExp(
-                r'\.pfs\.\d{3}$',
-                caseSensitive: false,
-              ).hasMatch(f.path),
-            )
-            .firstOrNull;
-        if (pfsFile == null) {
-          if (context.mounted) notify(context, '所选目录中没有 .pfs 文件');
-          return;
-        }
-        filePath = pfsFile.path;
+        filePaths = GameImporter.discoverBasePfsFiles(sandboxDir);
       } else {
-        filePath = await GameImporter.pickPfsFilesAndCopy();
-        if (filePath == null) {
+        final picked = await GameImporter.pickPfsFilesAndCopy();
+        if (picked == null) {
           if (context.mounted) notify(context, '请选择 base .pfs 和所有 .pfs.NNN 分卷');
           return;
         }
+        filePaths = picked;
       }
     } else {
       const typeGroup = XTypeGroup(label: 'PFS 归档', extensions: ['pfs', 'PFS']);
       final file = await openFile(acceptedTypeGroups: [typeGroup]);
-      filePath = file?.path;
+      if (file != null) filePaths = [file.path];
     }
-    if (filePath == null || !context.mounted) return;
+    if (!context.mounted) return;
+    if (filePaths.isEmpty) {
+      notify(context, '所选位置中没有 base .pfs 文件');
+      return;
+    }
 
-    final name = filePath
-        .split(Platform.pathSeparator)
-        .last
-        .replaceAll(RegExp(r'\.pfs$', caseSensitive: false), '');
+    final games = filePaths
+        .map(
+          (path) => DiscoveredGame(
+            name: _pfsDisplayName(path),
+            path: path,
+            source: GameSource.pfsArchive.name,
+          ),
+        )
+        .toList(growable: false);
 
-    await _editAndAdd(name, filePath, GameSource.pfsArchive);
+    if (games.length == 1) {
+      await _addDiscoveredGame(games.single);
+    } else {
+      await _addDiscoveredGamesAutomatically(games);
+    }
   }
 
   Future<void> openIosAppFolderManager() async {
@@ -108,32 +106,7 @@ class LibraryActions {
       return;
     }
 
-    if (games.length == 1) {
-      await _addDiscoveredGame(games.single);
-      return;
-    }
-
-    final selected = await showCupertinoModalPopup<DiscoveredGame>(
-      context: context,
-      builder: (ctx) => CupertinoActionSheet(
-        title: const Text('选择项目'),
-        actions: [
-          for (final game in games)
-            CupertinoActionSheetAction(
-              onPressed: () => Navigator.of(ctx).pop(game),
-              child: Text(game.name),
-            ),
-        ],
-        cancelButton: CupertinoActionSheetAction(
-          onPressed: () => Navigator.of(ctx).pop(),
-          child: const Text('取消'),
-        ),
-      ),
-    );
-
-    if (selected != null && context.mounted) {
-      await _addDiscoveredGame(selected);
-    }
+    await _addDiscoveredGamesAutomatically(games);
   }
 
   Future<void> _addDiscoveredGame(DiscoveredGame game) {
@@ -144,43 +117,83 @@ class LibraryActions {
     );
   }
 
+  Future<void> _addDiscoveredGamesAutomatically(
+    List<DiscoveredGame> games,
+  ) async {
+    final existingPaths = ref
+        .read(libraryProvider)
+        .map((entry) => entry.path)
+        .toSet();
+    final pending = games
+        .where((game) => !existingPaths.contains(game.path))
+        .toList(growable: false);
+    if (pending.isEmpty) {
+      if (context.mounted) notify(context, '扫描到的游戏都已在资料库中');
+      return;
+    }
+
+    var added = 0;
+    for (var index = 0; index < pending.length; index++) {
+      if (!context.mounted) return;
+      final game = pending[index];
+      notify(context, '正在添加 ${index + 1}/${pending.length}：${game.name}');
+      if (await _addDiscoveredGameAutomatically(game)) added++;
+    }
+    if (context.mounted) {
+      notify(context, '已添加 $added 个游戏');
+    }
+  }
+
+  Future<bool> _addDiscoveredGameAutomatically(DiscoveredGame game) async {
+    final source = game.isPfsArchive
+        ? GameSource.pfsArchive
+        : GameSource.directory;
+    final gameId = _gameIdForPath(game.path);
+    final metadata = await _resolveGameMetadata(
+      game.name,
+      game.path,
+      source,
+      gameId,
+    );
+    if (metadata == null || !context.mounted) return false;
+
+    await ref
+        .read(libraryProvider.notifier)
+        .add(
+          GameEntry(
+            id: gameId,
+            name: game.name,
+            path: game.path,
+            source: source,
+            addedAt: DateTime.now(),
+            displayName: metadata.name == game.name ? null : metadata.name,
+            coverPath: metadata.coverPath,
+          ),
+        );
+    Log.info('已自动添加: ${metadata.name}');
+    return true;
+  }
+
   Future<void> _editAndAdd(
     String defaultName,
     String path,
     GameSource source,
   ) async {
-    // 先 headless 探测真实 caption（游戏标题）作 VNDB 查询词——比目录名/文件名准得多
-    // （目录名常是罗马音缩写，会命中错的 VN）；探测失败回退目录名。全 best-effort。
+    final gameId = _gameIdForPath(path);
     notify(context, '正在获取游戏信息…');
-    final caption = await CoreBridge().probeCaption(
-      projectPath: path,
-      isPfsArchive: source == GameSource.pfsArchive,
-      platform: ref.read(settingsProvider).runtimePlatform,
+    final metadata = await _resolveGameMetadata(
+      defaultName,
+      path,
+      source,
+      gameId,
     );
-    if (!context.mounted) return;
-    // caption 常是「脏」的（含汉化译名/版本号/补丁公告），lookupGame 会切段滤垃圾
-    // 逐段查；探测不到则退回目录名。
-    final rawTitle = (caption != null && caption.trim().isNotEmpty)
-        ? caption
-        : defaultName;
-    final info = await VndbService.lookupGame(rawTitle);
-    if (!context.mounted) return;
-    var initialName = defaultName;
-    String? initialCover;
-    if (info != null) {
-      initialName = info.title;
-      final imageUrl = info.imageUrl;
-      if (imageUrl != null) {
-        initialCover = await VndbService.downloadCover(imageUrl, defaultName);
-        if (!context.mounted) return;
-      }
-    }
+    if (metadata == null || !context.mounted) return;
 
     final result = await showGameEditDialog(
       context,
       title: '添加项目',
-      initialName: initialName,
-      initialCoverPath: initialCover,
+      initialName: metadata.name,
+      initialCoverPath: metadata.coverPath,
     );
     if (result == null || !context.mounted) return;
 
@@ -188,6 +201,7 @@ class LibraryActions {
         .read(libraryProvider.notifier)
         .add(
           GameEntry(
+            id: gameId,
             name: defaultName,
             path: path,
             source: source,
@@ -195,9 +209,61 @@ class LibraryActions {
             displayName: result.name.isNotEmpty ? result.name : null,
             coverPath: result.coverPath,
             translationEnabled: result.translationEnabled,
+            environmentPatchEnabled: result.environmentPatchEnabled,
           ),
         );
     Log.info('已添加: ${result.name.isNotEmpty ? result.name : defaultName}');
+  }
+
+  Future<_ResolvedGameMetadata?> _resolveGameMetadata(
+    String defaultName,
+    String path,
+    GameSource source,
+    String gameId,
+  ) async {
+    // 优先从语言表提取 gametitle，找不到时再 headless 运行到 caption。
+    // 目录名常是罗马音缩写，会命中错误 VN；整个过程均为 best-effort。
+    final caption = await CoreBridge().probeCaption(
+      projectPath: path,
+      isPfsArchive: source == GameSource.pfsArchive,
+      platform: ref.read(settingsProvider).runtimePlatform,
+    );
+    if (!context.mounted) return null;
+    // caption 常是「脏」的（含汉化译名/版本号/补丁公告），lookupGame 会切段滤垃圾。
+    final rawTitle = (caption != null && caption.trim().isNotEmpty)
+        ? caption
+        : defaultName;
+    final info = await VndbService.lookupGame(rawTitle);
+    if (!context.mounted) return null;
+    if (info == null) return _ResolvedGameMetadata(defaultName, null);
+
+    String? coverPath;
+    if (info.imageUrl case final imageUrl?) {
+      coverPath = await VndbService.downloadCover(imageUrl, gameId);
+      if (!context.mounted) return null;
+    }
+    return _ResolvedGameMetadata(info.title, coverPath);
+  }
+
+  String _pfsDisplayName(String path) => path
+      .split(Platform.pathSeparator)
+      .last
+      .replaceAll(RegExp(r'\.pfs$', caseSensitive: false), '');
+
+  String _gameIdForPath(String path) {
+    final library = ref.read(libraryProvider);
+    for (final game in library) {
+      if (game.path == path) return game.id;
+    }
+    final existing = library.map((game) => game.id).toSet();
+    final random = Random.secure();
+    while (true) {
+      final id = List.generate(
+        8,
+        (_) => random.nextInt(16).toRadixString(16),
+      ).join();
+      if (!existing.contains(id)) return id;
+    }
   }
 
   // ── 条目操作 ──────────────────────────────────────────────
@@ -209,6 +275,7 @@ class LibraryActions {
       initialName: entry.displayNameOrName,
       initialCoverPath: entry.coverPath,
       initialTranslationEnabled: entry.translationEnabled,
+      initialEnvironmentPatchEnabled: entry.environmentPatchEnabled,
     );
     if (result == null || !context.mounted) return;
 
@@ -219,6 +286,7 @@ class LibraryActions {
           displayName: result.name.isNotEmpty ? result.name : null,
           coverPath: result.coverPath,
           translationEnabled: result.translationEnabled,
+          environmentPatchEnabled: result.environmentPatchEnabled,
         );
   }
 
@@ -241,14 +309,23 @@ class LibraryActions {
       MaterialPageRoute(
         builder: (_) => wrapPlayerRoute(
           PlayerScreen(
+            gameId: entry.id,
             projectPath: entry.path,
             source: entry.source,
             translationEnabled: entry.translationEnabled,
+            environmentPatchEnabled: entry.environmentPatchEnabled,
           ),
         ),
       ),
     );
   }
+}
+
+class _ResolvedGameMetadata {
+  const _ResolvedGameMetadata(this.name, this.coverPath);
+
+  final String name;
+  final String? coverPath;
 }
 
 /// 玩家页面是 Material 组件树（Scaffold/SnackBar/对话框）。

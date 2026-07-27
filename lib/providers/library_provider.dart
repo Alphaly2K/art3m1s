@@ -33,6 +33,7 @@ class LibraryNotifier extends StateNotifier<List<GameEntry>> {
         final sandboxPath = await GameImporter.importToSandbox(entry.path);
         if (sandboxPath != entry.path) {
           finalEntry = GameEntry(
+            id: entry.id,
             name: entry.name,
             path: sandboxPath,
             source: entry.source,
@@ -40,6 +41,7 @@ class LibraryNotifier extends StateNotifier<List<GameEntry>> {
             displayName: entry.displayName,
             coverPath: entry.coverPath,
             translationEnabled: entry.translationEnabled,
+            environmentPatchEnabled: entry.environmentPatchEnabled,
           );
           Log.info('[Library] 已切换到沙箱路径: $sandboxPath');
         }
@@ -70,6 +72,7 @@ class LibraryNotifier extends StateNotifier<List<GameEntry>> {
     String? displayName,
     String? coverPath,
     bool? translationEnabled,
+    bool? environmentPatchEnabled,
   }) async {
     final lib = _storage.getLibrary();
     final i = lib.indexWhere((g) => g.path == path);
@@ -78,6 +81,7 @@ class LibraryNotifier extends StateNotifier<List<GameEntry>> {
       displayName: displayName,
       coverPath: coverPath,
       translationEnabled: translationEnabled,
+      environmentPatchEnabled: environmentPatchEnabled,
     );
     lib[i] = updated;
     await _storage.saveLibrary(lib);

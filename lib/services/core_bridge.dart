@@ -8,8 +8,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../services/logger.dart';
+import 'caption_table_probe.dart';
 import 'file_provider.dart';
 import 'media_bridge.dart';
+import 'project_charset.dart';
 import 'text_translation_service.dart';
 
 typedef LogCallbackNative =
@@ -146,9 +148,7 @@ void _uiCommandCallback(Pointer<Int8> kindPtr, Pointer<Int8> payloadPtr) {
           bridge.avoidOverlay.value = null;
         }
       case 'mouse':
-        // 光标控制：hide=1 隐藏光标（config 里「隐藏鼠标」等），否则显示。
-        final hide = _asBool(payload['hide']) || _asBool(payload['hidden']);
-        bridge.cursorHidden.value = hide;
+        bridge.applyMouseConfig(payload);
       case 'caption':
         // core 发的字段是 data（events.rs），旧代码读 caption/text 一直取不到值。
         final title =
@@ -209,6 +209,12 @@ bool _asBool(dynamic v) {
   if (v is num) return v != 0;
   if (v is String) return v == '1' || v.toLowerCase() == 'true';
   return false;
+}
+
+int? _asInt(dynamic value) {
+  if (value is num) return value.toInt();
+  if (value is String) return int.tryParse(value);
+  return null;
 }
 
 int _textInjectCallback(
@@ -342,7 +348,9 @@ class CoreBridge {
   static NativeCallable<WindowStateCallbackNative>? _sharedWindowStateCallable;
   static CoreBridge? _activeBridge;
 
-  CoreBridge({this.onDialogRequested});
+  CoreBridge({this.onDialogRequested, bool? engineCursorControlEnabled})
+    : _engineCursorControlEnabled =
+          engineCursorControlEnabled ?? Platform.isWindows;
 
   final void Function(EngineDialogRequest request)? onDialogRequested;
   bool _initialized = false;
@@ -357,8 +365,78 @@ class CoreBridge {
   /// 紧急回避（[avoid] + keyconfig role15）：非 null 时 UI 层显示全屏覆盖。
   final ValueNotifier<AvoidOverlay?> avoidOverlay = ValueNotifier(null);
 
-  /// 是否隐藏鼠标光标（config「隐藏鼠标」等，经 ui_command mouse 驱动）。
+  final bool _engineCursorControlEnabled;
+  bool _cursorExplicitlyHidden = false;
+  int _cursorAutoHideMs = 0;
+  Timer? _cursorAutoHideTimer;
+
+  /// 是否隐藏游戏区域的鼠标光标（由 Windows 专用 [mouse] 标签驱动）。
   final ValueNotifier<bool> cursorHidden = ValueNotifier(false);
+
+  /// 应用 [mouse] 的 hide/autohide 参数。
+  ///
+  /// Artemis 文档明确该标签只适用于 Windows。运行时启动 OS 可以在 macOS/Linux
+  /// 上模拟 Windows 脚本分支，但不能因此隐藏真实宿主的系统光标。
+  @visibleForTesting
+  void applyMouseConfig(Map<String, dynamic> payload) {
+    if (!_engineCursorControlEnabled) {
+      _resetCursorState();
+      return;
+    }
+
+    final hideValue = payload['hide'] ?? payload['hidden'];
+    final autoHideValue = payload['autohide'];
+    final hasHide = hideValue != null;
+    final hasAutoHide = autoHideValue != null;
+    if (!hasHide && !hasAutoHide) return;
+
+    if (hasHide) {
+      _cursorExplicitlyHidden = _asBool(hideValue);
+    }
+    if (hasAutoHide) {
+      _cursorAutoHideMs = (_asInt(autoHideValue) ?? 0)
+          .clamp(0, 1 << 31)
+          .toInt();
+    }
+
+    _cursorAutoHideTimer?.cancel();
+    if (_cursorExplicitlyHidden) {
+      _setCursorHidden(true);
+      return;
+    }
+
+    _setCursorHidden(false);
+    _armCursorAutoHide();
+  }
+
+  /// 鼠标移动后重新显示 autohide 光标，并从头开始计算隐藏时间。
+  void notifyMouseActivity() {
+    if (!_engineCursorControlEnabled || _cursorExplicitlyHidden) return;
+    if (_cursorAutoHideMs <= 0) return;
+    _setCursorHidden(false);
+    _armCursorAutoHide();
+  }
+
+  void _armCursorAutoHide() {
+    _cursorAutoHideTimer?.cancel();
+    if (_cursorAutoHideMs <= 0 || _cursorExplicitlyHidden) return;
+    _cursorAutoHideTimer = Timer(
+      Duration(milliseconds: _cursorAutoHideMs),
+      () => _setCursorHidden(true),
+    );
+  }
+
+  void _setCursorHidden(bool hidden) {
+    if (cursorHidden.value != hidden) cursorHidden.value = hidden;
+  }
+
+  void _resetCursorState() {
+    _cursorAutoHideTimer?.cancel();
+    _cursorAutoHideTimer = null;
+    _cursorExplicitlyHidden = false;
+    _cursorAutoHideMs = 0;
+    _setCursorHidden(false);
+  }
 
   /// 脚本请求的窗口标题（ui_command caption），壳层可观察后落实到平台窗口。
   final ValueNotifier<String?> windowTitle = ValueNotifier(null);
@@ -660,41 +738,68 @@ class CoreBridge {
     }
   }
 
-  /// Headless 探测游戏 caption（导入时用）：把文件供给指向候选游戏、读 system.ini，
-  /// 只跑解释器到发出第一个 `[caption]` 就返回其文本（不建 runtime/GL，近乎瞬时）。
-  /// 任何失败（库加载不了、system.ini 读不到、boot 在发 caption 前阻塞/出错）返回 null。
+  /// 导入时先从语言表快速提取 gametitle；不存在时才 headless 运行解释器，
+  /// 直到发出第一个 `[caption]`。两条路径都启用环境兼容补丁。
+  /// 任何失败（库加载不了、system.ini 读不到、boot 在 caption 前阻塞）返回 null。
   /// 独立于 player 的 CoreBridge：只用 lib + 进程级 FileProvider，不动 _activeBridge。
   Future<String?> probeCaption({
     required String projectPath,
     required bool isPfsArchive,
     String platform = 'WINDOWS',
   }) async {
-    try {
-      _loadLibrary();
-    } catch (e) {
-      Log.warn('[CoreBridge] probeCaption 加载库失败: $e');
-      return null;
-    }
-    final lib = _lib;
-    if (lib == null) return null;
-
     Uint8List? iniContent;
+    late String charset;
     try {
       if (isPfsArchive) {
-        FileProvider.openPfs(projectPath);
+        FileProvider.openPfs(projectPath, environmentPatchEnabled: true);
         iniContent = FileProvider.readFile('system.ini');
       } else {
-        FileProvider.openDirectory(projectPath);
-        iniContent = File(
-          '$projectPath${Platform.pathSeparator}system.ini',
-        ).readAsBytesSync();
+        FileProvider.openDirectory(projectPath, environmentPatchEnabled: true);
+        iniContent = FileProvider.readFile('system.ini');
+      }
+      if (iniContent == null || iniContent.isEmpty) {
+        FileProvider.close();
+        return null;
+      }
+      charset = ProjectCharset.detect(iniContent, platform);
+      if (isPfsArchive) {
+        FileProvider.openPfs(
+          projectPath,
+          archiveEncoding: charset,
+          environmentPatchEnabled: true,
+        );
       }
     } catch (e) {
       Log.warn('[CoreBridge] probeCaption 读取 system.ini 失败: $e');
       FileProvider.close();
       return null;
     }
-    if (iniContent == null || iniContent.isEmpty) {
+
+    String? tableCaption;
+    try {
+      tableCaption = CaptionTableProbe.find(
+        paths: FileProvider.listFiles(extension: '.tbl'),
+        readFile: FileProvider.readFile,
+        charset: charset,
+      );
+    } catch (e) {
+      Log.warn('[CoreBridge] probeCaption 扫描语言表失败，将回退 headless: $e');
+    }
+    if (tableCaption != null) {
+      Log.info('[CoreBridge] 从语言表获取 caption: $tableCaption');
+      FileProvider.close();
+      return tableCaption;
+    }
+
+    try {
+      _loadLibrary();
+    } catch (e) {
+      Log.warn('[CoreBridge] probeCaption 加载库失败: $e');
+      FileProvider.close();
+      return null;
+    }
+    final lib = _lib;
+    if (lib == null) {
       FileProvider.close();
       return null;
     }
@@ -929,6 +1034,7 @@ class CoreBridge {
 
   void shutdown() {
     if (_activeBridge == this) _activeBridge = null;
+    _resetCursorState();
     unawaited(media.dispose());
     final translationService = translation;
     translation = null;

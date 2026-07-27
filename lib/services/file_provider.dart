@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:ffi/ffi.dart';
 
 import '../services/logger.dart';
+import 'environment_patch.dart';
 import 'pfs_bridge.dart';
 
 typedef FileReaderNative =
@@ -33,6 +34,8 @@ class FileProvider {
   static NativeCallable<FileWriterNative>? _writerCallable;
   static NativeCallable<FileDeleteNative>? _deleteCallable;
   static String? _directory;
+  static bool _environmentPatchEnabled = false;
+  static final Map<String, Uint8List> _environmentPatchCache = {};
 
   /// 存档读写基准目录（应用沙箱内）。core 通过回调传相对路径（如
   /// `savedata/save0001.dat`），一律拼到此目录下落盘/读取（方案 A1 +
@@ -46,8 +49,10 @@ class FileProvider {
   static void openPfs(
     String archivePath, {
     String archiveEncoding = 'Shift_JIS',
+    bool environmentPatchEnabled = false,
   }) {
     close();
+    _environmentPatchEnabled = environmentPatchEnabled;
     _pfs.initialize();
 
     final dir = File(archivePath).parent;
@@ -77,9 +82,13 @@ class FileProvider {
     }
   }
 
-  static void openDirectory(String root) {
+  static void openDirectory(
+    String root, {
+    bool environmentPatchEnabled = false,
+  }) {
     close();
     _directory = root;
+    _environmentPatchEnabled = environmentPatchEnabled;
   }
 
   static void close() {
@@ -89,15 +98,59 @@ class FileProvider {
     _archives.clear();
     _directory = null;
     _saveDir = null;
+    _environmentPatchEnabled = false;
+    _environmentPatchCache.clear();
   }
 
   static Uint8List? readFile(String path) => _lookup(path);
+
+  static List<String> listFiles({String? extension}) {
+    final suffix = extension?.toLowerCase();
+    final paths = <String, String>{};
+    for (final archive in _archives) {
+      final count = _pfs.entryCount(archive);
+      for (var index = 0; index < count; index++) {
+        final path = _pfs.entryPath(archive, index);
+        if (path == null) continue;
+        final normalized = path.replaceAll('\\', '/');
+        if (suffix != null && !normalized.toLowerCase().endsWith(suffix)) {
+          continue;
+        }
+        paths[normalized.toLowerCase()] = normalized;
+      }
+    }
+    final root = _directory;
+    if (root != null) {
+      final prefix = root.endsWith(Platform.pathSeparator)
+          ? root
+          : '$root${Platform.pathSeparator}';
+      for (final entity in Directory(
+        root,
+      ).listSync(recursive: true, followLinks: false)) {
+        if (entity is! File || !entity.path.startsWith(prefix)) continue;
+        final relative = entity.path
+            .substring(prefix.length)
+            .replaceAll(Platform.pathSeparator, '/');
+        if (suffix != null && !relative.toLowerCase().endsWith(suffix)) {
+          continue;
+        }
+        paths[relative.toLowerCase()] = relative;
+      }
+    }
+    return paths.values.toList();
+  }
 
   static Uint8List? _lookup(String path) {
     final saveFile = _saveFile(path);
     if (saveFile != null && saveFile.existsSync()) {
       return saveFile.readAsBytesSync();
     }
+    final patched = _patchedResource(path);
+    if (patched != null) return patched;
+    return _lookupResource(path);
+  }
+
+  static Uint8List? _lookupResource(String path) {
     for (final h in _archives.reversed) {
       final size = _pfs.fileSize(h, path);
       if (size > 0) {
@@ -139,6 +192,8 @@ class FileProvider {
     if (saveFile != null && saveFile.existsSync()) {
       return saveFile.lengthSync();
     }
+    final patched = _patchedResource(path);
+    if (patched != null) return patched.length;
     for (final h in _archives.reversed) {
       final sz = _pfs.fileSize(h, path);
       if (sz > 0) return sz;
@@ -161,6 +216,10 @@ class FileProvider {
       final r = _readFromFile(saveFile, buf, bufSize, offset);
       if (r >= 0) return r;
     }
+    final patched = _patchedResource(path);
+    if (patched != null) {
+      return _readFromBytes(patched, buf, bufSize, offset);
+    }
     for (final h in _archives.reversed) {
       final sz = _pfs.fileSize(h, path);
       if (sz > 0) return _pfs.read(h, path, offset, buf, bufSize);
@@ -175,6 +234,49 @@ class FileProvider {
       if (r >= 0) return r;
     }
     return -1;
+  }
+
+  static Uint8List? _patchedResource(String path) {
+    if (!_environmentPatchEnabled) return null;
+
+    final normalized = EnvironmentPatch.normalizePath(path);
+    if (normalized.isEmpty) return null;
+    final cached = _environmentPatchCache[normalized];
+    if (cached != null) return cached;
+
+    final virtual = EnvironmentPatch.virtualFile(normalized);
+    if (virtual != null) {
+      _environmentPatchCache[normalized] = virtual;
+      Log.info('[EnvironmentPatch] 覆盖资源: $normalized');
+      return virtual;
+    }
+    if (!EnvironmentPatch.canTransform(normalized)) return null;
+
+    final original = _lookupResource(path);
+    if (original == null) return null;
+    final transformed = EnvironmentPatch.transform(normalized, original);
+    _environmentPatchCache[normalized] = transformed;
+    if (!identical(transformed, original)) {
+      Log.info('[EnvironmentPatch] 修补启动脚本: $normalized');
+    }
+    return transformed;
+  }
+
+  static int _readFromBytes(
+    Uint8List data,
+    Pointer<Uint8> buf,
+    int bufSize,
+    int offset,
+  ) {
+    if (offset == -1) return data.length;
+    if (offset < 0 || offset >= data.length) {
+      return offset == data.length ? 0 : -1;
+    }
+    final count = bufSize < data.length - offset
+        ? bufSize
+        : data.length - offset;
+    buf.asTypedList(count).setAll(0, data.sublist(offset, offset + count));
+    return count;
   }
 
   static int _readFromFile(

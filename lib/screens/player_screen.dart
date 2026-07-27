@@ -13,18 +13,23 @@ import '../providers/settings_provider.dart';
 import '../services/core_bridge.dart';
 import '../services/file_provider.dart';
 import '../services/logger.dart';
+import '../services/project_charset.dart';
 import '../services/text_translation_service.dart';
 
 class PlayerScreen extends ConsumerStatefulWidget {
+  final String gameId;
   final String projectPath;
   final GameSource source;
   final bool translationEnabled;
+  final bool environmentPatchEnabled;
 
   const PlayerScreen({
     super.key,
+    required this.gameId,
     required this.projectPath,
     required this.source,
     required this.translationEnabled,
+    required this.environmentPatchEnabled,
   });
 
   @override
@@ -174,7 +179,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     Uint8List iniContent;
     if (widget.source == GameSource.pfsArchive) {
       try {
-        FileProvider.openPfs(widget.projectPath);
+        FileProvider.openPfs(
+          widget.projectPath,
+          environmentPatchEnabled: widget.environmentPatchEnabled,
+        );
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(
@@ -186,10 +194,17 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       final bytes = FileProvider.readFile('system.ini');
       if (bytes == null) return;
       iniContent = bytes;
-      final charset = _detectIniCharset(iniContent, runtimePlatform);
-      FileProvider.openPfs(widget.projectPath, archiveEncoding: charset);
+      final charset = ProjectCharset.detect(iniContent, runtimePlatform);
+      FileProvider.openPfs(
+        widget.projectPath,
+        archiveEncoding: charset,
+        environmentPatchEnabled: widget.environmentPatchEnabled,
+      );
     } else {
-      FileProvider.openDirectory(widget.projectPath);
+      FileProvider.openDirectory(
+        widget.projectPath,
+        environmentPatchEnabled: widget.environmentPatchEnabled,
+      );
       iniContent = File(
         '${widget.projectPath}${Platform.pathSeparator}system.ini',
       ).readAsBytesSync();
@@ -202,13 +217,15 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     //
     // 注意：core 侧已把 s.savepath 前缀拼进相对路径（形如 `savedata/save0001.dat`），
     // 故这里的 saveDir 只是**每个游戏的基准目录**，不再追加 savePath，否则会双重前缀。
-    // 用 projectPath 派生稳定的游戏标识作子目录，避免多游戏存档串档。
+    // 用资料库映射中的稳定游戏 ID 作子目录，避免多游戏存档串档。
     final appSupport = await _getAppSupportDir();
     if (!mounted || _closing) {
       _bridge.shutdown();
       return;
     }
-    final gameId = _gameIdFor(widget.projectPath);
+    // 资料库 ID 才是游戏身份；不能使用 root.pfs 等常见 basename，
+    // 否则不同游戏会共用存档与翻译缓存。
+    final gameId = widget.gameId;
     final saveFolderName = Platform.isIOS ? 'Saves' : 'saves';
     final saveDir =
         '$appSupport${Platform.pathSeparator}$saveFolderName${Platform.pathSeparator}$gameId';
@@ -270,51 +287,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         _stageH = int.tryParse(trimmed.split('=').last.trim()) ?? 720;
       }
     }
-  }
-
-  String _detectIniCharset(Uint8List ini, String platform) {
-    final section = platform.trim().toUpperCase();
-    String? current;
-    for (final rawLine in String.fromCharCodes(
-      ini.map((byte) => byte < 0x80 ? byte : 0x20),
-    ).split(RegExp(r'[\r\n]+'))) {
-      final line = rawLine.trim();
-      if (line.isEmpty || line.startsWith(';') || line.startsWith('#')) {
-        continue;
-      }
-      if (line.startsWith('[') && line.endsWith(']')) {
-        current = line.substring(1, line.length - 1).trim().toUpperCase();
-        continue;
-      }
-      if (current != section) continue;
-      final eq = line.indexOf('=');
-      if (eq < 0) continue;
-      final key = line.substring(0, eq).trim().toUpperCase();
-      if (key != 'CHARSET') continue;
-      return _normalizeCharset(line.substring(eq + 1));
-    }
-    return 'Shift_JIS';
-  }
-
-  String _normalizeCharset(String value) {
-    return switch (value.trim().toUpperCase()) {
-      'UTF-8' || 'UTF8' => 'UTF-8',
-      'SHIFT_JIS' || 'SHIFT-JIS' || 'SJIS' => 'Shift_JIS',
-      _ => 'Shift_JIS',
-    };
-  }
-
-  /// 由项目路径派生稳定的游戏标识，作为沙箱存档子目录名，避免多游戏串档。
-  /// 取路径末段并清洗为文件系统安全字符；为空时退回路径哈希。
-  String _gameIdFor(String projectPath) {
-    final normalized = projectPath
-        .replaceAll('\\', '/')
-        .replaceAll(RegExp(r'/+$'), '');
-    final last =
-        normalized.split('/').where((s) => s.isNotEmpty).lastOrNull ?? '';
-    final cleaned = last.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
-    if (cleaned.isNotEmpty) return cleaned;
-    return 'game_${projectPath.hashCode.toUnsigned(32).toRadixString(16)}';
   }
 
   /// 获取平台相关的应用支持目录（用于存放存档）。
@@ -535,27 +507,31 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
     return Scaffold(
       backgroundColor: Colors.black,
-      body: ValueListenableBuilder<bool>(
-        valueListenable: _bridge.cursorHidden,
-        builder: (context, cursorHidden, child) => MouseRegion(
-          cursor: cursorHidden ? SystemMouseCursors.none : MouseCursor.defer,
-          child: child,
-        ),
-        child: Stack(
-          children: [
-            if (_frameImage != null)
-              _buildGameView()
-            else
-              const Center(child: CircularProgressIndicator()),
-            _buildVideoLayer(),
-            if (showFps) _buildFpsDisplay(),
-            _buildFloatingBall(),
-            _buildControlPanel(),
-            _buildHiddenKeyboard(),
-            _buildAvoidOverlay(),
-          ],
-        ),
+      body: Stack(
+        children: [
+          if (_frameImage != null)
+            _buildCursorAwareGameView()
+          else
+            const Center(child: CircularProgressIndicator()),
+          _buildVideoLayer(),
+          if (showFps) _buildFpsDisplay(),
+          _buildFloatingBall(),
+          _buildControlPanel(),
+          _buildHiddenKeyboard(),
+          _buildAvoidOverlay(),
+        ],
       ),
+    );
+  }
+
+  Widget _buildCursorAwareGameView() {
+    return ValueListenableBuilder<bool>(
+      valueListenable: _bridge.cursorHidden,
+      builder: (context, cursorHidden, child) => MouseRegion(
+        cursor: cursorHidden ? SystemMouseCursors.none : MouseCursor.defer,
+        child: child,
+      ),
+      child: _buildGameView(),
     );
   }
 
@@ -566,9 +542,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       valueListenable: _bridge.avoidOverlay,
       builder: (context, avoid, _) {
         if (avoid == null) return const SizedBox.shrink();
-        return const Positioned.fill(
-          child: ColoredBox(color: Colors.black),
-        );
+        return const Positioned.fill(child: ColoredBox(color: Colors.black));
       },
     );
   }
@@ -619,11 +593,17 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
             ),
             shape: BoxShape.circle,
             border: Border.all(
-              color: _panelOpen ? const Color(0x66FFFFFF) : const Color(0x2EFFFFFF),
+              color: _panelOpen
+                  ? const Color(0x66FFFFFF)
+                  : const Color(0x2EFFFFFF),
               width: 1,
             ),
             boxShadow: const [
-              BoxShadow(color: Color(0x59000000), blurRadius: 12, offset: Offset(0, 3)),
+              BoxShadow(
+                color: Color(0x59000000),
+                blurRadius: 12,
+                offset: Offset(0, 3),
+              ),
             ],
           ),
           child: AnimatedRotation(
@@ -679,8 +659,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                     icon: Icons.speed_rounded,
                     label: '帧率',
                     on: showFps,
-                    onTap: () =>
-                        ref.read(settingsProvider.notifier).setShowFps(!showFps),
+                    onTap: () => ref
+                        .read(settingsProvider.notifier)
+                        .setShowFps(!showFps),
                   ),
                   _panelTile(
                     icon: Icons.keyboard_rounded,
@@ -688,7 +669,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                     on: _keyboardShown,
                     onTap: _toggleKeyboard,
                   ),
-                  const Divider(height: 1, thickness: 1, color: Color(0x14FFFFFF)),
+                  const Divider(
+                    height: 1,
+                    thickness: 1,
+                    color: Color(0x14FFFFFF),
+                  ),
                   _panelTile(
                     icon: Icons.logout_rounded,
                     label: '退出游戏',
@@ -729,7 +714,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
             behavior: HitTestBehavior.opaque,
             child: const Padding(
               padding: EdgeInsets.all(4),
-              child: Icon(Icons.close_rounded, size: 16, color: Color(0xFF9CA3AF)),
+              child: Icon(
+                Icons.close_rounded,
+                size: 16,
+                color: Color(0xFF9CA3AF),
+              ),
             ),
           ),
         ],
@@ -936,6 +925,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     double oy,
     double scale,
   ) {
+    if (event.kind == PointerDeviceKind.mouse ||
+        event.kind == PointerDeviceKind.trackpad) {
+      _bridge.notifyMouseActivity();
+    }
     final point = _stagePoint(event.localPosition, ox, oy, scale);
     _bridge.feedMouse(point.dx.toInt(), point.dy.toInt());
   }

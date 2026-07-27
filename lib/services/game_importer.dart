@@ -58,11 +58,26 @@ class GameImporter {
   }
 
   /// iOS 专用：原生 UIDocumentPicker + security-scoped URL，把用户选中的
-  /// base `.pfs` 和 `.pfs.NNN` 分卷直接复制进 app sandbox。
-  static Future<String?> pickPfsFilesAndCopy() async {
+  /// base `.pfs` 和各自的 `.pfs.NNN` 分卷按游戏分组复制进 app sandbox。
+  ///
+  /// 新版原生端返回路径数组；这里仍接受旧版的单个字符串，允许 Dart 与原生壳
+  /// 在升级期间短暂错配。
+  static Future<List<String>?> pickPfsFilesAndCopy() async {
     if (!Platform.isIOS) return null;
     try {
-      return await _nativeChannel.invokeMethod<String>('pickPfsFilesAndCopy');
+      final raw = await _nativeChannel.invokeMethod<dynamic>(
+        'pickPfsFilesAndCopy',
+      );
+      if (raw is String) {
+        return raw.isEmpty ? const [] : [raw];
+      }
+      if (raw is List) {
+        return raw
+            .whereType<String>()
+            .where((path) => path.isNotEmpty)
+            .toList(growable: false);
+      }
+      return null;
     } on PlatformException catch (e) {
       if (e.code == 'PICK_CANCELLED') return null;
       Log.error('[GameImporter] pickPfsFilesAndCopy 失败: ${e.message}');
@@ -111,6 +126,23 @@ class GameImporter {
       Log.error('[GameImporter] scanIosAppGamesFolder 失败: ${e.message}');
       return const [];
     }
+  }
+
+  /// 递归枚举目录中的 base `.pfs` 文件。
+  ///
+  /// `.pfs.NNN` 只是分卷，不会单独成为游戏。返回值按完整路径自然排序，因此同一
+  /// 文件夹有多个游戏时，资料库导入顺序稳定且每个条目都绑定具体 PFS 文件。
+  static List<String> discoverBasePfsFiles(String directoryPath) {
+    final directory = Directory(directoryPath);
+    if (!directory.existsSync()) return const [];
+    final paths = directory
+        .listSync(recursive: true, followLinks: false)
+        .whereType<File>()
+        .map((file) => file.path)
+        .where(_isBasePfsPath)
+        .toList();
+    paths.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    return paths;
   }
 
   /// 把 `sourcePath` 对应的游戏数据复制到沙箱。

@@ -529,7 +529,7 @@ class _MacosAboutPage extends StatelessWidget {
                         label: 'Rust / Native',
                         caption:
                             'art3m1s-core · asb-interpreter · pfs-upk-rust · mlua/Lua 5.1 · '
-                            'glow · image · encoding_rs · MetalANGLE',
+                            'glow · image · encoding_rs · jis0208 · MetalANGLE',
                         control: const SizedBox.shrink(),
                       ),
                     ],

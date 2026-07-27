@@ -1,0 +1,43 @@
+PODS:
+  - Art3m1sCore (0.1.0)
+  - Flutter (1.0.0)
+  - media_kit_libs_ios_video (1.0.4):
+    - Flutter
+  - media_kit_video (0.0.1):
+    - Flutter
+  - MetalANGLE (0.1.0)
+  - PfsUpk (0.1.0)
+
+DEPENDENCIES:
+  - Art3m1sCore (from `Frameworks`)
+  - Flutter (from `Flutter`)
+  - media_kit_libs_ios_video (from `.symlinks/plugins/media_kit_libs_ios_video/ios`)
+  - media_kit_video (from `.symlinks/plugins/media_kit_video/ios`)
+  - MetalANGLE (from `Frameworks`)
+  - PfsUpk (from `Frameworks`)
+
+EXTERNAL SOURCES:
+  Art3m1sCore:
+    :path: Frameworks
+  Flutter:
+    :path: Flutter
+  media_kit_libs_ios_video:
+    :path: ".symlinks/plugins/media_kit_libs_ios_video/ios"
+  media_kit_video:
+    :path: ".symlinks/plugins/media_kit_video/ios"
+  MetalANGLE:
+    :path: Frameworks
+  PfsUpk:
+    :path: Frameworks
+
+SPEC CHECKSUMS:
+  Art3m1sCore: d34a6bd47e9f1e972927ff71dc4586da8a597c00
+  Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
+  media_kit_libs_ios_video: 5a18affdb97d1f5d466dc79988b13eff6c5e2854
+  media_kit_video: 1746e198cb697d1ffb734b1d05ec429d1fcd1474
+  MetalANGLE: 1e9bab9590bffcd7b15f913bc7b8a0b4defdb0fb
+  PfsUpk: 50c128a4769e10065e1ab8fa4d5baba044d7dd1e
+
+PODFILE CHECKSUM: 7b98814fa05a0b686366579ddde7d2130ea46ca6
+
+COCOAPODS: 1.16.2
