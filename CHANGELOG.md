@@ -25,8 +25,8 @@
 - 修复多个 `root.pfs` 因文件名相同而共享 `system.dat`、存档、封面和设置的问题。
 - 修复选择 PFS 后临时文件失效，以及移动端目录枚举/整文件缓冲引发的导入失败。
 - 修复脚本隐藏鼠标后宿主光标状态未能正确恢复的问题。
-- 修复 macOS Release 从 Finder 启动时找不到 bundle 内 PFS dylib，以及 App Sandbox
-  阻止旧资料库继续访问外部游戏目录的问题。
+- 修复 macOS Release 从 Finder 启动时找不到 bundle 内 PFS dylib、遗漏 ANGLE
+  EGL/GLES library，以及 App Sandbox 阻止旧资料库继续访问外部游戏目录的问题。
 - 配合 core 0.2.1 修复大型加密 PFS 中 OTF 等资源跨 chunk 解密损坏。
 
 ## [1.1.0-0.2.0c] - 2026-07-27

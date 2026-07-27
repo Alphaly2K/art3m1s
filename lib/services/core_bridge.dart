@@ -511,6 +511,9 @@ class CoreBridge {
   Future<void> initialize() async {
     try {
       _loadLibrary();
+      if (Platform.isMacOS) {
+        configureAngle(File(Platform.resolvedExecutable).parent.path);
+      }
     } catch (e) {
       Log.error('[CoreBridge] Core 库加载失败: $e');
       _initialized = false;

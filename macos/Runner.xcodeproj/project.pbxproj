@@ -444,6 +444,8 @@
 			inputPaths = (
 				"$(SRCROOT)/../libart3m1s_core.dylib",
 				"$(SRCROOT)/../libpfs_upk.dylib",
+				"$(SRCROOT)/../libEGL.dylib",
+				"$(SRCROOT)/../libGLESv2.dylib",
 			);
 			name = "Bundle Art3m1s Runtime Libraries";
 			outputFileListPaths = (
@@ -451,10 +453,12 @@
 			outputPaths = (
 				"$(TARGET_BUILD_DIR)/$(EXECUTABLE_FOLDER_PATH)/libart3m1s_core.dylib",
 				"$(TARGET_BUILD_DIR)/$(EXECUTABLE_FOLDER_PATH)/libpfs_upk.dylib",
+				"$(TARGET_BUILD_DIR)/$(EXECUTABLE_FOLDER_PATH)/libEGL.dylib",
+				"$(TARGET_BUILD_DIR)/$(EXECUTABLE_FOLDER_PATH)/libGLESv2.dylib",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -e\nCORE_SOURCE=\"${SRCROOT}/../libart3m1s_core.dylib\"\nPFS_SOURCE=\"${SRCROOT}/../libpfs_upk.dylib\"\nDEST_DIR=\"${TARGET_BUILD_DIR}/${EXECUTABLE_FOLDER_PATH}\"\nfor SOURCE in \"${CORE_SOURCE}\" \"${PFS_SOURCE}\"; do\n  if [ ! -f \"${SOURCE}\" ]; then\n    echo \"error: Missing ${SOURCE}. Build and copy the Rust runtime libraries before building the app.\" >&2\n    exit 1\n  fi\n  DEST=\"${DEST_DIR}/$(basename \"${SOURCE}\")\"\n  /bin/cp -f \"${SOURCE}\" \"${DEST}\"\n  SIGN_IDENTITY=\"${EXPANDED_CODE_SIGN_IDENTITY}\"\n  if [ -z \"${SIGN_IDENTITY}\" ]; then\n    SIGN_IDENTITY=\"-\"\n  fi\n  /usr/bin/codesign --force --sign \"${SIGN_IDENTITY}\" --timestamp=none \"${DEST}\"\ndone\n";
+			shellScript = "set -e\nCORE_SOURCE=\"${SRCROOT}/../libart3m1s_core.dylib\"\nPFS_SOURCE=\"${SRCROOT}/../libpfs_upk.dylib\"\nEGL_SOURCE=\"${SRCROOT}/../libEGL.dylib\"\nGLES_SOURCE=\"${SRCROOT}/../libGLESv2.dylib\"\nDEST_DIR=\"${TARGET_BUILD_DIR}/${EXECUTABLE_FOLDER_PATH}\"\nfor SOURCE in \"${CORE_SOURCE}\" \"${PFS_SOURCE}\" \"${EGL_SOURCE}\" \"${GLES_SOURCE}\"; do\n  if [ ! -f \"${SOURCE}\" ]; then\n    echo \"error: Missing ${SOURCE}. Build and copy the Rust runtime libraries before building the app.\" >&2\n    exit 1\n  fi\n  DEST=\"${DEST_DIR}/$(basename \"${SOURCE}\")\"\n  /bin/cp -f \"${SOURCE}\" \"${DEST}\"\n  SIGN_IDENTITY=\"${EXPANDED_CODE_SIGN_IDENTITY}\"\n  if [ -z \"${SIGN_IDENTITY}\" ]; then\n    SIGN_IDENTITY=\"-\"\n  fi\n  /usr/bin/codesign --force --sign \"${SIGN_IDENTITY}\" --timestamp=none \"${DEST}\"\ndone\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
