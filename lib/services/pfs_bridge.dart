@@ -57,7 +57,17 @@ class PfsBridge {
         : Platform.isLinux || Platform.isAndroid
         ? 'libpfs_upk.so'
         : 'pfs_upk.dll';
-    return DynamicLibrary.open(name);
+    try {
+      return DynamicLibrary.open(name);
+    } catch (_) {
+      if (!Platform.isAndroid) {
+        final executableDirectory = File(
+          Platform.resolvedExecutable,
+        ).parent.path;
+        return DynamicLibrary.open('$executableDirectory/$name');
+      }
+      rethrow;
+    }
   }
 
   DynamicLibrary get lib {
