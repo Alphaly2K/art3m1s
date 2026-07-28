@@ -218,6 +218,19 @@ class _CupertinoSettingsScreen extends ConsumerWidget {
               ],
             ),
             CupertinoListSection.insetGrouped(
+              header: const Text('控制'),
+              children: [
+                CupertinoListTile.notched(
+                  title: const Text('触摸板鼠标'),
+                  subtitle: const Text('使用相对移动与鼠标点击操作游戏'),
+                  trailing: CupertinoSwitch(
+                    value: settings.mobileTouchpadEnabled,
+                    onChanged: notifier.setMobileTouchpadEnabled,
+                  ),
+                ),
+              ],
+            ),
+            CupertinoListSection.insetGrouped(
               header: const Text('调试'),
               children: [
                 CupertinoListTile.notched(

@@ -17,6 +17,7 @@ class SettingsState {
   final bool debugMode;
   final bool debugOverlay;
   final bool showFps;
+  final bool mobileTouchpadEnabled;
   final int backend; // 0 = CGL, 1 = ANGLE
   final String runtimePlatform;
   final TranslationSettings translation;
@@ -25,6 +26,7 @@ class SettingsState {
     this.debugMode = false,
     this.debugOverlay = false,
     this.showFps = false,
+    this.mobileTouchpadEnabled = false,
     this.backend = 0,
     this.runtimePlatform = 'WINDOWS',
     this.translation = const TranslationSettings(),
@@ -34,6 +36,7 @@ class SettingsState {
     bool? debugMode,
     bool? debugOverlay,
     bool? showFps,
+    bool? mobileTouchpadEnabled,
     int? backend,
     String? runtimePlatform,
     TranslationSettings? translation,
@@ -42,6 +45,8 @@ class SettingsState {
       debugMode: debugMode ?? this.debugMode,
       debugOverlay: debugOverlay ?? this.debugOverlay,
       showFps: showFps ?? this.showFps,
+      mobileTouchpadEnabled:
+          mobileTouchpadEnabled ?? this.mobileTouchpadEnabled,
       backend: backend ?? this.backend,
       runtimePlatform: runtimePlatform ?? this.runtimePlatform,
       translation: translation ?? this.translation,
@@ -124,6 +129,8 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
             prefs.getBool('debugOverlay') ??
             false,
         showFps: prefs.getBool('show_fps') ?? false,
+        mobileTouchpadEnabled:
+            prefs.getBool('mobile_touchpad_enabled') ?? false,
         backend:
             prefs.getInt('gfx_backend') ??
             getDefaultBackend(), // default: ANGLE Vulkan
@@ -170,6 +177,12 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('show_fps', v);
     state = state.copyWith(showFps: v);
+  }
+
+  Future<void> setMobileTouchpadEnabled(bool v) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('mobile_touchpad_enabled', v);
+    state = state.copyWith(mobileTouchpadEnabled: v);
   }
 
   Future<void> setBackend(int v) async {

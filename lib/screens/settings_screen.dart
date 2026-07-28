@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -67,6 +69,19 @@ class SettingsScreen extends ConsumerWidget {
               );
             },
           ),
+          if (Platform.isAndroid || Platform.isIOS) ...[
+            const Divider(),
+            const _SectionHeader('控制'),
+            SwitchListTile(
+              secondary: const Icon(Icons.mouse_outlined),
+              title: const Text('触摸板鼠标'),
+              subtitle: const Text('使用相对移动与鼠标点击操作游戏'),
+              value: settings.mobileTouchpadEnabled,
+              onChanged: (v) => ref
+                  .read(settingsProvider.notifier)
+                  .setMobileTouchpadEnabled(v),
+            ),
+          ],
           const Divider(),
           const _SectionHeader('调试'),
           SwitchListTile(

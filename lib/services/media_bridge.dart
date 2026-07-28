@@ -134,11 +134,19 @@ class MediaBridge {
       _soundFinishedCallback(null);
       return;
     }
+    // Artemis 的 *_a / *_b BGM 是分段循环：A 为只播一次的引导段，
+    // A 结束后切到 B 无限循环。Core 已解析命名约定并传来这两个字段。
+    final loopFile = await _resolveAsset(
+      payload,
+      fileKey: 'loop_file',
+      resolvedFileKey: 'resolved_loop_file',
+    );
     await _bgm?.dispose();
     final gain = _gain(payload['gain']);
     final handle = await _AudioHandle.create(
       id: null,
       file: file,
+      loopFile: loopFile,
       channel: 'bgm',
       gain: gain,
       pan: _pan(payload['pan']),
@@ -189,6 +197,7 @@ class MediaBridge {
     final handle = await _AudioHandle.create(
       id: id,
       file: file,
+      loopFile: null,
       channel: channel,
       gain: gain,
       pan: _pan(payload['pan']),
@@ -468,9 +477,13 @@ class MediaBridge {
     return completer.future;
   }
 
-  Future<File?> _resolveAsset(Map<String, dynamic> payload) async {
-    final path = _string(payload['file']);
-    final resolved = _string(payload['resolved_file']);
+  Future<File?> _resolveAsset(
+    Map<String, dynamic> payload, {
+    String fileKey = 'file',
+    String resolvedFileKey = 'resolved_file',
+  }) async {
+    final path = _string(payload[fileKey]);
+    final resolved = _string(payload[resolvedFileKey]);
     final candidates = <String>[
       if (resolved != null && resolved.isNotEmpty) resolved,
       if (path != null && path.isNotEmpty && path != resolved) path,
@@ -583,16 +596,18 @@ class _AudioHandle {
   _AudioHandle({
     required this.id,
     required this.player,
+    required this.gaplessPlayer,
     required this.channel,
     required this.gain,
     required this.pan,
     required this.loop,
     required this.onCompleted,
-    required this.completionSub,
+    required this.subscriptions,
   });
 
   final String? id;
-  final AudioPlayer player;
+  final AudioPlayer? player;
+  final media_kit.Player? gaplessPlayer;
   final String channel;
   final bool loop;
   final void Function(String? id) onCompleted;
@@ -600,9 +615,44 @@ class _AudioHandle {
   double pan;
   Timer? _fadeTimer;
   bool _completed = false;
-  final StreamSubscription<void> completionSub;
+  bool _loopSegmentStarted = false;
+  bool _disposed = false;
+  double _effectiveVolume = 1;
+  final List<StreamSubscription<dynamic>> subscriptions;
 
   static Future<_AudioHandle> create({
+    required String? id,
+    required File file,
+    required File? loopFile,
+    required String channel,
+    required double gain,
+    required double pan,
+    required bool loop,
+    required void Function(String? id) onCompleted,
+  }) async {
+    if (loopFile != null) {
+      return _createGaplessPlaylist(
+        id: id,
+        file: file,
+        loopFile: loopFile,
+        channel: channel,
+        gain: gain,
+        pan: pan,
+        onCompleted: onCompleted,
+      );
+    }
+    return _createSimple(
+      id: id,
+      file: file,
+      channel: channel,
+      gain: gain,
+      pan: pan,
+      loop: loop,
+      onCompleted: onCompleted,
+    );
+  }
+
+  static Future<_AudioHandle> _createSimple({
     required String? id,
     required File file,
     required String channel,
@@ -612,32 +662,151 @@ class _AudioHandle {
     required void Function(String? id) onCompleted,
   }) async {
     final player = AudioPlayer();
+    final subscriptions = <StreamSubscription<dynamic>>[];
     late final _AudioHandle handle;
-    final completionSub = player.onPlayerComplete.listen((_) {
-      if (handle.loop || handle._completed) return;
-      handle._completed = true;
-      onCompleted(id);
-    });
+    subscriptions.add(
+      player.onPlayerComplete.listen((_) {
+        handle._handleSimplePlayerComplete();
+      }),
+    );
+    try {
+      handle = _AudioHandle(
+        id: id,
+        player: player,
+        gaplessPlayer: null,
+        channel: channel,
+        gain: gain,
+        pan: pan,
+        loop: loop,
+        onCompleted: onCompleted,
+        subscriptions: subscriptions,
+      );
+      await player.setReleaseMode(
+        loop ? ReleaseMode.loop : ReleaseMode.release,
+      );
+      await player.setBalance(pan);
+      await player.setSource(DeviceFileSource(file.path));
+      return handle;
+    } catch (_) {
+      await Future.wait(subscriptions.map((sub) => sub.cancel()));
+      await player.dispose();
+      rethrow;
+    }
+  }
+
+  static Future<_AudioHandle> _createGaplessPlaylist({
+    required String? id,
+    required File file,
+    required File loopFile,
+    required String channel,
+    required double gain,
+    required double pan,
+    required void Function(String? id) onCompleted,
+  }) async {
+    final player = media_kit.Player();
+    final subscriptions = <StreamSubscription<dynamic>>[];
+    late final _AudioHandle handle;
     handle = _AudioHandle(
       id: id,
-      player: player,
+      player: null,
+      gaplessPlayer: player,
       channel: channel,
       gain: gain,
       pan: pan,
-      loop: loop,
+      loop: true,
       onCompleted: onCompleted,
-      completionSub: completionSub,
+      subscriptions: subscriptions,
     );
-    await player.setReleaseMode(loop ? ReleaseMode.loop : ReleaseMode.release);
-    await player.setBalance(pan);
-    await player.setSource(DeviceFileSource(file.path));
-    return handle;
+    subscriptions.add(
+      player.stream.playlist.listen((playlist) {
+        if (playlist.index != 1 || handle._loopSegmentStarted) return;
+        handle._loopSegmentStarted = true;
+        unawaited(handle._lockGaplessLoop(loopFile));
+      }),
+    );
+    subscriptions.add(
+      player.stream.completed.listen((completed) {
+        if (!completed ||
+            handle._disposed ||
+            handle._completed ||
+            handle._loopSegmentStarted) {
+          return;
+        }
+        handle._completed = true;
+        onCompleted(id);
+      }),
+    );
+    subscriptions.add(
+      player.stream.error.listen((error) {
+        Log.warn('[MediaBridge] BGM A-B playlist decode error: $error');
+      }),
+    );
+    try {
+      // 由 MPV 在同一原生播放队列内完成 A -> B，避免 Dart completion
+      // 回调往返造成静音；B 开始后再把 playlist 模式切为单曲循环。
+      final platform = player.platform;
+      if (platform != null) {
+        await (platform as dynamic).setProperty('gapless-audio', 'yes');
+      }
+      await player.setPlaylistMode(media_kit.PlaylistMode.none);
+      await player.open(
+        media_kit.Playlist([
+          media_kit.Media(file.uri.toString()),
+          media_kit.Media(loopFile.uri.toString()),
+        ]),
+        play: false,
+      );
+      Log.debug(
+        '[MediaBridge] BGM A-B 无缝播放列表已准备: '
+        '${file.path} -> ${loopFile.path}',
+      );
+      return handle;
+    } catch (_) {
+      await Future.wait(subscriptions.map((sub) => sub.cancel()));
+      await player.dispose();
+      rethrow;
+    }
   }
 
-  Future<void> play() => player.resume();
+  Future<void> play() {
+    final nativePlayer = gaplessPlayer;
+    if (nativePlayer != null) return nativePlayer.play();
+    return player!.resume();
+  }
 
-  Future<void> setEffectiveVolume(double volume) {
-    return player.setVolume(volume.clamp(0, 1));
+  void _handleSimplePlayerComplete() {
+    if (_disposed || _completed) return;
+    if (loop) return;
+    _completed = true;
+    onCompleted(id);
+  }
+
+  Future<void> _lockGaplessLoop(File loopFile) async {
+    final nativePlayer = gaplessPlayer;
+    if (_disposed || nativePlayer == null) return;
+    try {
+      await nativePlayer.setPlaylistMode(media_kit.PlaylistMode.single);
+      Log.debug('[MediaBridge] BGM 已无缝进入 B 段循环: ${loopFile.path}');
+    } catch (error, stackTrace) {
+      Log.error(
+        '[MediaBridge] BGM B 段循环设置失败: ${loopFile.path}: '
+        '$error\n$stackTrace',
+      );
+      if (!_disposed && !_completed) {
+        _completed = true;
+        onCompleted(id);
+      }
+    }
+  }
+
+  Future<void> setEffectiveVolume(double volume) async {
+    _effectiveVolume = volume.clamp(0, 1);
+    final nativePlayer = gaplessPlayer;
+    if (nativePlayer != null) {
+      await nativePlayer.setVolume(_effectiveVolume * 100);
+    } else {
+      await player!.setVolume(_effectiveVolume);
+    }
   }
 
   Future<void> fadeTo(double target, int durationMs) async {
@@ -646,7 +815,7 @@ class _AudioHandle {
       await setEffectiveVolume(target);
       return;
     }
-    final start = player.volume;
+    final start = _effectiveVolume;
     final steps = math.max(1, durationMs ~/ 33);
     var step = 0;
     final completer = Completer<void>();
@@ -663,10 +832,16 @@ class _AudioHandle {
   }
 
   Future<void> dispose() async {
+    _disposed = true;
     _fadeTimer?.cancel();
-    await completionSub.cancel();
-    await player.stop();
-    await player.dispose();
+    await Future.wait(subscriptions.map((sub) => sub.cancel()));
+    final nativePlayer = gaplessPlayer;
+    if (nativePlayer != null) {
+      await nativePlayer.dispose();
+    } else {
+      await player!.stop();
+      await player!.dispose();
+    }
   }
 }
 

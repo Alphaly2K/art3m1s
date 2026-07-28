@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../controllers/mobile_touchpad.dart';
 import '../models/game_entry.dart';
 import '../providers/settings_provider.dart';
 import '../services/core_bridge.dart';
@@ -15,6 +16,7 @@ import '../services/file_provider.dart';
 import '../services/logger.dart';
 import '../services/project_charset.dart';
 import '../services/text_translation_service.dart';
+import '../widgets/mobile_touchpad_surface.dart';
 
 class PlayerScreen extends ConsumerStatefulWidget {
   final String gameId;
@@ -48,6 +50,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   final FocusNode _gameFocusNode = FocusNode(debugLabel: 'game-input');
   final Set<int> _mouseButtonsDown = <int>{};
   final Set<int> _activePointers = {};
+  late final MobileTouchpadPointer _touchpadPointer;
+  late final ValueNotifier<Offset> _touchpadCursorPosition;
+  bool _touchpadDragging = false;
 
   Offset _ballPos = const Offset(16, 60);
   bool _panelOpen = false;
@@ -74,6 +79,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     super.initState();
     Log.startRuntimeSession();
     _bridge = CoreBridge(onDialogRequested: _showEngineDialog);
+    _touchpadPointer = MobileTouchpadPointer(
+      stageWidth: _stageW,
+      stageHeight: _stageH,
+    );
+    _touchpadCursorPosition = ValueNotifier(_touchpadPointer.position);
     WidgetsBinding.instance.addObserver(this);
     _keyboardCtrl.addListener(_onKeyboardInput);
     _lockOrientation();
@@ -89,9 +99,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         _bridge.notifyLifecycle(2); // 回前台
       case AppLifecycleState.paused:
       case AppLifecycleState.hidden:
+        _endTouchpadDrag();
         _bridge.setWindowStateBits(minimized: true);
         _bridge.notifyLifecycle(1); // 切后台
       case AppLifecycleState.detached:
+        _endTouchpadDrag();
         _bridge.notifyLifecycle(0); // 退出
       case AppLifecycleState.inactive:
         break;
@@ -265,6 +277,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     // 从 CoreBridge 获取实际的舞台尺寸（Rust 端解析 INI 后的准确值）
     _stageW = _bridge.stageWidth;
     _stageH = _bridge.stageHeight;
+    _touchpadPointer.updateStageSize(_stageW, _stageH);
+    _touchpadCursorPosition.value = _touchpadPointer.position;
 
     if (!mounted || _closing) {
       _bridge.shutdown();
@@ -415,6 +429,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     _unlockOrientation();
     _timer?.cancel();
     _panelTimer?.cancel();
+    _endTouchpadDrag();
+    _touchpadCursorPosition.dispose();
     _frameImage?.dispose();
     _gameFocusNode.dispose();
     _keyboardCtrl.removeListener(_onKeyboardInput);
@@ -623,6 +639,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   Widget _buildControlPanel() {
     if (!_panelOpen) return const SizedBox.shrink();
     final showFps = ref.watch(settingsProvider.select((s) => s.showFps));
+    final touchpadEnabled = ref.watch(
+      settingsProvider.select((s) => s.mobileTouchpadEnabled),
+    );
 
     return Positioned(
       top: _ballPos.dy + 54,
@@ -669,6 +688,13 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                     on: _keyboardShown,
                     onTap: _toggleKeyboard,
                   ),
+                  if (Platform.isAndroid || Platform.isIOS)
+                    _panelTile(
+                      icon: Icons.mouse_outlined,
+                      label: '触摸板鼠标',
+                      on: touchpadEnabled,
+                      onTap: () => _setTouchpadEnabled(!touchpadEnabled),
+                    ),
                   const Divider(
                     height: 1,
                     thickness: 1,
@@ -817,6 +843,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
   Widget _buildGameView() {
     final image = _frameImage!;
+    final touchpadEnabled =
+        (Platform.isAndroid || Platform.isIOS) &&
+        ref.watch(settingsProvider.select((s) => s.mobileTouchpadEnabled));
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -832,7 +861,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         final ox = (cw - dw) / 2;
         final oy = (ch - dh) / 2;
 
-        return KeyboardListener(
+        Widget gameInput = KeyboardListener(
           focusNode: _gameFocusNode,
           autofocus: true,
           onKeyEvent: _handleKeyEvent,
@@ -841,11 +870,18 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
             onPointerHover: (event) =>
                 _feedPointerPosition(event, ox, oy, scale),
             onPointerMove: (event) {
+              if (touchpadEnabled && event.kind == PointerDeviceKind.touch) {
+                return;
+              }
               _feedPointerPosition(event, ox, oy, scale);
               _feedTouch(event, 1, ox, oy, scale);
               _syncPointerButtons(event.buttons);
             },
             onPointerDown: (event) {
+              if (touchpadEnabled && event.kind == PointerDeviceKind.touch) {
+                _gameFocusNode.requestFocus();
+                return;
+              }
               _activePointers.add(event.pointer);
               if (_activePointers.length >= 2) {
                 _bridge.feedMouseButton(2, true);
@@ -856,6 +892,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
               _syncPointerButtons(event.buttons);
             },
             onPointerUp: (event) {
+              if (touchpadEnabled && event.kind == PointerDeviceKind.touch) {
+                return;
+              }
               if (_activePointers.length >= 2) {
                 _bridge.feedMouseButton(2, false);
               }
@@ -865,6 +904,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
               _syncPointerButtons(event.buttons);
             },
             onPointerCancel: (event) {
+              if (touchpadEnabled && event.kind == PointerDeviceKind.touch) {
+                return;
+              }
               if (_activePointers.length >= 2) {
                 _bridge.feedMouseButton(2, false);
               }
@@ -882,6 +924,48 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
             ),
           ),
         );
+
+        if (touchpadEnabled) {
+          gameInput = MobileTouchpadSurface(
+            onTap: _tapTouchpad,
+            onMove: (delta) => _moveTouchpad(delta, scale),
+            onDragStart: _beginTouchpadDrag,
+            onDragEnd: _endTouchpadDrag,
+            child: gameInput,
+          );
+          gameInput = Stack(
+            fit: StackFit.expand,
+            children: [
+              gameInput,
+              IgnorePointer(
+                child: ValueListenableBuilder<Offset>(
+                  valueListenable: _touchpadCursorPosition,
+                  builder: (context, position, _) {
+                    return Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        Positioned(
+                          left: ox + position.dx * scale - 2,
+                          top: oy + position.dy * scale - 2,
+                          child: const Icon(
+                            Icons.near_me,
+                            size: 24,
+                            color: Colors.white,
+                            shadows: [
+                              Shadow(color: Colors.black, blurRadius: 3),
+                            ],
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ),
+            ],
+          );
+        }
+
+        return gameInput;
       },
     );
   }
@@ -930,7 +1014,40 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       _bridge.notifyMouseActivity();
     }
     final point = _stagePoint(event.localPosition, ox, oy, scale);
+    _touchpadPointer.setPosition(point);
+    _touchpadCursorPosition.value = point;
     _bridge.feedMouse(point.dx.toInt(), point.dy.toInt());
+  }
+
+  void _moveTouchpad(Offset delta, double scale) {
+    final point = _touchpadPointer.moveBy(delta, scale);
+    _touchpadCursorPosition.value = point;
+    _bridge.feedMouse(point.dx.toInt(), point.dy.toInt());
+  }
+
+  void _tapTouchpad() {
+    _bridge.feedMouseButton(1, true);
+    _bridge.feedMouseButton(1, false);
+  }
+
+  void _beginTouchpadDrag() {
+    if (_touchpadDragging) return;
+    _touchpadDragging = true;
+    _bridge.feedMouseButton(1, true);
+  }
+
+  void _endTouchpadDrag() {
+    if (!_touchpadDragging) return;
+    _touchpadDragging = false;
+    _bridge.feedMouseButton(1, false);
+  }
+
+  void _setTouchpadEnabled(bool enabled) {
+    _endTouchpadDrag();
+    _releasePointerButtons();
+    _activePointers.clear();
+    ref.read(settingsProvider.notifier).setMobileTouchpadEnabled(enabled);
+    _resetPanelTimer();
   }
 
   /// 把真实触摸事件转发给 core（驱动 getTouchCount/Point、flick、多点触控）。
