@@ -12,6 +12,7 @@ import '../providers/library_provider.dart';
 import '../providers/settings_provider.dart';
 import '../services/core_bridge.dart';
 import '../screens/player_screen.dart';
+import '../services/app_data_paths.dart';
 import '../services/game_importer.dart';
 import '../services/logger.dart';
 import '../services/vndb_service.dart';
@@ -196,6 +197,8 @@ class LibraryActions {
       initialCoverPath: metadata.coverPath,
     );
     if (result == null || !context.mounted) return;
+    final coverPath = await AppDataPaths.importCover(result.coverPath, gameId);
+    if (!context.mounted) return;
 
     await ref
         .read(libraryProvider.notifier)
@@ -207,8 +210,9 @@ class LibraryActions {
             source: source,
             addedAt: DateTime.now(),
             displayName: result.name.isNotEmpty ? result.name : null,
-            coverPath: result.coverPath,
+            coverPath: coverPath,
             translationEnabled: result.translationEnabled,
+            translationPatchPath: result.translationPatchPath,
             environmentPatchEnabled: result.environmentPatchEnabled,
           ),
         );
@@ -275,17 +279,24 @@ class LibraryActions {
       initialName: entry.displayNameOrName,
       initialCoverPath: entry.coverPath,
       initialTranslationEnabled: entry.translationEnabled,
+      initialTranslationPatchPath: entry.translationPatchPath,
       initialEnvironmentPatchEnabled: entry.environmentPatchEnabled,
     );
     if (result == null || !context.mounted) return;
+    final coverPath = await AppDataPaths.importCover(
+      result.coverPath,
+      entry.id,
+    );
+    if (!context.mounted) return;
 
     await ref
         .read(libraryProvider.notifier)
         .update(
           entry.path,
           displayName: result.name.isNotEmpty ? result.name : null,
-          coverPath: result.coverPath,
+          coverPath: coverPath,
           translationEnabled: result.translationEnabled,
+          translationPatchPath: result.translationPatchPath,
           environmentPatchEnabled: result.environmentPatchEnabled,
         );
   }
@@ -313,6 +324,7 @@ class LibraryActions {
             projectPath: entry.path,
             source: entry.source,
             translationEnabled: entry.translationEnabled,
+            translationPatchPath: entry.translationPatchPath,
             environmentPatchEnabled: entry.environmentPatchEnabled,
           ),
         ),

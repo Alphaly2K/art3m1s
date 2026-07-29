@@ -13,6 +13,7 @@ class GameEntry {
   final String? displayName;
   final String? coverPath;
   final bool translationEnabled;
+  final String translationPatchPath;
   final bool environmentPatchEnabled;
 
   GameEntry({
@@ -25,6 +26,7 @@ class GameEntry {
     this.displayName,
     this.coverPath,
     this.translationEnabled = false,
+    this.translationPatchPath = '',
     this.environmentPatchEnabled = false,
   }) : id = _normalizeId(id, path);
 
@@ -40,6 +42,7 @@ class GameEntry {
     'displayName': displayName,
     'coverPath': coverPath,
     'translationEnabled': translationEnabled,
+    'translationPatchPath': translationPatchPath,
     'environmentPatchEnabled': environmentPatchEnabled,
   };
 
@@ -55,6 +58,7 @@ class GameEntry {
     displayName: json['displayName'] as String?,
     coverPath: json['coverPath'] as String?,
     translationEnabled: json['translationEnabled'] == true,
+    translationPatchPath: json['translationPatchPath']?.toString() ?? '',
     environmentPatchEnabled: json['environmentPatchEnabled'] == true,
   );
 
@@ -63,6 +67,7 @@ class GameEntry {
     String? displayName,
     String? coverPath,
     bool? translationEnabled,
+    String? translationPatchPath,
     bool? environmentPatchEnabled,
   }) => GameEntry(
     id: id,
@@ -74,6 +79,7 @@ class GameEntry {
     displayName: displayName ?? this.displayName,
     coverPath: coverPath ?? this.coverPath,
     translationEnabled: translationEnabled ?? this.translationEnabled,
+    translationPatchPath: translationPatchPath ?? this.translationPatchPath,
     environmentPatchEnabled:
         environmentPatchEnabled ?? this.environmentPatchEnabled,
   );

@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:file_selector/file_selector.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -71,16 +70,6 @@ class _CupertinoTranslationSettingsScreenState
     await ref.read(settingsProvider.notifier).setTranslation(current);
   }
 
-  Future<void> _pickPatch() async {
-    const types = XTypeGroup(
-      label: '翻译对照文件',
-      extensions: ['json', 'jsonl', 'tsv'],
-    );
-    final file = await openFile(acceptedTypeGroups: [types]);
-    if (file == null || !mounted) return;
-    _save('patch', (value) => value.copyWith(patchPath: file.path), immediate: true);
-  }
-
   Future<T?> _pickOption<T>({
     required String title,
     required List<(T, String)> options,
@@ -125,9 +114,7 @@ class _CupertinoTranslationSettingsScreenState
             onTap: () async {
               final mode = await _pickOption<TranslationMode>(
                 title: '翻译模式',
-                options: [
-                  for (final m in TranslationMode.values) (m, m.label),
-                ],
+                options: [for (final m in TranslationMode.values) (m, m.label)],
               );
               if (mode != null) {
                 _save('mode', (v) => v.copyWith(mode: mode), immediate: true);
@@ -136,34 +123,6 @@ class _CupertinoTranslationSettingsScreenState
           ),
         ],
       ),
-      if (value.mode != TranslationMode.off)
-        CupertinoListSection.insetGrouped(
-          header: const Text('对照文件'),
-          footer: Text(
-            value.patchPath.isEmpty
-                ? '未选择 · JSON / JSONL / TSV'
-                : value.patchPath,
-          ),
-          children: [
-            CupertinoListTile.notched(
-              title: const Text('选择对照文件'),
-              trailing: const CupertinoListTileChevron(),
-              onTap: _pickPatch,
-            ),
-            if (value.patchPath.isNotEmpty)
-              CupertinoListTile.notched(
-                title: const Text(
-                  '清除对照文件',
-                  style: TextStyle(color: CupertinoColors.destructiveRed),
-                ),
-                onTap: () => _save(
-                  'patch',
-                  (v) => v.copyWith(patchPath: ''),
-                  immediate: true,
-                ),
-              ),
-          ],
-        ),
       if (value.mode == TranslationMode.online) ...[
         CupertinoListSection.insetGrouped(
           header: const Text('在线服务'),
@@ -245,15 +204,19 @@ class _CupertinoTranslationSettingsScreenState
               key: const ValueKey('translation-source-language'),
               label: '源语言 / 代码',
               initialValue: value.sourceLanguage,
-              onChanged: (text) =>
-                  _save('sourceLanguage', (v) => v.copyWith(sourceLanguage: text)),
+              onChanged: (text) => _save(
+                'sourceLanguage',
+                (v) => v.copyWith(sourceLanguage: text),
+              ),
             ),
             _FieldRow(
               key: const ValueKey('translation-target-language'),
               label: '目标语言 / 代码',
               initialValue: value.targetLanguage,
-              onChanged: (text) =>
-                  _save('targetLanguage', (v) => v.copyWith(targetLanguage: text)),
+              onChanged: (text) => _save(
+                'targetLanguage',
+                (v) => v.copyWith(targetLanguage: text),
+              ),
             ),
           ],
         ),
@@ -283,8 +246,9 @@ class _FieldRow extends StatefulWidget {
 }
 
 class _FieldRowState extends State<_FieldRow> {
-  late final TextEditingController _controller =
-      TextEditingController(text: widget.initialValue);
+  late final TextEditingController _controller = TextEditingController(
+    text: widget.initialValue,
+  );
 
   @override
   void dispose() {

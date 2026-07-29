@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/game_entry.dart';
+import 'app_data_paths.dart';
 
 class StorageService {
   static const _libraryKey = 'game_library';
@@ -20,6 +21,27 @@ class StorageService {
     if (instance._prefs != null) return;
     instance._prefs = await SharedPreferences.getInstance();
     await instance._migrateLibraryIds();
+    try {
+      await instance._migrateManagedCoverPaths();
+    } catch (_) {
+      // 封面归档是兼容迁移，平台目录暂不可用时保留原路径，不阻断资料库加载。
+    }
+  }
+
+  Future<void> _migrateManagedCoverPaths() async {
+    final library = getLibrary();
+    var changed = false;
+    for (var index = 0; index < library.length; index++) {
+      final entry = library[index];
+      final coverPath = await AppDataPaths.importCover(
+        entry.coverPath,
+        entry.id,
+      );
+      if (coverPath == entry.coverPath) continue;
+      library[index] = entry.copyWith(coverPath: coverPath);
+      changed = true;
+    }
+    if (changed) await _saveLibrary(library);
   }
 
   /// 旧版条目没有独立 ID。无 basename 冲突时沿用旧存档目录；冲突项才按

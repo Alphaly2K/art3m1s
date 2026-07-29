@@ -3,10 +3,10 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:path_provider/path_provider.dart';
 
 import '../controllers/library_actions.dart';
 import '../providers/settings_provider.dart';
+import '../services/app_data_paths.dart';
 
 /// macOS 原生菜单栏（Finder 风格）：在标准 App / 窗口菜单之外补上应用相关的
 /// 文件 / 视图 / 访达项。用 [PlatformMenuBar] 覆盖默认 MainMenu.xib；标准项（关于/
@@ -155,7 +155,7 @@ class MacosMenuBar extends ConsumerWidget {
 /// 在访达中打开应用数据目录（存档 / 封面缓存等落于此）。
 Future<void> _revealAppData() async {
   try {
-    final dir = await getApplicationSupportDirectory();
+    final dir = await AppDataPaths.ensureInitialized();
     await Process.run('open', [dir.path]);
   } catch (_) {}
 }

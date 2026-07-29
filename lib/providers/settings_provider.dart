@@ -139,7 +139,6 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
         ),
         translation: TranslationSettings(
           mode: mode ?? TranslationMode.off,
-          patchPath: prefs.getString('translation_patch_path') ?? '',
           // First-generation online settings had no provider field and used
           // the OpenAI-compatible endpoint, so missing values map to OpenAI.
           provider: selectedProvider,
@@ -206,7 +205,6 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
     final prefs = await SharedPreferences.getInstance();
     await Future.wait([
       prefs.setString('translation_mode', value.mode.name),
-      prefs.setString('translation_patch_path', value.patchPath),
       prefs.setString('translation_provider', value.provider.name),
       prefs.setString('translation_endpoint', value.endpoint),
       prefs.setString('translation_model', value.model),

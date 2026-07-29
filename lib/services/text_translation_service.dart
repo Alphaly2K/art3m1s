@@ -7,6 +7,7 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 
 import '../models/translation_settings.dart';
+import '../proto/translation_cache.pb.dart';
 import 'logger.dart';
 
 class TextTranslationService {
@@ -36,10 +37,11 @@ class TextTranslationService {
 
   static Future<TextTranslationService> create({
     required TranslationSettings settings,
+    required String patchPath,
     required File cacheFile,
   }) async {
-    final patch = await _loadPatch(settings.patchPath);
-    final cache = await _loadStringMap(cacheFile);
+    final patch = await _loadPatch(patchPath);
+    final cache = await _loadCache(cacheFile);
     Log.info(
       '[Translation] mode=${settings.mode.name} '
       'provider=${settings.provider.name} '
@@ -184,10 +186,8 @@ class TextTranslationService {
     try {
       await cacheFile.parent.create(recursive: true);
       final temporary = File('${cacheFile.path}.tmp');
-      await temporary.writeAsString(
-        const JsonEncoder.withIndent('  ').convert(_cache),
-        flush: true,
-      );
+      final message = TranslationCache()..entries.addAll(_cache);
+      await temporary.writeAsBytes(message.writeToBuffer(), flush: true);
       if (await cacheFile.exists()) await cacheFile.delete();
       await temporary.rename(cacheFile.path);
     } catch (error) {
@@ -234,10 +234,12 @@ class TextTranslationService {
     }
   }
 
-  static Future<Map<String, String>> _loadStringMap(File file) async {
+  static Future<Map<String, String>> _loadCache(File file) async {
     if (!await file.exists()) return {};
     try {
-      return _parseJson(await file.readAsString());
+      return Map<String, String>.from(
+        TranslationCache.fromBuffer(await file.readAsBytes()).entries,
+      );
     } catch (error) {
       Log.warn('[Translation] 忽略损坏的翻译缓存: $error');
       return {};

@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:file_selector/file_selector.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -70,16 +69,6 @@ class _FluentTranslationSettingsScreenState
     await ref.read(settingsProvider.notifier).setTranslation(current);
   }
 
-  Future<void> _pickPatch() async {
-    const types = XTypeGroup(
-      label: '翻译对照文件',
-      extensions: ['json', 'jsonl', 'tsv'],
-    );
-    final file = await openFile(acceptedTypeGroups: [types]);
-    if (file == null || !mounted) return;
-    _save('patch', (value) => value.copyWith(patchPath: file.path), immediate: true);
-  }
-
   @override
   Widget build(BuildContext context) {
     final value = ref.watch(settingsProvider).translation;
@@ -116,35 +105,6 @@ class _FluentTranslationSettingsScreenState
           ),
         ],
       ),
-      if (value.mode != TranslationMode.off)
-        _FluentSection(
-          title: '对照文件',
-          children: [
-            _FluentSettingRow(
-              label: '对照文件',
-              caption: value.patchPath.isEmpty
-                  ? '未选择 · JSON / JSONL / TSV'
-                  : value.patchPath,
-              control: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (value.patchPath.isNotEmpty) ...[
-                    Button(
-                      onPressed: () => _save(
-                        'patch',
-                        (v) => v.copyWith(patchPath: ''),
-                        immediate: true,
-                      ),
-                      child: const Text('清除'),
-                    ),
-                    const SizedBox(width: 8),
-                  ],
-                  Button(onPressed: _pickPatch, child: const Text('选择')),
-                ],
-              ),
-            ),
-          ],
-        ),
       if (value.mode == TranslationMode.online) ...[
         _FluentSection(
           title: '在线服务',
@@ -225,15 +185,19 @@ class _FluentTranslationSettingsScreenState
               key: const ValueKey('translation-source-language'),
               label: '源语言 / 代码',
               initialValue: value.sourceLanguage,
-              onChanged: (text) =>
-                  _save('sourceLanguage', (v) => v.copyWith(sourceLanguage: text)),
+              onChanged: (text) => _save(
+                'sourceLanguage',
+                (v) => v.copyWith(sourceLanguage: text),
+              ),
             ),
             _FieldRow(
               key: const ValueKey('translation-target-language'),
               label: '目标语言 / 代码',
               initialValue: value.targetLanguage,
-              onChanged: (text) =>
-                  _save('targetLanguage', (v) => v.copyWith(targetLanguage: text)),
+              onChanged: (text) => _save(
+                'targetLanguage',
+                (v) => v.copyWith(targetLanguage: text),
+              ),
             ),
           ],
         ),
@@ -281,14 +245,9 @@ class _FluentSection extends StatelessWidget {
 /// 单行，照 fluent_shell 的 `_FluentSettingRow`。
 class _FluentSettingRow extends StatelessWidget {
   final String label;
-  final String? caption;
   final Widget control;
 
-  const _FluentSettingRow({
-    required this.label,
-    this.caption,
-    required this.control,
-  });
+  const _FluentSettingRow({required this.label, required this.control});
 
   @override
   Widget build(BuildContext context) {
@@ -297,23 +256,7 @@ class _FluentSettingRow extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: Row(
         children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(label, style: theme.typography.body),
-                if (caption != null) ...[
-                  const SizedBox(height: 2),
-                  Text(
-                    caption!,
-                    style: theme.typography.caption?.copyWith(
-                      color: theme.resources.textFillColorSecondary,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
+          Expanded(child: Text(label, style: theme.typography.body)),
           const SizedBox(width: 16),
           control,
         ],
@@ -342,8 +285,9 @@ class _FieldRow extends StatefulWidget {
 }
 
 class _FieldRowState extends State<_FieldRow> {
-  late final TextEditingController _controller =
-      TextEditingController(text: widget.initialValue);
+  late final TextEditingController _controller = TextEditingController(
+    text: widget.initialValue,
+  );
 
   @override
   void dispose() {

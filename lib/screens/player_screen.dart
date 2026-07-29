@@ -6,11 +6,11 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
-import 'package:path_provider/path_provider.dart';
 
 import '../controllers/mobile_touchpad.dart';
 import '../models/game_entry.dart';
 import '../providers/settings_provider.dart';
+import '../services/app_data_paths.dart';
 import '../services/core_bridge.dart';
 import '../services/file_provider.dart';
 import '../services/logger.dart';
@@ -23,6 +23,7 @@ class PlayerScreen extends ConsumerStatefulWidget {
   final String projectPath;
   final GameSource source;
   final bool translationEnabled;
+  final String translationPatchPath;
   final bool environmentPatchEnabled;
 
   const PlayerScreen({
@@ -31,6 +32,7 @@ class PlayerScreen extends ConsumerStatefulWidget {
     required this.projectPath,
     required this.source,
     required this.translationEnabled,
+    required this.translationPatchPath,
     required this.environmentPatchEnabled,
   });
 
@@ -230,7 +232,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     // 注意：core 侧已把 s.savepath 前缀拼进相对路径（形如 `savedata/save0001.dat`），
     // 故这里的 saveDir 只是**每个游戏的基准目录**，不再追加 savePath，否则会双重前缀。
     // 用资料库映射中的稳定游戏 ID 作子目录，避免多游戏存档串档。
-    final appSupport = await _getAppSupportDir();
+    await AppDataPaths.ensureInitialized();
     if (!mounted || _closing) {
       _bridge.shutdown();
       return;
@@ -238,17 +240,17 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     // 资料库 ID 才是游戏身份；不能使用 root.pfs 等常见 basename，
     // 否则不同游戏会共用存档与翻译缓存。
     final gameId = widget.gameId;
-    final saveFolderName = Platform.isIOS ? 'Saves' : 'saves';
-    final saveDir =
-        '$appSupport${Platform.pathSeparator}$saveFolderName${Platform.pathSeparator}$gameId';
+    final saves = await AppDataPaths.savesDirectory();
+    final saveDir = '${saves.path}${Platform.pathSeparator}$gameId';
     _bridge.setSaveDir(saveDir);
 
     if (widget.translationEnabled) {
+      final translations = await AppDataPaths.translationsDirectory();
       final translation = await TextTranslationService.create(
         settings: ref.read(settingsProvider).translation,
+        patchPath: widget.translationPatchPath,
         cacheFile: File(
-          '$appSupport${Platform.pathSeparator}translations'
-          '${Platform.pathSeparator}$gameId.json',
+          '${translations.path}${Platform.pathSeparator}$gameId.pb',
         ),
       );
       if (!mounted || _closing) {
@@ -301,39 +303,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         _stageH = int.tryParse(trimmed.split('=').last.trim()) ?? 720;
       }
     }
-  }
-
-  /// 获取平台相关的应用支持目录（用于存放存档）。
-  Future<String> _getAppSupportDir() async {
-    if (Platform.isMacOS) {
-      final home = Platform.environment['HOME'] ?? '/tmp';
-      return '$home/Library/Application Support/art3m1s';
-    } else if (Platform.isWindows) {
-      final appData =
-          Platform.environment['APPDATA'] ??
-          Platform.environment['USERPROFILE'] ??
-          'C:\\Users\\Default';
-      return '$appData\\art3m1s';
-    } else if (Platform.isLinux) {
-      final home = Platform.environment['HOME'] ?? '/tmp';
-      return '$home/.local/share/art3m1s';
-    } else if (Platform.isIOS) {
-      final documents = await getApplicationDocumentsDirectory();
-      final root = Directory(
-        '${documents.path}${Platform.pathSeparator}Art3m1s',
-      );
-      Directory(
-        '${root.path}${Platform.pathSeparator}Games',
-      ).createSync(recursive: true);
-      Directory(
-        '${root.path}${Platform.pathSeparator}Saves',
-      ).createSync(recursive: true);
-      return root.path;
-    } else if (Platform.isAndroid) {
-      final dir = await getApplicationSupportDirectory();
-      return dir.path;
-    }
-    return '/tmp/art3m1s';
   }
 
   void _startGameLoop() {

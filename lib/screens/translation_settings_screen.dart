@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -86,20 +85,6 @@ class _MaterialTranslationSettingsScreenState
     await ref.read(settingsProvider.notifier).setTranslation(current);
   }
 
-  Future<void> _pickPatch() async {
-    const types = XTypeGroup(
-      label: '翻译对照文件',
-      extensions: ['json', 'jsonl', 'tsv'],
-    );
-    final file = await openFile(acceptedTypeGroups: [types]);
-    if (file == null || !mounted) return;
-    _save(
-      'patch',
-      (value) => value.copyWith(patchPath: file.path),
-      immediate: true,
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final value = ref.watch(settingsProvider).translation;
@@ -125,39 +110,6 @@ class _MaterialTranslationSettingsScreenState
               },
             ),
           ),
-          if (value.mode != TranslationMode.off) ...[
-            const Divider(height: 32),
-            const _SectionHeader('对照文件'),
-            ListTile(
-              leading: const Icon(Icons.table_rows_outlined),
-              title: Text(
-                value.patchPath.isEmpty ? '未选择' : value.patchPath,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-              subtitle: const Text('JSON / JSONL / TSV'),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (value.patchPath.isNotEmpty)
-                    IconButton(
-                      tooltip: '清除',
-                      icon: const Icon(Icons.close),
-                      onPressed: () => _save(
-                        'patch',
-                        (value) => value.copyWith(patchPath: ''),
-                        immediate: true,
-                      ),
-                    ),
-                  IconButton(
-                    tooltip: '选择文件',
-                    icon: const Icon(Icons.folder_open),
-                    onPressed: _pickPatch,
-                  ),
-                ],
-              ),
-            ),
-          ],
           if (value.mode == TranslationMode.online) ...[
             const Divider(height: 32),
             const _SectionHeader('在线服务'),

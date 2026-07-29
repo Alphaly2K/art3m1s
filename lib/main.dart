@@ -7,6 +7,7 @@ import 'package:macos_window_utils/macos_window_utils.dart';
 import 'package:media_kit/media_kit.dart';
 
 import 'services/app_info.dart';
+import 'services/app_data_paths.dart';
 import 'services/logger.dart';
 import 'services/storage_service.dart';
 import 'shell/cupertino_shell.dart';
@@ -49,6 +50,7 @@ void main(List<String> args) async {
     );
   }
   MediaKit.ensureInitialized(libmpv: _bundledMpvLibraryPath());
+  await AppDataPaths.ensureInitialized();
   await StorageService.ensureInitialized();
   await AppInfo.init();
   Log.info('Art3m1s 启动');

@@ -61,6 +61,7 @@ void main() {
       });
 
       expect(entry.translationEnabled, isFalse);
+      expect(entry.translationPatchPath, isEmpty);
       expect(entry.environmentPatchEnabled, isFalse);
       expect(entry.id, startsWith('legacy_'));
     });
@@ -73,11 +74,13 @@ void main() {
         source: GameSource.pfsArchive,
         addedAt: DateTime(2026),
         translationEnabled: true,
+        translationPatchPath: '/patches/translated.jsonl',
         environmentPatchEnabled: true,
       );
 
       final restored = GameEntry.fromJson(entry.toJson());
       expect(restored.translationEnabled, isTrue);
+      expect(restored.translationPatchPath, '/patches/translated.jsonl');
       expect(restored.environmentPatchEnabled, isTrue);
       expect(restored.id, 'a1b2c3d4');
     });

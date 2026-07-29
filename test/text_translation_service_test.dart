@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:art3m1s/models/translation_settings.dart';
+import 'package:art3m1s/proto/translation_cache.pb.dart';
 import 'package:art3m1s/services/text_translation_service.dart';
 import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -218,7 +219,8 @@ void main() {
             apiKey: 'key',
             model: 'model',
           ),
-          cacheFile: File('${directory.path}/cache.json'),
+          patchPath: '',
+          cacheFile: File('${directory.path}/cache.pb'),
         );
         final results = <Completer<String?>>[];
         void add(String source) {
@@ -256,6 +258,40 @@ void main() {
         }
       },
     );
+
+    test('online translations persist in a protobuf cache', () async {
+      final mock = await _MockApi.start({'output_text': '水豚'});
+      final directory = await Directory.systemTemp.createTemp(
+        'translation-protobuf-test-',
+      );
+      final cacheFile = File('${directory.path}/cache.pb');
+      final service = await TextTranslationService.create(
+        settings: TranslationSettings(
+          mode: TranslationMode.online,
+          provider: TranslationProvider.openAi,
+          endpoint: mock.endpoint,
+          apiKey: 'key',
+          model: 'model',
+        ),
+        patchPath: '',
+        cacheFile: cacheFile,
+      );
+
+      try {
+        expect(await service.translate('鬼天竺鼠'), '水豚');
+        await mock.request.timeout(const Duration(seconds: 5));
+        await service.dispose();
+
+        final cache = TranslationCache.fromBuffer(
+          await cacheFile.readAsBytes(),
+        );
+        expect(cache.entries.values, contains('水豚'));
+      } finally {
+        await service.dispose();
+        await mock.close();
+        await directory.delete(recursive: true);
+      }
+    });
   });
 }
 
@@ -268,7 +304,8 @@ Future<_TranslationResult> _translate(
   final directory = await Directory.systemTemp.createTemp('translation-test-');
   final service = await TextTranslationService.create(
     settings: settings,
-    cacheFile: File('${directory.path}/cache.json'),
+    patchPath: '',
+    cacheFile: File('${directory.path}/cache.pb'),
   );
   try {
     final translation = await service.translate(source, ruby: ruby);

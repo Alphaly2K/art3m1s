@@ -128,7 +128,6 @@ class TranslationSettings {
 
   const TranslationSettings({
     this.mode = TranslationMode.off,
-    this.patchPath = '',
     this.provider = TranslationProvider.openAi,
     this.endpoint = defaultEndpoint,
     this.apiKey = '',
@@ -140,7 +139,6 @@ class TranslationSettings {
   });
 
   final TranslationMode mode;
-  final String patchPath;
   final TranslationProvider provider;
   final String endpoint;
   final String apiKey;
@@ -152,7 +150,6 @@ class TranslationSettings {
 
   TranslationSettings copyWith({
     TranslationMode? mode,
-    String? patchPath,
     TranslationProvider? provider,
     String? endpoint,
     String? apiKey,
@@ -164,7 +161,6 @@ class TranslationSettings {
   }) {
     return TranslationSettings(
       mode: mode ?? this.mode,
-      patchPath: patchPath ?? this.patchPath,
       provider: provider ?? this.provider,
       endpoint: endpoint ?? this.endpoint,
       apiKey: apiKey ?? this.apiKey,

@@ -11,12 +11,14 @@ class GameEditData {
   final String name;
   final String? coverPath;
   final bool translationEnabled;
+  final String translationPatchPath;
   final bool environmentPatchEnabled;
 
   const GameEditData({
     required this.name,
     this.coverPath,
     required this.translationEnabled,
+    required this.translationPatchPath,
     required this.environmentPatchEnabled,
   });
 }
@@ -134,6 +136,15 @@ Future<String?> _pickCoverFile() async {
   return file?.path;
 }
 
+Future<String?> _pickTranslationPatchFile() async {
+  const typeGroup = XTypeGroup(
+    label: '翻译对照文件',
+    extensions: ['json', 'jsonl', 'tsv'],
+  );
+  final file = await openFile(acceptedTypeGroups: [typeGroup]);
+  return file?.path;
+}
+
 /// 平台自适应的「添加/编辑项目」对话框：名称 + 可选封面。
 Future<GameEditData?> showGameEditDialog(
   BuildContext context, {
@@ -141,6 +152,7 @@ Future<GameEditData?> showGameEditDialog(
   required String initialName,
   String? initialCoverPath,
   bool initialTranslationEnabled = false,
+  String initialTranslationPatchPath = '',
   bool initialEnvironmentPatchEnabled = false,
 }) {
   if (Platform.isMacOS) {
@@ -151,6 +163,7 @@ Future<GameEditData?> showGameEditDialog(
         initialName: initialName,
         initialCover: initialCoverPath,
         initialTranslationEnabled: initialTranslationEnabled,
+        initialTranslationPatchPath: initialTranslationPatchPath,
         initialEnvironmentPatchEnabled: initialEnvironmentPatchEnabled,
       ),
     );
@@ -163,6 +176,7 @@ Future<GameEditData?> showGameEditDialog(
         initialName: initialName,
         initialCover: initialCoverPath,
         initialTranslationEnabled: initialTranslationEnabled,
+        initialTranslationPatchPath: initialTranslationPatchPath,
         initialEnvironmentPatchEnabled: initialEnvironmentPatchEnabled,
       ),
     );
@@ -175,6 +189,7 @@ Future<GameEditData?> showGameEditDialog(
         initialName: initialName,
         initialCover: initialCoverPath,
         initialTranslationEnabled: initialTranslationEnabled,
+        initialTranslationPatchPath: initialTranslationPatchPath,
         initialEnvironmentPatchEnabled: initialEnvironmentPatchEnabled,
       ),
     );
@@ -186,6 +201,7 @@ Future<GameEditData?> showGameEditDialog(
       initialName: initialName,
       initialCover: initialCoverPath,
       initialTranslationEnabled: initialTranslationEnabled,
+      initialTranslationPatchPath: initialTranslationPatchPath,
       initialEnvironmentPatchEnabled: initialEnvironmentPatchEnabled,
     ),
   );
@@ -198,6 +214,7 @@ class _MacosEditDialog extends StatefulWidget {
   final String initialName;
   final String? initialCover;
   final bool initialTranslationEnabled;
+  final String initialTranslationPatchPath;
   final bool initialEnvironmentPatchEnabled;
 
   const _MacosEditDialog({
@@ -205,6 +222,7 @@ class _MacosEditDialog extends StatefulWidget {
     required this.initialName,
     this.initialCover,
     required this.initialTranslationEnabled,
+    required this.initialTranslationPatchPath,
     required this.initialEnvironmentPatchEnabled,
   });
 
@@ -218,6 +236,7 @@ class _MacosEditDialogState extends State<_MacosEditDialog> {
   );
   String? _cover;
   late bool _translationEnabled;
+  late String _translationPatchPath;
   late bool _environmentPatchEnabled;
 
   @override
@@ -225,6 +244,7 @@ class _MacosEditDialogState extends State<_MacosEditDialog> {
     super.initState();
     _cover = widget.initialCover;
     _translationEnabled = widget.initialTranslationEnabled;
+    _translationPatchPath = widget.initialTranslationPatchPath;
     _environmentPatchEnabled = widget.initialEnvironmentPatchEnabled;
   }
 
@@ -288,6 +308,43 @@ class _MacosEditDialogState extends State<_MacosEditDialog> {
               ),
             ],
           ),
+          if (_translationEnabled) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _translationPatchPath.isEmpty
+                        ? '未选择对照文件'
+                        : _translationPatchPath,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                if (_translationPatchPath.isNotEmpty) ...[
+                  const SizedBox(width: 6),
+                  PushButton(
+                    controlSize: ControlSize.regular,
+                    secondary: true,
+                    onPressed: () => setState(() => _translationPatchPath = ''),
+                    child: const Text('清除'),
+                  ),
+                ],
+                const SizedBox(width: 6),
+                PushButton(
+                  controlSize: ControlSize.regular,
+                  secondary: true,
+                  onPressed: () async {
+                    final path = await _pickTranslationPatchFile();
+                    if (path != null) {
+                      setState(() => _translationPatchPath = path);
+                    }
+                  },
+                  child: const Text('选择对照文件'),
+                ),
+              ],
+            ),
+          ],
           const SizedBox(height: 8),
           Row(
             children: [
@@ -308,6 +365,7 @@ class _MacosEditDialogState extends State<_MacosEditDialog> {
             name: _name.text.trim(),
             coverPath: _cover,
             translationEnabled: _translationEnabled,
+            translationPatchPath: _translationPatchPath,
             environmentPatchEnabled: _environmentPatchEnabled,
           ),
         ),
@@ -330,6 +388,7 @@ class _CupertinoEditDialog extends StatefulWidget {
   final String initialName;
   final String? initialCover;
   final bool initialTranslationEnabled;
+  final String initialTranslationPatchPath;
   final bool initialEnvironmentPatchEnabled;
 
   const _CupertinoEditDialog({
@@ -337,6 +396,7 @@ class _CupertinoEditDialog extends StatefulWidget {
     required this.initialName,
     this.initialCover,
     required this.initialTranslationEnabled,
+    required this.initialTranslationPatchPath,
     required this.initialEnvironmentPatchEnabled,
   });
 
@@ -350,6 +410,7 @@ class _CupertinoEditDialogState extends State<_CupertinoEditDialog> {
   );
   String? _cover;
   late bool _translationEnabled;
+  late String _translationPatchPath;
   late bool _environmentPatchEnabled;
 
   @override
@@ -357,6 +418,7 @@ class _CupertinoEditDialogState extends State<_CupertinoEditDialog> {
     super.initState();
     _cover = widget.initialCover;
     _translationEnabled = widget.initialTranslationEnabled;
+    _translationPatchPath = widget.initialTranslationPatchPath;
     _environmentPatchEnabled = widget.initialEnvironmentPatchEnabled;
   }
 
@@ -411,6 +473,40 @@ class _CupertinoEditDialogState extends State<_CupertinoEditDialog> {
               ),
             ],
           ),
+          if (_translationEnabled) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _translationPatchPath.isEmpty
+                        ? '未选择对照文件'
+                        : _translationPatchPath,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                CupertinoButton(
+                  sizeStyle: CupertinoButtonSize.small,
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  onPressed: () async {
+                    final path = await _pickTranslationPatchFile();
+                    if (path != null) {
+                      setState(() => _translationPatchPath = path);
+                    }
+                  },
+                  child: const Text('选择'),
+                ),
+                if (_translationPatchPath.isNotEmpty)
+                  CupertinoButton(
+                    sizeStyle: CupertinoButtonSize.small,
+                    padding: const EdgeInsets.symmetric(horizontal: 6),
+                    onPressed: () => setState(() => _translationPatchPath = ''),
+                    child: const Text('清除'),
+                  ),
+              ],
+            ),
+          ],
           const SizedBox(height: 8),
           Row(
             children: [
@@ -436,6 +532,7 @@ class _CupertinoEditDialogState extends State<_CupertinoEditDialog> {
               name: _name.text.trim(),
               coverPath: _cover,
               translationEnabled: _translationEnabled,
+              translationPatchPath: _translationPatchPath,
               environmentPatchEnabled: _environmentPatchEnabled,
             ),
           ),
@@ -453,6 +550,7 @@ class _MaterialEditDialog extends StatefulWidget {
   final String initialName;
   final String? initialCover;
   final bool initialTranslationEnabled;
+  final String initialTranslationPatchPath;
   final bool initialEnvironmentPatchEnabled;
 
   const _MaterialEditDialog({
@@ -460,6 +558,7 @@ class _MaterialEditDialog extends StatefulWidget {
     required this.initialName,
     this.initialCover,
     required this.initialTranslationEnabled,
+    required this.initialTranslationPatchPath,
     required this.initialEnvironmentPatchEnabled,
   });
 
@@ -473,6 +572,7 @@ class _MaterialEditDialogState extends State<_MaterialEditDialog> {
   );
   String? _cover;
   late bool _translationEnabled;
+  late String _translationPatchPath;
   late bool _environmentPatchEnabled;
 
   @override
@@ -480,6 +580,7 @@ class _MaterialEditDialogState extends State<_MaterialEditDialog> {
     super.initState();
     _cover = widget.initialCover;
     _translationEnabled = widget.initialTranslationEnabled;
+    _translationPatchPath = widget.initialTranslationPatchPath;
     _environmentPatchEnabled = widget.initialEnvironmentPatchEnabled;
   }
 
@@ -530,6 +631,39 @@ class _MaterialEditDialogState extends State<_MaterialEditDialog> {
             value: _translationEnabled,
             onChanged: (value) => setState(() => _translationEnabled = value),
           ),
+          if (_translationEnabled)
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text(
+                _translationPatchPath.isEmpty
+                    ? '未选择对照文件'
+                    : _translationPatchPath,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (_translationPatchPath.isNotEmpty)
+                    IconButton(
+                      tooltip: '清除',
+                      icon: const Icon(Icons.close),
+                      onPressed: () =>
+                          setState(() => _translationPatchPath = ''),
+                    ),
+                  IconButton(
+                    tooltip: '选择对照文件',
+                    icon: const Icon(Icons.folder_open),
+                    onPressed: () async {
+                      final path = await _pickTranslationPatchFile();
+                      if (path != null) {
+                        setState(() => _translationPatchPath = path);
+                      }
+                    },
+                  ),
+                ],
+              ),
+            ),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             title: const Text('环境兼容补丁'),
@@ -550,6 +684,7 @@ class _MaterialEditDialogState extends State<_MaterialEditDialog> {
               name: _name.text.trim(),
               coverPath: _cover,
               translationEnabled: _translationEnabled,
+              translationPatchPath: _translationPatchPath,
               environmentPatchEnabled: _environmentPatchEnabled,
             ),
           ),
@@ -603,6 +738,7 @@ class _FluentEditDialog extends StatefulWidget {
   final String initialName;
   final String? initialCover;
   final bool initialTranslationEnabled;
+  final String initialTranslationPatchPath;
   final bool initialEnvironmentPatchEnabled;
 
   const _FluentEditDialog({
@@ -610,6 +746,7 @@ class _FluentEditDialog extends StatefulWidget {
     required this.initialName,
     this.initialCover,
     required this.initialTranslationEnabled,
+    required this.initialTranslationPatchPath,
     required this.initialEnvironmentPatchEnabled,
   });
 
@@ -623,6 +760,7 @@ class _FluentEditDialogState extends State<_FluentEditDialog> {
   );
   String? _cover;
   late bool _translationEnabled;
+  late String _translationPatchPath;
   late bool _environmentPatchEnabled;
 
   @override
@@ -630,6 +768,7 @@ class _FluentEditDialogState extends State<_FluentEditDialog> {
     super.initState();
     _cover = widget.initialCover;
     _translationEnabled = widget.initialTranslationEnabled;
+    _translationPatchPath = widget.initialTranslationPatchPath;
     _environmentPatchEnabled = widget.initialEnvironmentPatchEnabled;
   }
 
@@ -687,6 +826,39 @@ class _FluentEditDialogState extends State<_FluentEditDialog> {
               ),
             ],
           ),
+          if (_translationEnabled) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _translationPatchPath.isEmpty
+                        ? '未选择对照文件'
+                        : _translationPatchPath,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                if (_translationPatchPath.isNotEmpty) ...[
+                  const SizedBox(width: 6),
+                  fluent.Button(
+                    onPressed: () => setState(() => _translationPatchPath = ''),
+                    child: const Text('清除'),
+                  ),
+                ],
+                const SizedBox(width: 6),
+                fluent.Button(
+                  onPressed: () async {
+                    final path = await _pickTranslationPatchFile();
+                    if (path != null) {
+                      setState(() => _translationPatchPath = path);
+                    }
+                  },
+                  child: const Text('选择对照文件'),
+                ),
+              ],
+            ),
+          ],
           const SizedBox(height: 8),
           Row(
             children: [
@@ -711,6 +883,7 @@ class _FluentEditDialogState extends State<_FluentEditDialog> {
               name: _name.text.trim(),
               coverPath: _cover,
               translationEnabled: _translationEnabled,
+              translationPatchPath: _translationPatchPath,
               environmentPatchEnabled: _environmentPatchEnabled,
             ),
           ),

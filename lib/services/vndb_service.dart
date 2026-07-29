@@ -2,8 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:path_provider/path_provider.dart';
-
+import 'app_data_paths.dart';
 import 'logger.dart';
 
 /// VNDB（vndb.org）查询结果：标题 + 封面 URL。
@@ -26,8 +25,7 @@ class VndbService {
   static const String _vnEndpoint = 'https://api.vndb.org/kana/vn';
   static const Duration _timeout = Duration(seconds: 8);
 
-  static final HttpClient _client = HttpClient()
-    ..connectionTimeout = _timeout;
+  static final HttpClient _client = HttpClient()..connectionTimeout = _timeout;
 
   /// 智能查询：把「脏」标题（caption 常含汉化译名 / 版本号 / 补丁公告，或目录名含
   /// 噪音）切成候选片段、滤掉版本/公告类垃圾，逐段查 VNDB，返回第一个命中的。
@@ -53,9 +51,7 @@ class VndbService {
     }
 
     // 常见分隔符：- – — / ~ ｜ | 全角空格，以及各种括号。
-    for (final seg in raw.split(
-      RegExp(r'\s*[-–—/~｜|　]\s*|[「」『』【】\[\]()（）]'),
-    )) {
+    for (final seg in raw.split(RegExp(r'\s*[-–—/~｜|　]\s*|[「」『』【】\[\]()（）]'))) {
       add(seg);
     }
     // 一个候选都没有时，退回整串 trim（多半也查不到，但聊胜于无）。
@@ -69,9 +65,26 @@ class VndbService {
     if (RegExp(r'^[vV]er?\.?\s*\d').hasMatch(s)) return true;
     if (RegExp(r'^\d+\.\d').hasMatch(s)) return true;
     const junkWords = [
-      '汉化', '補丁', '补丁', '下载', '下載', '删除', '刪除', '学习交流',
-      '學習交流', '仅供', '僅供', '请于', '請於', '体験版', '體験版',
-      '体验版', 'trial', 'demo', 'デモ', 'patch',
+      '汉化',
+      '補丁',
+      '补丁',
+      '下载',
+      '下載',
+      '删除',
+      '刪除',
+      '学习交流',
+      '學習交流',
+      '仅供',
+      '僅供',
+      '请于',
+      '請於',
+      '体験版',
+      '體験版',
+      '体验版',
+      'trial',
+      'demo',
+      'デモ',
+      'patch',
     ];
     final lower = s.toLowerCase();
     return junkWords.any((w) => lower.contains(w.toLowerCase()));
@@ -116,7 +129,7 @@ class VndbService {
     }
   }
 
-  /// 下载封面到 app support 的 covers/ 目录，返回本地路径；失败返回 null。
+  /// 下载封面到统一应用数据根目录的 covers/，返回本地路径；失败返回 null。
   /// [keyHint] 用来生成稳定文件名（同一游戏重复导入覆盖同一文件）。
   static Future<String?> downloadCover(String imageUrl, String keyHint) async {
     try {
@@ -135,11 +148,7 @@ class VndbService {
       final bytes = builder.takeBytes();
       if (bytes.isEmpty) return null;
 
-      final supportDir = await getApplicationSupportDirectory();
-      final coversDir = Directory('${supportDir.path}/covers');
-      if (!coversDir.existsSync()) {
-        coversDir.createSync(recursive: true);
-      }
+      final coversDir = await AppDataPaths.coversDirectory();
       final safe = keyHint.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
       final file = File('${coversDir.path}/$safe${_extFromUrl(imageUrl)}');
       await file.writeAsBytes(bytes);
