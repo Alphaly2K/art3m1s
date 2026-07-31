@@ -77,6 +77,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   int _fpsWindowStartUs = 0;
   int _fpsWindowFrames = 0;
   static const int _targetFrameUs = 1000000 ~/ 60;
+  static const int _maxCatchUpTicks = 8;
 
   @override
   void initState() {
@@ -278,7 +279,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       if (_closing || !mounted) return;
       final nowUs = _frameClock.elapsedMicroseconds;
       if (nowUs < _nextFrameUs) return;
-      _nextFrameUs += _targetFrameUs;
+      final overdueUs = nowUs - _nextFrameUs;
+      final dueTicks = (1 + overdueUs ~/ _targetFrameUs).clamp(
+        1,
+        _maxCatchUpTicks,
+      );
+      _nextFrameUs += _targetFrameUs * dueTicks;
       if (nowUs - _nextFrameUs > _targetFrameUs * 2) {
         _nextFrameUs = nowUs + _targetFrameUs;
       }
@@ -293,9 +299,17 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         return;
       }
 
-      if (_frameInFlight) return;
-      _frameInFlight = true;
+      // 口型 CSV 以 60 Hz 每次 onEnterFrame 消费一个采样。显示链繁忙或一次
+      // Timer 回调迟到时，先补齐逻辑 tick，只在最后一次尝试回读和显示画面。
+      for (var tick = 0; tick < dueTicks - 1; tick++) {
+        _bridge.advanceWithoutRender(_nextFrameDeltaMs());
+      }
+      if (_frameInFlight) {
+        _bridge.advanceWithoutRender(_nextFrameDeltaMs());
+        return;
+      }
 
+      _frameInFlight = true;
       final deltaMs = _nextFrameDeltaMs();
       _trackFps(nowUs);
       final pixels = _bridge.advanceAndRender(deltaMs.clamp(0, 100));

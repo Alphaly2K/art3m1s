@@ -336,6 +336,10 @@ typedef RuntimeUploadVideoLayerFrameNative =
     );
 typedef RuntimeUploadVideoLayerFrame =
     int Function(Pointer<Void>, Pointer<Utf8>, int, int, Pointer<Uint8>, int);
+typedef RuntimeAdvanceWithoutRenderNative =
+    Int32 Function(Pointer<Void> rt, Uint32 deltaMs);
+typedef RuntimeAdvanceWithoutRender =
+    int Function(Pointer<Void> rt, int deltaMs);
 
 // ── CoreBridge — manages the core runtime lifecycle ─────────────
 
@@ -357,6 +361,8 @@ class CoreBridge {
   DynamicLibrary? _lib;
   Pointer<Void>? _runtime;
   RuntimeUploadVideoLayerFrame? _uploadVideoLayerFrame;
+  RuntimeAdvanceWithoutRender? _advanceWithoutRender;
+  bool _advanceWithoutRenderUnavailable = false;
   TextTranslationService? translation;
   final Map<String, Pointer<Utf8>> _videoLayerIds = {};
   int _stageWidth = 1280;
@@ -957,6 +963,27 @@ class CoreBridge {
     }
   }
 
+  /// 上一帧仍在 Flutter 解码时只推进引擎逻辑，避免 onEnterFrame 驱动的
+  /// E-Mote 口型和真实音频时钟因漏 tick 而逐渐错位。
+  bool advanceWithoutRender(int deltaMs) {
+    if (_runtime == null || _lib == null || _advanceWithoutRenderUnavailable) {
+      return false;
+    }
+    media.pumpLayerVideoFrames();
+    try {
+      final fn = _advanceWithoutRender ??= _lib!
+          .lookupFunction<
+            RuntimeAdvanceWithoutRenderNative,
+            RuntimeAdvanceWithoutRender
+          >('art3m1s_runtime_advance_without_render');
+      return fn(_runtime!, deltaMs) != 0;
+    } catch (_) {
+      // 旧 core 没有该可选接口时保持原行为，避免每帧重复查找符号。
+      _advanceWithoutRenderUnavailable = true;
+      return false;
+    }
+  }
+
   bool _uploadLayerVideoFrame(
     String id,
     int width,
@@ -1049,6 +1076,8 @@ class CoreBridge {
     _runtime = null;
     _initialized = false;
     _uploadVideoLayerFrame = null;
+    _advanceWithoutRender = null;
+    _advanceWithoutRenderUnavailable = false;
     for (final id in _videoLayerIds.values) {
       malloc.free(id);
     }
