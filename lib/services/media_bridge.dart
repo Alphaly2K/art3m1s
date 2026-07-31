@@ -151,7 +151,12 @@ class MediaBridge {
       gain: gain,
       pan: _pan(payload['pan']),
       loop: _bool(payload['loop']),
-      onCompleted: (_) => _soundFinishedCallback(null),
+      onCompleted: (_) {
+        final completed = _bgm;
+        _bgm = null;
+        if (completed != null) unawaited(completed.dispose());
+        _soundFinishedCallback(null);
+      },
     );
     _bgm = handle;
     await handle.setEffectiveVolume(
@@ -203,7 +208,8 @@ class MediaBridge {
       pan: _pan(payload['pan']),
       loop: _bool(payload['loop']),
       onCompleted: (finishedId) {
-        _sounds.remove(key);
+        final completed = _sounds.remove(key);
+        if (completed != null) unawaited(completed.dispose());
         _soundFinishedCallback(finishedId);
       },
     );
@@ -641,11 +647,12 @@ class _AudioHandle {
         onCompleted: onCompleted,
       );
     }
-    // audioplayers_windows delegates decoding to Windows Media Foundation,
-    // which does not reliably support the OGG/Vorbis assets used by Artemis
-    // games. The Windows bundle already ships libmpv for video and segmented
-    // BGM, so use that same decoder for ordinary BGM, voice and SE as well.
-    if (Platform.isWindows) {
+    // Windows Media Foundation does not reliably support Artemis OGG assets.
+    // On macOS, audioplayers_darwin routes AVPlayer through the time-domain
+    // mixer; long-running OGG playback on recent macOS releases leaves Caulk
+    // realtime allocator regions behind until the process exhausts memory.
+    // Both bundles already ship libmpv, so use the stable media_kit path.
+    if (Platform.isWindows || Platform.isMacOS) {
       return _createMediaKitSingle(
         id: id,
         file: file,
@@ -699,7 +706,7 @@ class _AudioHandle {
     );
     subscriptions.add(
       player.stream.error.listen((error) {
-        Log.warn('[MediaBridge] Windows 音频解码失败: ${file.path}: $error');
+        Log.warn('[MediaBridge] libmpv 音频解码失败: ${file.path}: $error');
         if (handle._disposed || handle._completed) return;
         handle._completed = true;
         onCompleted(id);
@@ -712,11 +719,11 @@ class _AudioHandle {
       await player.open(media_kit.Media(file.uri.toString()), play: false);
       if (pan.abs() > 0.001) {
         Log.debug(
-          '[MediaBridge] Windows libmpv 音频暂不应用声像: '
+          '[MediaBridge] libmpv 音频暂不应用声像: '
           '${file.path}, pan=$pan',
         );
       }
-      Log.debug('[MediaBridge] Windows libmpv 音频已准备: ${file.path}');
+      Log.debug('[MediaBridge] libmpv 音频已准备: ${file.path}');
       return handle;
     } catch (_) {
       await Future.wait(subscriptions.map((sub) => sub.cancel()));
