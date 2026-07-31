@@ -70,7 +70,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   bool _engineDialogOpen = false;
 
   // FPS
-  double _fps = 0;
+  final ValueNotifier<double> _fpsNotifier = ValueNotifier(0);
   final Stopwatch _frameClock = Stopwatch();
   int _nextFrameUs = 0;
   int _frameIndex = 0;
@@ -323,7 +323,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     _fpsWindowFrames += 1;
     final elapsedUs = nowUs - _fpsWindowStartUs;
     if (elapsedUs < 1000000) return;
-    _fps = _fpsWindowFrames * 1000000 / elapsedUs;
+    _fpsNotifier.value = _fpsWindowFrames * 1000000 / elapsedUs;
     _fpsWindowStartUs = nowUs;
     _fpsWindowFrames = 0;
   }
@@ -360,6 +360,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     _panelTimer?.cancel();
     _endTouchpadDrag();
     _touchpadCursorPosition.dispose();
+    _fpsNotifier.dispose();
     _frameImage?.dispose();
     _gameFocusNode.dispose();
     _keyboardCtrl.removeListener(_onKeyboardInput);
@@ -503,12 +504,15 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
           color: Colors.black54,
           borderRadius: BorderRadius.circular(4),
         ),
-        child: Text(
-          '${_fps.toStringAsFixed(0)} fps',
-          style: const TextStyle(
-            color: Colors.lime,
-            fontSize: 12,
-            fontFamily: 'monospace',
+        child: ValueListenableBuilder<double>(
+          valueListenable: _fpsNotifier,
+          builder: (context, fps, _) => Text(
+            '${fps.toStringAsFixed(0)} fps',
+            style: const TextStyle(
+              color: Colors.lime,
+              fontSize: 12,
+              fontFamily: 'monospace',
+            ),
           ),
         ),
       ),
