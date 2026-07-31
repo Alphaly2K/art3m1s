@@ -16,6 +16,8 @@ import '../services/file_provider.dart';
 import '../services/logger.dart';
 import '../services/project_charset.dart';
 import '../services/text_translation_service.dart';
+import '../widgets/engine_dialog.dart';
+import '../widgets/mobile_game_cursor.dart';
 import '../widgets/mobile_touchpad_surface.dart';
 
 class PlayerScreen extends ConsumerStatefulWidget {
@@ -115,54 +117,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   Future<void> _showEngineDialog(EngineDialogRequest request) async {
     if (!mounted || _closing || _engineDialogOpen) return;
     _engineDialogOpen = true;
-    final controller = TextEditingController(text: request.initialText);
     try {
-      final accepted = await showDialog<bool>(
-        context: context,
-        barrierDismissible: request.hasCancel,
-        builder: (dialogContext) {
-          final localizations = MaterialLocalizations.of(dialogContext);
-          return AlertDialog(
-            title: request.title.isEmpty ? null : Text(request.title),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                if (request.message.isNotEmpty) Text(request.message),
-                if (request.message.isNotEmpty && request.hasTextField)
-                  const SizedBox(height: 16),
-                if (request.hasTextField)
-                  TextField(
-                    controller: controller,
-                    autofocus: true,
-                    maxLines: 1,
-                    inputFormatters: [
-                      if (request.textFieldSize case final limit?)
-                        LengthLimitingTextInputFormatter(limit),
-                    ],
-                    onSubmitted: (_) => Navigator.of(dialogContext).pop(true),
-                  ),
-              ],
-            ),
-            actions: [
-              if (request.hasCancel)
-                TextButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(false),
-                  child: Text(localizations.cancelButtonLabel),
-                ),
-              FilledButton(
-                onPressed: () => Navigator.of(dialogContext).pop(true),
-                child: Text(localizations.okButtonLabel),
-              ),
-            ],
-          );
-        },
-      );
+      final result = await showEngineDialog(context, request);
       if (!_closing) {
-        _bridge.submitDialog(accepted == true, controller.text);
+        _bridge.submitDialog(result?.accepted == true, result?.text ?? '');
       }
     } finally {
-      controller.dispose();
       _engineDialogOpen = false;
       if (mounted && !_closing) {
         _gameFocusNode.requestFocus();
@@ -914,16 +874,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                       fit: StackFit.expand,
                       children: [
                         Positioned(
-                          left: ox + position.dx * scale - 2,
-                          top: oy + position.dy * scale - 2,
-                          child: const Icon(
-                            Icons.near_me,
-                            size: 24,
-                            color: Colors.white,
-                            shadows: [
-                              Shadow(color: Colors.black, blurRadius: 3),
-                            ],
-                          ),
+                          left: ox + position.dx * scale,
+                          top: oy + position.dy * scale,
+                          child: const MobileGameCursor(),
                         ),
                       ],
                     );
