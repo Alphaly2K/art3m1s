@@ -4,6 +4,7 @@
 // - nativeRegisterContext(Context) 创建全局引用，存下 jobject 指针并返回
 
 #include <jni.h>
+#include <android/native_window_jni.h>
 
 static JavaVM *g_vm = nullptr;
 static jobject g_context = nullptr;
@@ -27,4 +28,19 @@ Java_moe_alphaly_art3m1s_MainActivity_nativeRegisterContext(JNIEnv *env, jclass 
         g_context = env->NewGlobalRef(ctx);
     }
     return reinterpret_cast<jlong>(g_context);
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_moe_alphaly_art3m1s_MainActivity_nativeAcquireSurfaceWindow(
+        JNIEnv *env, jclass /*clazz*/, jobject surface) {
+    if (surface == nullptr) return 0;
+    return reinterpret_cast<jlong>(ANativeWindow_fromSurface(env, surface));
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_moe_alphaly_art3m1s_MainActivity_nativeReleaseSurfaceWindow(
+        JNIEnv * /*env*/, jclass /*clazz*/, jlong window) {
+    if (window != 0) {
+        ANativeWindow_release(reinterpret_cast<ANativeWindow *>(window));
+    }
 }

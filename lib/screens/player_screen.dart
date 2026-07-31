@@ -47,6 +47,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   late final CoreBridge _bridge;
   Timer? _timer;
   ui.Image? _frameImage;
+  bool _sharedTextureReady = false;
   bool _frameInFlight = false;
   bool _closing = false;
   int _stageW = 1280;
@@ -223,11 +224,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     }
 
     _bridge.registerFileReader();
-    _bridge.createRuntime(
-      _stageW,
-      _stageH,
-      backend: ref.read(settingsProvider).backend,
-    );
+    final renderBackend = ref.read(settingsProvider).backend;
+    _bridge.createRuntime(_stageW, _stageH, backend: renderBackend);
     if (!_bridge.loadProjectBytes(iniContent, platform: runtimePlatform)) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -242,6 +240,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     _stageH = _bridge.stageHeight;
     _touchpadPointer.updateStageSize(_stageW, _stageH);
     _touchpadCursorPosition.value = _touchpadPointer.position;
+
+    // 移动端和 MetalANGLE 直接把 core 的最终 FBO 提交给 Flutter 外部纹理。
+    // macOS CGL 保留原 RGBA 回读路径，旧 core/旧宿主也会自动回退。
+    if (Platform.isAndroid ||
+        Platform.isIOS ||
+        (Platform.isMacOS && renderBackend != 0)) {
+      await _bridge.enableSharedTexture();
+    }
 
     if (!mounted || _closing) {
       _bridge.shutdown();
@@ -303,6 +309,20 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       // Timer 回调迟到时，先补齐逻辑 tick，只在最后一次尝试回读和显示画面。
       for (var tick = 0; tick < dueTicks - 1; tick++) {
         _bridge.advanceWithoutRender(_nextFrameDeltaMs());
+      }
+      if (_bridge.hasActiveSharedTexture) {
+        final deltaMs = _nextFrameDeltaMs();
+        _trackFps(nowUs);
+        final result = _bridge.advanceAndPresent(deltaMs.clamp(0, 100));
+        if (_bridge.isExitRequested() && mounted) {
+          _closePlayer();
+          return;
+        }
+        if (result > 0 && !_sharedTextureReady && mounted) {
+          _sharedTextureReady = true;
+          setState(() {});
+        }
+        return;
       }
       if (_frameInFlight) {
         _bridge.advanceWithoutRender(_nextFrameDeltaMs());
@@ -469,7 +489,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       backgroundColor: Colors.black,
       body: Stack(
         children: [
-          if (_frameImage != null)
+          if ((_sharedTextureReady && _bridge.sharedTextureId != null) ||
+              _frameImage != null)
             _buildCursorAwareGameView()
           else
             const Center(child: CircularProgressIndicator()),
@@ -789,7 +810,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   }
 
   Widget _buildGameView() {
-    final image = _frameImage!;
     final touchpadEnabled =
         (Platform.isAndroid || Platform.isIOS) &&
         ref.watch(settingsProvider.select((s) => s.mobileTouchpadEnabled));
@@ -866,7 +886,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
               child: SizedBox(
                 width: dw,
                 height: dh,
-                child: RawImage(image: image, fit: BoxFit.fill),
+                child:
+                    _bridge.hasActiveSharedTexture &&
+                        _bridge.sharedTextureId != null
+                    ? Texture(
+                        textureId: _bridge.sharedTextureId!,
+                        filterQuality: FilterQuality.medium,
+                      )
+                    : RawImage(image: _frameImage, fit: BoxFit.fill),
               ),
             ),
           ),

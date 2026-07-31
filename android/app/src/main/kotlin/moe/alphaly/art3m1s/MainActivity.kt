@@ -3,11 +3,13 @@ package moe.alphaly.art3m1s
 import android.app.Activity
 import android.content.Intent
 import android.net.Uri
+import android.view.Surface
 import androidx.documentfile.provider.DocumentFile
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.Result
+import io.flutter.view.TextureRegistry
 import java.io.File
 import java.io.FileOutputStream
 
@@ -25,9 +27,18 @@ class MainActivity : FlutterActivity() {
 
         @JvmStatic
         private external fun nativeRegisterContext(ctx: Any): Long
+
+        @JvmStatic
+        private external fun nativeAcquireSurfaceWindow(surface: Surface): Long
+
+        @JvmStatic
+        private external fun nativeReleaseSurfaceWindow(window: Long)
     }
 
     private var pendingImportResult: Result? = null
+    private var sharedTextureProducer: TextureRegistry.SurfaceProducer? = null
+    private var sharedTextureWindow: Long = 0
+    private lateinit var sharedTextureChannel: MethodChannel
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -56,6 +67,88 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+
+        sharedTextureChannel = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "moe.alphaly.art3m1s/shared_texture"
+        )
+        sharedTextureChannel.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "create" -> {
+                    val width = call.argument<Int>("width") ?: 0
+                    val height = call.argument<Int>("height") ?: 0
+                    if (width <= 0 || height <= 0) {
+                        result.error("INVALID_SIZE", "Invalid shared texture size", null)
+                        return@setMethodCallHandler
+                    }
+                    try {
+                        result.success(createSharedTexture(flutterEngine, width, height))
+                    } catch (error: Exception) {
+                        result.error("CREATE_FAILED", error.message, null)
+                    }
+                }
+                "frameAvailable" -> result.success(null)
+                "release" -> {
+                    releaseSharedTexture()
+                    result.success(null)
+                }
+                else -> result.notImplemented()
+            }
+        }
+    }
+
+    private fun createSharedTexture(
+        flutterEngine: FlutterEngine,
+        width: Int,
+        height: Int
+    ): Map<String, Long> {
+        releaseSharedTexture()
+        val producer = flutterEngine.renderer.createSurfaceProducer(
+            TextureRegistry.SurfaceLifecycle.resetInBackground
+        )
+        producer.setSize(width, height)
+        sharedTextureProducer = producer
+        producer.setCallback(object : TextureRegistry.SurfaceProducer.Callback {
+            override fun onSurfaceCleanup() {
+                sharedTextureChannel.invokeMethod("surfaceCleanup", null)
+            }
+
+            override fun onSurfaceAvailable() {
+                val descriptor = acquireSharedTextureWindow() ?: return
+                sharedTextureChannel.invokeMethod("surfaceAvailable", descriptor)
+            }
+        })
+        return acquireSharedTextureWindow()
+            ?: throw IllegalStateException("Unable to acquire Flutter texture surface")
+    }
+
+    private fun acquireSharedTextureWindow(): Map<String, Long>? {
+        val producer = sharedTextureProducer ?: return null
+        val window = nativeAcquireSurfaceWindow(producer.surface)
+        if (window == 0L) return null
+        val previous = sharedTextureWindow
+        sharedTextureWindow = window
+        if (previous != 0L) nativeReleaseSurfaceWindow(previous)
+        return mapOf(
+            "textureId" to producer.id(),
+            "kind" to 1L,
+            "handle" to window
+        )
+    }
+
+    private fun releaseSharedTexture() {
+        sharedTextureProducer?.setCallback(null)
+        if (sharedTextureWindow != 0L) {
+            nativeReleaseSurfaceWindow(sharedTextureWindow)
+            sharedTextureWindow = 0
+        }
+        sharedTextureProducer?.release()
+        sharedTextureProducer = null
+    }
+
+    override fun onDestroy() {
+        releaseSharedTexture()
+        super.onDestroy()
     }
 
     @Deprecated("Deprecated in Java")

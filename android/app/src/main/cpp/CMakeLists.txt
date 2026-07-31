@@ -5,3 +5,6 @@ add_library(art3m1s_jni SHARED art3m1s_jni.cpp)
 
 # JNI 头文件由 Android NDK 自动提供，无需额外 include。
 target_compile_features(art3m1s_jni PRIVATE cxx_std_17)
+
+find_library(android-lib android)
+target_link_libraries(art3m1s_jni PRIVATE ${android-lib})

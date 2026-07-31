@@ -340,6 +340,27 @@ typedef RuntimeAdvanceWithoutRenderNative =
     Int32 Function(Pointer<Void> rt, Uint32 deltaMs);
 typedef RuntimeAdvanceWithoutRender =
     int Function(Pointer<Void> rt, int deltaMs);
+typedef RuntimeSetExternalSurfaceNative =
+    Int32 Function(
+      Pointer<Void> rt,
+      Int32 kind,
+      Pointer<Void> handle,
+      Uint32 width,
+      Uint32 height,
+    );
+typedef RuntimeSetExternalSurface =
+    int Function(
+      Pointer<Void> rt,
+      int kind,
+      Pointer<Void> handle,
+      int width,
+      int height,
+    );
+typedef RuntimeClearExternalSurfaceNative = Void Function(Pointer<Void> rt);
+typedef RuntimeClearExternalSurface = void Function(Pointer<Void> rt);
+typedef RuntimeAdvancePresentNative =
+    Int32 Function(Pointer<Void> rt, Uint32 deltaMs);
+typedef RuntimeAdvancePresent = int Function(Pointer<Void> rt, int deltaMs);
 
 // ── CoreBridge — manages the core runtime lifecycle ─────────────
 
@@ -354,7 +375,9 @@ class CoreBridge {
 
   CoreBridge({this.onDialogRequested, bool? engineCursorControlEnabled})
     : _engineCursorControlEnabled =
-          engineCursorControlEnabled ?? Platform.isWindows;
+          engineCursorControlEnabled ?? Platform.isWindows {
+    _sharedTextureChannel.setMethodCallHandler(_handleSharedTextureCall);
+  }
 
   final void Function(EngineDialogRequest request)? onDialogRequested;
   bool _initialized = false;
@@ -363,10 +386,21 @@ class CoreBridge {
   RuntimeUploadVideoLayerFrame? _uploadVideoLayerFrame;
   RuntimeAdvanceWithoutRender? _advanceWithoutRender;
   bool _advanceWithoutRenderUnavailable = false;
+  RuntimeSetExternalSurface? _setExternalSurface;
+  RuntimeClearExternalSurface? _clearExternalSurface;
+  RuntimeAdvancePresent? _advancePresent;
+  bool _sharedTextureSymbolsUnavailable = false;
+  int? _sharedTextureId;
+  int? _sharedTextureKind;
+  bool _sharedTextureAttached = false;
   TextTranslationService? translation;
   final Map<String, Pointer<Utf8>> _videoLayerIds = {};
   int _stageWidth = 1280;
   int _stageHeight = 720;
+
+  static const MethodChannel _sharedTextureChannel = MethodChannel(
+    'moe.alphaly.art3m1s/shared_texture',
+  );
 
   /// 紧急回避（[avoid] + keyconfig role15）：非 null 时 UI 层显示全屏覆盖。
   final ValueNotifier<AvoidOverlay?> avoidOverlay = ValueNotifier(null);
@@ -490,6 +524,132 @@ class CoreBridge {
   Pointer<Void>? get runtime => _runtime;
   int get stageWidth => _stageWidth;
   int get stageHeight => _stageHeight;
+  int? get sharedTextureId => _sharedTextureId;
+  bool get hasActiveSharedTexture =>
+      _sharedTextureId != null && _sharedTextureAttached;
+
+  Future<int?> enableSharedTexture() async {
+    final runtime = _runtime;
+    final lib = _lib;
+    if (runtime == null || lib == null || _sharedTextureSymbolsUnavailable) {
+      return null;
+    }
+    try {
+      _setExternalSurface ??= lib
+          .lookupFunction<
+            RuntimeSetExternalSurfaceNative,
+            RuntimeSetExternalSurface
+          >('art3m1s_runtime_set_external_surface');
+      _clearExternalSurface ??= lib
+          .lookupFunction<
+            RuntimeClearExternalSurfaceNative,
+            RuntimeClearExternalSurface
+          >('art3m1s_runtime_clear_external_surface');
+      _advancePresent ??= lib
+          .lookupFunction<RuntimeAdvancePresentNative, RuntimeAdvancePresent>(
+            'art3m1s_runtime_advance_and_present',
+          );
+    } catch (error) {
+      _sharedTextureSymbolsUnavailable = true;
+      Log.info('[CoreBridge] 当前 core 不支持共享纹理，使用 RGBA 回读: $error');
+      return null;
+    }
+
+    try {
+      final raw = await _sharedTextureChannel.invokeMapMethod<String, dynamic>(
+        'create',
+        {'width': _stageWidth, 'height': _stageHeight},
+      );
+      if (raw == null || !_attachSharedTexture(raw)) {
+        await _sharedTextureChannel.invokeMethod<void>('release');
+        return null;
+      }
+      Log.info(
+        '[CoreBridge] 共享纹理已启用: id=$_sharedTextureId '
+        '$_stageWidth x $_stageHeight',
+      );
+      return _sharedTextureId;
+    } catch (error) {
+      Log.warn('[CoreBridge] 共享纹理不可用，使用 RGBA 回读: $error');
+      unawaited(
+        _sharedTextureChannel.invokeMethod<void>('release').catchError((_) {}),
+      );
+      return null;
+    }
+  }
+
+  bool _attachSharedTexture(Map<dynamic, dynamic> descriptor) {
+    final runtime = _runtime;
+    final setSurface = _setExternalSurface;
+    final textureId = (descriptor['textureId'] as num?)?.toInt();
+    final kind = (descriptor['kind'] as num?)?.toInt();
+    final handle = (descriptor['handle'] as num?)?.toInt();
+    if (runtime == null ||
+        setSurface == null ||
+        textureId == null ||
+        kind == null ||
+        handle == null ||
+        handle == 0) {
+      return false;
+    }
+    final attached =
+        setSurface(
+          runtime,
+          kind,
+          Pointer<Void>.fromAddress(handle),
+          _stageWidth,
+          _stageHeight,
+        ) !=
+        0;
+    if (!attached) return false;
+    _sharedTextureId = textureId;
+    _sharedTextureKind = kind;
+    _sharedTextureAttached = true;
+    return true;
+  }
+
+  Future<void> _handleSharedTextureCall(MethodCall call) async {
+    switch (call.method) {
+      case 'surfaceCleanup':
+        _detachSharedTexture();
+      case 'surfaceAvailable':
+        final descriptor = call.arguments;
+        if (descriptor is Map && !_attachSharedTexture(descriptor)) {
+          Log.warn('[CoreBridge] 无法重新绑定 Android 共享纹理 surface');
+        }
+    }
+  }
+
+  void _detachSharedTexture() {
+    final runtime = _runtime;
+    if (runtime != null && _sharedTextureAttached) {
+      _clearExternalSurface?.call(runtime);
+    }
+    _sharedTextureAttached = false;
+  }
+
+  int advanceAndPresent(int deltaMs) {
+    final runtime = _runtime;
+    final present = _advancePresent;
+    if (runtime == null || present == null || !_sharedTextureAttached) {
+      return -1;
+    }
+    media.pumpLayerVideoFrames();
+    final result = present(runtime, deltaMs);
+    if (result > 0 && _sharedTextureKind == 2) {
+      unawaited(
+        _sharedTextureChannel.invokeMethod<void>('frameAvailable').catchError((
+          Object error,
+        ) {
+          Log.warn('[CoreBridge] 共享纹理帧通知失败: $error');
+        }),
+      );
+    } else if (result < 0) {
+      Log.warn('[CoreBridge] 共享纹理提交失败，回退到 RGBA 路径');
+      _detachSharedTexture();
+    }
+    return result;
+  }
 
   void _loadLibrary() {
     if (_lib != null) return;
@@ -1073,11 +1233,22 @@ class CoreBridge {
     }
     final runtime = _runtime;
     final lib = _lib;
+    _detachSharedTexture();
+    if (_sharedTextureId != null) {
+      unawaited(_sharedTextureChannel.invokeMethod<void>('release'));
+    }
+    _sharedTextureChannel.setMethodCallHandler(null);
+    _sharedTextureId = null;
+    _sharedTextureKind = null;
     _runtime = null;
     _initialized = false;
     _uploadVideoLayerFrame = null;
     _advanceWithoutRender = null;
     _advanceWithoutRenderUnavailable = false;
+    _setExternalSurface = null;
+    _clearExternalSurface = null;
+    _advancePresent = null;
+    _sharedTextureSymbolsUnavailable = false;
     for (final id in _videoLayerIds.values) {
       malloc.free(id);
     }

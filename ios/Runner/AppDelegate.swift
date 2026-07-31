@@ -1,4 +1,6 @@
 import Flutter
+import CoreVideo
+import IOSurface
 import UIKit
 import UniformTypeIdentifiers
 
@@ -6,6 +8,9 @@ import UniformTypeIdentifiers
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate, UIDocumentPickerDelegate {
   private var pfsPickResult: FlutterResult?
   private var libraryPanelResult: FlutterResult?
+  private var sharedTextureRegistry: FlutterTextureRegistry?
+  private var sharedTexture: Art3m1sSharedTexture?
+  private var sharedTextureId: Int64?
 
   override func application(
     _ application: UIApplication,
@@ -16,6 +21,7 @@ import UniformTypeIdentifiers
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+    sharedTextureRegistry = engineBridge.applicationRegistrar.textures()
 
     let channel = FlutterMethodChannel(
       name: "moe.alphaly.art3m1s/native_ptrs",
@@ -48,6 +54,72 @@ import UniformTypeIdentifiers
         result(FlutterMethodNotImplemented)
       }
     }
+
+    let textureChannel = FlutterMethodChannel(
+      name: "moe.alphaly.art3m1s/shared_texture",
+      binaryMessenger: engineBridge.applicationRegistrar.messenger()
+    )
+    textureChannel.setMethodCallHandler { [weak self] call, result in
+      guard let self else {
+        result(FlutterError(code: "APP_DELEGATE_RELEASED", message: "AppDelegate was released", details: nil))
+        return
+      }
+      switch call.method {
+      case "create":
+        guard
+          let args = call.arguments as? [String: Any],
+          let width = args["width"] as? Int,
+          let height = args["height"] as? Int,
+          width > 0,
+          height > 0
+        else {
+          result(FlutterError(code: "INVALID_SIZE", message: "Invalid shared texture size", details: nil))
+          return
+        }
+        do {
+          result(try self.createSharedTexture(width: width, height: height))
+        } catch {
+          result(FlutterError(code: "CREATE_FAILED", message: error.localizedDescription, details: nil))
+        }
+      case "frameAvailable":
+        if let textureId = self.sharedTextureId {
+          self.sharedTextureRegistry?.textureFrameAvailable(textureId)
+        }
+        result(nil)
+      case "release":
+        self.releaseSharedTexture()
+        result(nil)
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
+  }
+
+  private func createSharedTexture(width: Int, height: Int) throws -> [String: Int64] {
+    releaseSharedTexture()
+    guard let registry = sharedTextureRegistry else {
+      throw NSError(domain: "Art3m1s", code: 20, userInfo: [
+        NSLocalizedDescriptionKey: "Flutter texture registry is unavailable"
+      ])
+    }
+    let texture = try Art3m1sSharedTexture(width: width, height: height)
+    let textureId = registry.register(texture)
+    guard textureId != 0 else {
+      throw NSError(domain: "Art3m1s", code: 21, userInfo: [
+        NSLocalizedDescriptionKey: "Flutter rejected the shared texture"
+      ])
+    }
+    sharedTexture = texture
+    sharedTextureId = textureId
+    return ["textureId": textureId, "kind": 2, "handle": texture.ioSurfaceAddress]
+  }
+
+  private func releaseSharedTexture() {
+    if let textureId = sharedTextureId {
+      sharedTextureRegistry?.unregisterTexture(textureId)
+    }
+    sharedTextureId = nil
+    sharedTexture = nil
   }
 
   private func pickPfsFilesAndCopy(result: @escaping FlutterResult) {
@@ -366,6 +438,46 @@ import UniformTypeIdentifiers
   private static func displayName(forPfs name: String) -> String {
     name.range(of: #"(?i)\.pfs$"#, options: .regularExpression)
       .map { String(name[..<$0.lowerBound]) } ?? name
+  }
+}
+
+private final class Art3m1sSharedTexture: NSObject, FlutterTexture {
+  let pixelBuffer: CVPixelBuffer
+  let ioSurfaceAddress: Int64
+
+  init(width: Int, height: Int) throws {
+    let attributes: [CFString: Any] = [
+      kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary,
+      kCVPixelBufferMetalCompatibilityKey: true,
+      kCVPixelBufferOpenGLESCompatibilityKey: true,
+    ]
+    var buffer: CVPixelBuffer?
+    let status = CVPixelBufferCreate(
+      kCFAllocatorDefault,
+      width,
+      height,
+      kCVPixelFormatType_32BGRA,
+      attributes as CFDictionary,
+      &buffer
+    )
+    guard status == kCVReturnSuccess, let buffer else {
+      throw NSError(domain: "Art3m1s", code: Int(status), userInfo: [
+        NSLocalizedDescriptionKey: "CVPixelBufferCreate failed: \(status)"
+      ])
+    }
+    guard let surface = CVPixelBufferGetIOSurface(buffer) else {
+      throw NSError(domain: "Art3m1s", code: 22, userInfo: [
+        NSLocalizedDescriptionKey: "CVPixelBuffer has no IOSurface"
+      ])
+    }
+    pixelBuffer = buffer
+    let surfacePointer = unsafeBitCast(surface, to: UnsafeMutableRawPointer.self)
+    ioSurfaceAddress = Int64(Int(bitPattern: surfacePointer))
+    super.init()
+  }
+
+  func copyPixelBuffer() -> Unmanaged<CVPixelBuffer>? {
+    Unmanaged.passRetained(pixelBuffer)
   }
 }
 
