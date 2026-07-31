@@ -641,6 +641,21 @@ class _AudioHandle {
         onCompleted: onCompleted,
       );
     }
+    // audioplayers_windows delegates decoding to Windows Media Foundation,
+    // which does not reliably support the OGG/Vorbis assets used by Artemis
+    // games. The Windows bundle already ships libmpv for video and segmented
+    // BGM, so use that same decoder for ordinary BGM, voice and SE as well.
+    if (Platform.isWindows) {
+      return _createMediaKitSingle(
+        id: id,
+        file: file,
+        channel: channel,
+        gain: gain,
+        pan: pan,
+        loop: loop,
+        onCompleted: onCompleted,
+      );
+    }
     return _createSimple(
       id: id,
       file: file,
@@ -650,6 +665,64 @@ class _AudioHandle {
       loop: loop,
       onCompleted: onCompleted,
     );
+  }
+
+  static Future<_AudioHandle> _createMediaKitSingle({
+    required String? id,
+    required File file,
+    required String channel,
+    required double gain,
+    required double pan,
+    required bool loop,
+    required void Function(String? id) onCompleted,
+  }) async {
+    final player = media_kit.Player();
+    final subscriptions = <StreamSubscription<dynamic>>[];
+    late final _AudioHandle handle;
+    handle = _AudioHandle(
+      id: id,
+      player: null,
+      gaplessPlayer: player,
+      channel: channel,
+      gain: gain,
+      pan: pan,
+      loop: loop,
+      onCompleted: onCompleted,
+      subscriptions: subscriptions,
+    );
+    subscriptions.add(
+      player.stream.completed.listen((completed) {
+        if (!completed || handle._disposed || handle._completed || loop) return;
+        handle._completed = true;
+        onCompleted(id);
+      }),
+    );
+    subscriptions.add(
+      player.stream.error.listen((error) {
+        Log.warn('[MediaBridge] Windows 音频解码失败: ${file.path}: $error');
+        if (handle._disposed || handle._completed) return;
+        handle._completed = true;
+        onCompleted(id);
+      }),
+    );
+    try {
+      await player.setPlaylistMode(
+        loop ? media_kit.PlaylistMode.single : media_kit.PlaylistMode.none,
+      );
+      await player.open(media_kit.Media(file.uri.toString()), play: false);
+      if (pan.abs() > 0.001) {
+        Log.debug(
+          '[MediaBridge] Windows libmpv 音频暂不应用声像: '
+          '${file.path}, pan=$pan',
+        );
+      }
+      Log.debug('[MediaBridge] Windows libmpv 音频已准备: ${file.path}');
+      return handle;
+    } catch (_) {
+      await Future.wait(subscriptions.map((sub) => sub.cancel()));
+      await player.dispose();
+      rethrow;
+    }
   }
 
   static Future<_AudioHandle> _createSimple({
