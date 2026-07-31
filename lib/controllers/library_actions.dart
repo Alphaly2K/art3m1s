@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../adaptive/dialogs.dart';
 import '../adaptive/feedback.dart';
 import '../models/game_entry.dart';
+import '../navigation/player_page_route.dart';
 import '../providers/library_provider.dart';
 import '../providers/settings_provider.dart';
 import '../services/core_bridge.dart';
@@ -317,7 +318,7 @@ class LibraryActions {
   void launch(GameEntry entry) {
     ref.read(libraryProvider.notifier).markPlayed(entry.path);
     Navigator.of(context, rootNavigator: true).push(
-      MaterialPageRoute(
+      PlayerPageRoute<void>(
         builder: (_) => wrapPlayerRoute(
           PlayerScreen(
             gameId: entry.id,
