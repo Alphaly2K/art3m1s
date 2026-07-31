@@ -195,11 +195,18 @@ rustup target add aarch64-apple-ios aarch64-apple-ios-sim
 
 CORE_SRC=/path/to/art3m1s-core \
 PFS_SRC=/path/to/pfs-upk-rust \
+METALANGLE_SIM_FRAMEWORK=/path/to/MetalANGLE-simulator.framework \
 ./scripts/ios_build_rust.sh --release
 ```
 
-只为真机构建时使用 `--device-only`；需要在打包过程中直接签署 framework 时使用
-`--sign "证书名称"`。`ios/Frameworks/` 中必须存在 MetalANGLE。
+脚本默认构建 `aarch64-apple-ios` 与 `aarch64-apple-ios-sim`，并输出包含真机与
+Apple Silicon 模拟器切片的 `.xcframework`。MetalANGLE 的真机源 framework 默认读取
+`ios/Frameworks/MetalANGLEDevice.framework`（首次也兼容旧名 `MetalANGLE.framework`），
+模拟器 framework 首次通过 `METALANGLE_SIM_FRAMEWORK` 指定；脚本会将两者分别保存为
+`MetalANGLEDevice.framework` 与 `MetalANGLESimulator.framework`，后续无需重复指定。
+只为真机构建时使用 `--device-only`；
+需要在打包过程中直接签署 framework 时使用 `--sign "证书名称"`。
+构建完成后 `ios/Frameworks/` 中会生成 core、PFS 与 MetalANGLE 三个 XCFramework。
 
 ### 验证
 

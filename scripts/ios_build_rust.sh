@@ -2,7 +2,8 @@
 set -euo pipefail
 
 # ── iOS Rust 动态 Framework 编译脚本 ────────────────────────────────────
-# 从 Rust 源码编译 cdylib，封装为 .framework bundle，输出到
+# 从 Rust 源码编译 cdylib，分别封装真机/模拟器 framework，再组合为
+# .xcframework，输出到
 # ios/Frameworks/ 供 CocoaPods vendored_frameworks 使用。
 #
 # 用法:
@@ -10,7 +11,7 @@ set -euo pipefail
 #
 # 前置条件:
 #   1. Rust 工具链: rustup target add aarch64-apple-ios aarch64-apple-ios-sim
-#   2. 环境变量 CORE_SRC / PFS_SRC 指向 Rust 项目目录（默认 ../art3m1s-core、../pfs-upk）
+#   2. 环境变量 CORE_SRC / PFS_SRC 指向 Rust 项目目录
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
@@ -18,7 +19,15 @@ OUT_DIR="$PROJECT_DIR/ios/Frameworks"
 
 # ── 可配置: Rust 项目路径 ──────────────────────────────────────────────
 CORE_SRC="${CORE_SRC:-$PROJECT_DIR/../art3m1s-core}"
-PFS_SRC="${PFS_SRC:-$PROJECT_DIR/../pfs-upk}"
+PFS_SRC="${PFS_SRC:-$CORE_SRC/crates/pfs-upk-rust}"
+if [[ -z "${METALANGLE_DEVICE_FRAMEWORK:-}" ]]; then
+  if [[ -d "$OUT_DIR/MetalANGLEDevice.framework" ]]; then
+    METALANGLE_DEVICE_FRAMEWORK="$OUT_DIR/MetalANGLEDevice.framework"
+  else
+    METALANGLE_DEVICE_FRAMEWORK="$OUT_DIR/MetalANGLE.framework"
+  fi
+fi
+METALANGLE_SIM_FRAMEWORK="${METALANGLE_SIM_FRAMEWORK:-$OUT_DIR/MetalANGLESimulator.framework}"
 
 # ── 参数解析 ────────────────────────────────────────────────────────────
 PROFILE="release"
@@ -49,11 +58,12 @@ fi
 require() { command -v "$1" >/dev/null 2>&1 || { echo "ERROR: $1 not found"; exit 1; }; }
 require cargo
 require lipo
-require plutil
+require xcodebuild
+require install_name_tool
 
 # ── iOS targets ─────────────────────────────────────────────────────────
 IOS_DEVICE_TARGET="aarch64-apple-ios"
-IOS_SIM_TARGET="aarch64-apple-ios-sim"
+IOS_SIM_ARM64_TARGET="aarch64-apple-ios-sim"
 
 check_target() {
   rustup target list --installed | grep -q "$1" || {
@@ -64,64 +74,16 @@ check_target() {
 
 check_target "$IOS_DEVICE_TARGET"
 if [[ "$BUILD_SIM" == "1" ]]; then
-  check_target "$IOS_SIM_TARGET"
+  check_target "$IOS_SIM_ARM64_TARGET"
 fi
 
-# ── 生成 framework ──────────────────────────────────────────────────────
-make_framework() {
-  local lib_name="$1"           # e.g. art3m1s_core
-  local src_dir="$2"
-  local bundle_id="$3"          # e.g. moe.alphaly.art3m1s.core
+# ── 生成 XCFramework ────────────────────────────────────────────────────
+write_framework_plist() {
+  local fw_dir="$1"
+  local lib_name="$2"
+  local bundle_id="$3"
+  local platform_name="$4"
 
-  if [[ ! -d "$src_dir" ]]; then
-    echo "WARN: $src_dir 不存在，跳过 $lib_name"
-    return
-  fi
-
-  echo ""
-  echo "=== 编译 $lib_name ($PROFILE) ==="
-
-  echo "  -> $IOS_DEVICE_TARGET"
-  cargo build "${CARGO_FLAGS[@]}" --lib \
-    --manifest-path "$src_dir/Cargo.toml" \
-    --target "$IOS_DEVICE_TARGET"
-
-  if [[ "$BUILD_SIM" == "1" ]]; then
-    echo "  -> $IOS_SIM_TARGET"
-    cargo build "${CARGO_FLAGS[@]}" --lib \
-      --manifest-path "$src_dir/Cargo.toml" \
-      --target "$IOS_SIM_TARGET"
-  fi
-
-  local device_dylib="$src_dir/target/$IOS_DEVICE_TARGET/$TARGET_DIR_SUFFIX/lib${lib_name}.dylib"
-  local sim_dylib="$src_dir/target/$IOS_SIM_TARGET/$TARGET_DIR_SUFFIX/lib${lib_name}.dylib"
-
-  if [[ ! -f "$device_dylib" ]] && [[ ! -f "$sim_dylib" ]]; then
-    echo "ERROR: $lib_name 编译产物缺失"
-    exit 1
-  fi
-
-  local fw_dir="$OUT_DIR/${lib_name}.framework"
-  rm -rf "$fw_dir"
-  mkdir -p "$fw_dir"
-
-  local fw_bin="$fw_dir/$lib_name"
-
-  if [[ -f "$device_dylib" ]] && [[ -f "$sim_dylib" ]] && [[ "$BUILD_SIM" == "1" ]]; then
-    echo "  -> lipo 合成 universal binary"
-    lipo -create "$device_dylib" "$sim_dylib" -output "$fw_bin"
-  elif [[ -f "$device_dylib" ]]; then
-    echo "  -> 仅真机"
-    cp "$device_dylib" "$fw_bin"
-  else
-    echo "  -> 仅模拟器"
-    cp "$sim_dylib" "$fw_bin"
-  fi
-
-  # 移除 install_name（framework 不需要，由 dyld 处理）
-  install_name_tool -id "@rpath/${lib_name}.framework/$lib_name" "$fw_bin" 2>/dev/null || true
-
-  # ── Info.plist ──────────────────────────────────────────────────────
   cat > "$fw_dir/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -143,19 +105,157 @@ make_framework() {
     <string>0.1.0</string>
     <key>CFBundleVersion</key>
     <string>0.1.0</string>
+    <key>CFBundleSupportedPlatforms</key>
+    <array>
+        <string>$platform_name</string>
+    </array>
     <key>MinimumOSVersion</key>
     <string>13.0</string>
 </dict>
 </plist>
 PLIST
+}
 
-  # ── 代码签名 ────────────────────────────────────────────────────────
+make_framework_slice() {
+  local lib_name="$1"
+  local dylib="$2"
+  local fw_dir="$3"
+  local bundle_id="$4"
+  local platform_name="$5"
+
+  rm -rf "$fw_dir"
+  mkdir -p "$fw_dir"
+  cp "$dylib" "$fw_dir/$lib_name"
+  install_name_tool -id "@rpath/${lib_name}.framework/$lib_name" \
+    "$fw_dir/$lib_name"
+  write_framework_plist \
+    "$fw_dir" "$lib_name" "$bundle_id" "$platform_name"
+
   if [[ -n "$CODE_SIGN_ID" ]]; then
-    echo "  -> 签名: $CODE_SIGN_ID"
+    echo "  -> 签名 $platform_name slice: $CODE_SIGN_ID"
     codesign --force --sign "$CODE_SIGN_ID" --timestamp=none "$fw_dir"
   fi
+}
 
-  echo "  -> $fw_dir (${lib_name}.framework)"
+make_framework() {
+  local lib_name="$1"           # e.g. art3m1s_core
+  local src_dir="$2"
+  local bundle_id="$3"          # e.g. moe.alphaly.art3m1s.core
+
+  if [[ ! -d "$src_dir" ]]; then
+    echo "WARN: $src_dir 不存在，跳过 $lib_name"
+    return
+  fi
+
+  echo ""
+  echo "=== 编译 $lib_name ($PROFILE) ==="
+
+  echo "  -> $IOS_DEVICE_TARGET"
+  cargo build "${CARGO_FLAGS[@]}" --lib \
+    --manifest-path "$src_dir/Cargo.toml" \
+    --target "$IOS_DEVICE_TARGET"
+
+  if [[ "$BUILD_SIM" == "1" ]]; then
+    echo "  -> $IOS_SIM_ARM64_TARGET"
+    cargo build "${CARGO_FLAGS[@]}" --lib \
+      --manifest-path "$src_dir/Cargo.toml" \
+      --target "$IOS_SIM_ARM64_TARGET"
+  fi
+
+  local device_dylib="$src_dir/target/$IOS_DEVICE_TARGET/$TARGET_DIR_SUFFIX/lib${lib_name}.dylib"
+  local sim_arm64_dylib="$src_dir/target/$IOS_SIM_ARM64_TARGET/$TARGET_DIR_SUFFIX/lib${lib_name}.dylib"
+
+  if [[ ! -f "$device_dylib" ]]; then
+    echo "ERROR: $lib_name 编译产物缺失"
+    exit 1
+  fi
+
+  local slices_dir="$OUT_DIR/.ios-framework-build/$lib_name"
+  local device_fw="$slices_dir/device/${lib_name}.framework"
+  local sim_fw="$slices_dir/simulator/${lib_name}.framework"
+  local xcframework="$OUT_DIR/${lib_name}.xcframework"
+
+  make_framework_slice \
+    "$lib_name" "$device_dylib" "$device_fw" "$bundle_id" "iPhoneOS"
+
+  local xcframework_args=(-framework "$device_fw")
+  if [[ "$BUILD_SIM" == "1" ]]; then
+    make_framework_slice \
+      "$lib_name" "$sim_arm64_dylib" "$sim_fw" "$bundle_id" "iPhoneSimulator"
+    xcframework_args+=(-framework "$sim_fw")
+  fi
+
+  rm -rf "$xcframework" "$OUT_DIR/${lib_name}.framework"
+  echo "  -> 生成 ${lib_name}.xcframework"
+  xcodebuild -create-xcframework \
+    "${xcframework_args[@]}" \
+    -output "$xcframework"
+
+  echo "  -> $xcframework"
+}
+
+make_metalangle_xcframework() {
+  if [[ ! -d "$METALANGLE_DEVICE_FRAMEWORK" ]]; then
+    echo "ERROR: 缺少真机 MetalANGLE: $METALANGLE_DEVICE_FRAMEWORK"
+    exit 1
+  fi
+  if [[ "$BUILD_SIM" == "1" ]] && [[ ! -d "$METALANGLE_SIM_FRAMEWORK" ]]; then
+    echo "ERROR: simulator 构建需要 METALANGLE_SIM_FRAMEWORK"
+    exit 1
+  fi
+
+  echo ""
+  echo "=== 生成 MetalANGLE XCFramework ==="
+  local slices_dir="$OUT_DIR/.ios-framework-build/MetalANGLE"
+  local device_fw="$slices_dir/device/MetalANGLE.framework"
+  local sim_fw="$slices_dir/simulator/MetalANGLE.framework"
+  local xcframework="$OUT_DIR/MetalANGLE.xcframework"
+
+  rm -rf "$slices_dir" "$xcframework"
+  mkdir -p "$(dirname "$device_fw")"
+  cp -R "$METALANGLE_DEVICE_FRAMEWORK" "$device_fw"
+  rm -rf "$device_fw/_CodeSignature"
+  lipo "$METALANGLE_DEVICE_FRAMEWORK/MetalANGLE" -thin arm64 \
+    -output "$device_fw/MetalANGLE"
+  install_name_tool -id "@rpath/MetalANGLE.framework/MetalANGLE" \
+    "$device_fw/MetalANGLE"
+  if [[ -n "$CODE_SIGN_ID" ]]; then
+    codesign --force --sign "$CODE_SIGN_ID" --timestamp=none "$device_fw"
+  fi
+
+  local xcframework_args=(-framework "$device_fw")
+  if [[ "$BUILD_SIM" == "1" ]]; then
+    mkdir -p "$(dirname "$sim_fw")"
+    cp -R "$METALANGLE_SIM_FRAMEWORK" "$sim_fw"
+    rm -rf "$sim_fw/_CodeSignature"
+    lipo "$METALANGLE_SIM_FRAMEWORK/MetalANGLE" -thin arm64 \
+      -output "$sim_fw/MetalANGLE"
+    install_name_tool -id "@rpath/MetalANGLE.framework/MetalANGLE" \
+      "$sim_fw/MetalANGLE"
+    if [[ -n "$CODE_SIGN_ID" ]]; then
+      codesign --force --sign "$CODE_SIGN_ID" --timestamp=none "$sim_fw"
+    fi
+    xcframework_args+=(-framework "$sim_fw")
+  fi
+
+  xcodebuild -create-xcframework \
+    "${xcframework_args[@]}" \
+    -output "$xcframework"
+
+  # 本地 Pod 根目录会进入 FRAMEWORK_SEARCH_PATHS。若保留同名的真机
+  # MetalANGLE.framework，simulator 链接器会优先捡到它而绕过 XCFramework。
+  if [[ "$METALANGLE_DEVICE_FRAMEWORK" == "$OUT_DIR/MetalANGLE.framework" ]]; then
+    rm -rf "$OUT_DIR/MetalANGLEDevice.framework"
+    mv "$METALANGLE_DEVICE_FRAMEWORK" "$OUT_DIR/MetalANGLEDevice.framework"
+    METALANGLE_DEVICE_FRAMEWORK="$OUT_DIR/MetalANGLEDevice.framework"
+  fi
+  if [[ "$BUILD_SIM" == "1" ]] && \
+     [[ "$METALANGLE_SIM_FRAMEWORK" != "$OUT_DIR/MetalANGLESimulator.framework" ]]; then
+    rm -rf "$OUT_DIR/MetalANGLESimulator.framework"
+    cp -R "$METALANGLE_SIM_FRAMEWORK" "$OUT_DIR/MetalANGLESimulator.framework"
+    METALANGLE_SIM_FRAMEWORK="$OUT_DIR/MetalANGLESimulator.framework"
+  fi
+  echo "  -> $xcframework"
 }
 
 # ── 编译 ────────────────────────────────────────────────────────────────
@@ -163,11 +263,15 @@ mkdir -p "$OUT_DIR"
 
 make_framework "art3m1s_core" "$CORE_SRC" "moe.alphaly.art3m1s.core"
 make_framework "pfs_upk"       "$PFS_SRC"  "moe.alphaly.art3m1s.pfs"
+make_metalangle_xcframework
 
 echo ""
 echo "=== 完成 ==="
-echo "Frameworks 已输出到: $OUT_DIR"
-ls -lh "$OUT_DIR"/*.framework/*/..?* "$OUT_DIR"/*.framework/ 2>/dev/null | head -20 || true
+echo "XCFrameworks 已输出到: $OUT_DIR"
+find "$OUT_DIR" -maxdepth 2 -name '*.xcframework' -print
 echo ""
 echo "若未签名，请用 --sign '证书名' 重新编译，或在 Xcode 中设置自动签名。"
-echo "MetalANGLE.Framework 请手动放入 $OUT_DIR"
+echo "真机 MetalANGLE 源文件保存在: $METALANGLE_DEVICE_FRAMEWORK"
+if [[ "$BUILD_SIM" == "1" ]]; then
+  echo "模拟器 MetalANGLE 源文件保存在: $METALANGLE_SIM_FRAMEWORK"
+fi

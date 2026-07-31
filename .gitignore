@@ -48,4 +48,7 @@ app.*.map.json
 /android/app/release
 /android/app/src/main/jniLibs/
 /android/build/
-/ios/Frameworks/
+/ios/Frameworks/*
+!/ios/Frameworks/Art3m1sCore.podspec
+!/ios/Frameworks/MetalANGLE.podspec
+!/ios/Frameworks/PfsUpk.podspec

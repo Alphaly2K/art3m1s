@@ -30,8 +30,6 @@ flutter_ios_podfile_setup
 # ── 确保 vendored framework 骨架存在（避免首次 pod install 失败）────
 FRAMEWORKS_DIR = File.expand_path('Frameworks', __dir__)
 STUB_FRAMEWORKS = [
-  { name: 'art3m1s_core', id: 'moe.alphaly.art3m1s.core' },
-  { name: 'pfs_upk',       id: 'moe.alphaly.art3m1s.pfs' },
   { name: 'EGL',           id: 'moe.alphaly.art3m1s.egl' },
   { name: 'GLESv2',        id: 'moe.alphaly.art3m1s.glesv2' },
 ]
@@ -73,6 +71,17 @@ end
 
 STUB_FRAMEWORKS.each { |fw| ensure_framework_stub(fw[:name], fw[:id]) }
 
+REQUIRED_XCFRAMEWORKS = %w[art3m1s_core pfs_upk MetalANGLE]
+missing_xcframeworks = REQUIRED_XCFRAMEWORKS.reject do |name|
+  File.directory?(File.join(FRAMEWORKS_DIR, "#{name}.xcframework"))
+end
+unless missing_xcframeworks.empty?
+  raise <<~MESSAGE
+    缺少 iOS XCFramework: #{missing_xcframeworks.join(', ')}
+    请先运行 scripts/ios_build_rust.sh（默认同时生成真机与模拟器切片）。
+  MESSAGE
+end
+
 target 'Runner' do
   use_frameworks!
 
@@ -91,5 +100,8 @@ end
 post_install do |installer|
   installer.pods_project.targets.each do |target|
     flutter_additional_ios_build_settings(target)
+    target.build_configurations.each do |config|
+      config.build_settings['ARCHS[sdk=iphonesimulator*]'] = 'arm64'
+    end
   end
 end
