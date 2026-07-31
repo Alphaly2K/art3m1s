@@ -9,7 +9,7 @@ Art3m1s 是使用 Flutter 编写的跨平台 Artemis 视觉小说运行时宿主
 [`art3m1s-core`](https://github.com/Alphaly2K/art3m1s-core) 负责脚本执行、游戏状态和
 离屏图层合成。
 
-当前应用版本为 **1.1.1-0.2.1c**，对应 `art3m1s-core 0.2.1` 兼容周期。
+当前应用版本为 **1.1.2-0.2.2c**，对应 `art3m1s-core 0.2.2` 兼容周期。
 
 ## 功能
 
@@ -19,6 +19,7 @@ Art3m1s 是使用 Flutter 编写的跨平台 Artemis 视觉小说运行时宿主
 - 以稳定项目 ID 映射游戏目录、具体 PFS、存档、封面和设置，避免同名文件互相串档
 - 按平台使用 macOS、Cupertino、Fluent、Yaru/Material 3 风格的原生化界面
 - 以约 60 FPS 驱动 Rust runtime，转发鼠标、键盘、触摸、右键、悬停和拖动
+- 移动端可启用相对移动触摸板，以系统箭头光标完成精确点击和长按拖动
 - 播放 BGM、SE、Voice、全屏视频与参与 core 合成的图层视频
 - 将游戏文件与存档隔离到应用可访问的位置，支持通过 iOS 文件 App 导入导出
 - 提供渲染后端、启动 OS、脚本字符集、翻译和调试选项

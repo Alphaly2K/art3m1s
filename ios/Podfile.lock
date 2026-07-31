@@ -1,5 +1,5 @@
 PODS:
-  - Art3m1sCore (0.1.0)
+  - Art3m1sCore (0.2.2)
   - Flutter (1.0.0)
   - media_kit_libs_ios_video (1.0.4):
     - Flutter
@@ -31,7 +31,7 @@ EXTERNAL SOURCES:
     :path: Frameworks
 
 SPEC CHECKSUMS:
-  Art3m1sCore: e5867361c99efeea991388574f49762eaf15d6f7
+  Art3m1sCore: 54042d4c3752c90e03019ae1a79c34a20dde7abe
   Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
   media_kit_libs_ios_video: 5a18affdb97d1f5d466dc79988b13eff6c5e2854
   media_kit_video: 1746e198cb697d1ffb734b1d05ec429d1fcd1474

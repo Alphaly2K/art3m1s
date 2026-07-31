@@ -1,0 +1,7 @@
+syntax = "proto3";
+
+package art3m1s.translation;
+
+message TranslationCache {
+  map<string, string> entries = 1;
+}

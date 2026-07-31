@@ -83,6 +83,7 @@ write_framework_plist() {
   local lib_name="$2"
   local bundle_id="$3"
   local platform_name="$4"
+  local framework_version="$5"
 
   cat > "$fw_dir/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -102,9 +103,9 @@ write_framework_plist() {
     <key>CFBundlePackageType</key>
     <string>FMWK</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.1.0</string>
+    <string>$framework_version</string>
     <key>CFBundleVersion</key>
-    <string>0.1.0</string>
+    <string>$framework_version</string>
     <key>CFBundleSupportedPlatforms</key>
     <array>
         <string>$platform_name</string>
@@ -122,6 +123,7 @@ make_framework_slice() {
   local fw_dir="$3"
   local bundle_id="$4"
   local platform_name="$5"
+  local framework_version="$6"
 
   rm -rf "$fw_dir"
   mkdir -p "$fw_dir"
@@ -129,7 +131,7 @@ make_framework_slice() {
   install_name_tool -id "@rpath/${lib_name}.framework/$lib_name" \
     "$fw_dir/$lib_name"
   write_framework_plist \
-    "$fw_dir" "$lib_name" "$bundle_id" "$platform_name"
+    "$fw_dir" "$lib_name" "$bundle_id" "$platform_name" "$framework_version"
 
   if [[ -n "$CODE_SIGN_ID" ]]; then
     echo "  -> 签名 $platform_name slice: $CODE_SIGN_ID"
@@ -149,6 +151,12 @@ make_framework() {
 
   echo ""
   echo "=== 编译 $lib_name ($PROFILE) ==="
+  local crate_version
+  crate_version="$(awk -F'"' '/^version[[:space:]]*=/{print $2; exit}' "$src_dir/Cargo.toml")"
+  if [[ -z "$crate_version" ]]; then
+    echo "ERROR: 无法从 $src_dir/Cargo.toml 读取 crate version"
+    exit 1
+  fi
 
   echo "  -> $IOS_DEVICE_TARGET"
   cargo build "${CARGO_FLAGS[@]}" --lib \
@@ -176,12 +184,12 @@ make_framework() {
   local xcframework="$OUT_DIR/${lib_name}.xcframework"
 
   make_framework_slice \
-    "$lib_name" "$device_dylib" "$device_fw" "$bundle_id" "iPhoneOS"
+    "$lib_name" "$device_dylib" "$device_fw" "$bundle_id" "iPhoneOS" "$crate_version"
 
   local xcframework_args=(-framework "$device_fw")
   if [[ "$BUILD_SIM" == "1" ]]; then
     make_framework_slice \
-      "$lib_name" "$sim_arm64_dylib" "$sim_fw" "$bundle_id" "iPhoneSimulator"
+      "$lib_name" "$sim_arm64_dylib" "$sim_fw" "$bundle_id" "iPhoneSimulator" "$crate_version"
     xcframework_args+=(-framework "$sim_fw")
   fi
 

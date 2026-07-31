@@ -31,6 +31,22 @@ class MacosMenuBar extends ConsumerWidget {
     final actions = LibraryActions(context, ref);
     final settings = ref.watch(settingsProvider);
     final notifier = ref.read(settingsProvider.notifier);
+    final servicesAvailable = PlatformProvidedMenuItem.hasMenu(
+      PlatformProvidedMenuItemType.servicesSubmenu,
+    );
+    final applicationItems = _supportedPlatformItems(const [
+      PlatformProvidedMenuItemType.hide,
+      PlatformProvidedMenuItemType.hideOtherApplications,
+      PlatformProvidedMenuItemType.showAllApplications,
+    ]);
+    final quitItems = _supportedPlatformItems(const [
+      PlatformProvidedMenuItemType.quit,
+    ]);
+    final windowItems = _supportedPlatformItems(const [
+      PlatformProvidedMenuItemType.minimizeWindow,
+      PlatformProvidedMenuItemType.zoomWindow,
+      PlatformProvidedMenuItemType.toggleFullScreen,
+    ]);
 
     return PlatformMenuBar(
       menus: [
@@ -50,33 +66,17 @@ class MacosMenuBar extends ConsumerWidget {
                 ),
               ],
             ),
-            const PlatformMenuItemGroup(
-              members: [
-                PlatformProvidedMenuItem(
-                  type: PlatformProvidedMenuItemType.servicesSubmenu,
-                ),
-              ],
-            ),
-            const PlatformMenuItemGroup(
-              members: [
-                PlatformProvidedMenuItem(
-                  type: PlatformProvidedMenuItemType.hide,
-                ),
-                PlatformProvidedMenuItem(
-                  type: PlatformProvidedMenuItemType.hideOtherApplications,
-                ),
-                PlatformProvidedMenuItem(
-                  type: PlatformProvidedMenuItemType.showAllApplications,
-                ),
-              ],
-            ),
-            const PlatformMenuItemGroup(
-              members: [
-                PlatformProvidedMenuItem(
-                  type: PlatformProvidedMenuItemType.quit,
-                ),
-              ],
-            ),
+            if (servicesAvailable)
+              const PlatformMenuItemGroup(
+                members: [
+                  PlatformProvidedMenuItem(
+                    type: PlatformProvidedMenuItemType.servicesSubmenu,
+                  ),
+                ],
+              ),
+            if (applicationItems.isNotEmpty)
+              PlatformMenuItemGroup(members: applicationItems),
+            if (quitItems.isNotEmpty) PlatformMenuItemGroup(members: quitItems),
           ],
         ),
         PlatformMenu(
@@ -128,28 +128,22 @@ class MacosMenuBar extends ConsumerWidget {
             ),
           ],
         ),
-        const PlatformMenu(
-          label: '窗口',
-          menus: [
-            PlatformProvidedMenuItem(
-              type: PlatformProvidedMenuItemType.minimizeWindow,
-            ),
-            PlatformProvidedMenuItem(
-              type: PlatformProvidedMenuItemType.zoomWindow,
-            ),
-            PlatformMenuItemGroup(
-              members: [
-                PlatformProvidedMenuItem(
-                  type: PlatformProvidedMenuItemType.toggleFullScreen,
-                ),
-              ],
-            ),
-          ],
-        ),
+        if (windowItems.isNotEmpty)
+          PlatformMenu(label: '窗口', menus: windowItems),
       ],
       child: child,
     );
   }
+}
+
+List<PlatformMenuItem> _supportedPlatformItems(
+  List<PlatformProvidedMenuItemType> types,
+) {
+  return [
+    for (final type in types)
+      if (PlatformProvidedMenuItem.hasMenu(type))
+        PlatformProvidedMenuItem(type: type),
+  ];
 }
 
 /// 在访达中打开应用数据目录（存档 / 封面缓存等落于此）。
