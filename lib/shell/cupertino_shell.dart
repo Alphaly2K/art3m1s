@@ -242,6 +242,16 @@ class _CupertinoSettingsScreen extends ConsumerWidget {
                   ),
                 ),
                 CupertinoListTile.notched(
+                  title: const Text('脏区着色'),
+                  subtitle: const Text('标记实际重绘区域'),
+                  trailing: CupertinoSwitch(
+                    value: settings.damageVisualization,
+                    onChanged: settings.debugMode
+                        ? notifier.setDamageVisualization
+                        : null,
+                  ),
+                ),
+                CupertinoListTile.notched(
                   title: const Text('调试面板'),
                   subtitle: const Text('显示浮动监控面板'),
                   trailing: CupertinoSwitch(

@@ -148,9 +148,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       return;
     }
 
-    final debugMode = ref.read(settingsProvider).debugMode;
-    _bridge.setDebug(debugMode);
-    final runtimePlatform = ref.read(settingsProvider).runtimePlatform;
+    final settings = ref.read(settingsProvider);
+    _bridge.setDebug(settings.debugMode);
+    _bridge.setDamageVisualization(
+      settings.debugMode && settings.damageVisualization,
+    );
+    final runtimePlatform = settings.runtimePlatform;
 
     Uint8List iniContent;
     if (widget.source == GameSource.pfsArchive) {

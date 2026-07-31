@@ -803,6 +803,18 @@ class CoreBridge {
     fn(enabled ? 1 : 0);
   }
 
+  void setDamageVisualization(bool enabled) {
+    if (_lib == null) return;
+    try {
+      final fn = _lib!.lookupFunction<Void Function(Int32), void Function(int)>(
+        'art3m1s_set_damage_visualization',
+      );
+      fn(enabled ? 1 : 0);
+    } catch (_) {
+      // Older cores do not expose this optional debug visualization control.
+    }
+  }
+
   void configureAngle(String libDir) {
     if (_lib == null) return;
     try {

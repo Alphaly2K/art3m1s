@@ -92,6 +92,16 @@ class SettingsScreen extends ConsumerWidget {
                 ref.read(settingsProvider.notifier).setDebugMode(v),
           ),
           SwitchListTile(
+            title: const Text('脏区着色'),
+            subtitle: const Text('标记实际重绘区域'),
+            value: settings.damageVisualization,
+            onChanged: settings.debugMode
+                ? (v) => ref
+                      .read(settingsProvider.notifier)
+                      .setDamageVisualization(v)
+                : null,
+          ),
+          SwitchListTile(
             title: const Text('调试面板'),
             subtitle: const Text('显示浮动监控面板'),
             value: settings.debugOverlay,

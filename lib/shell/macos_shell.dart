@@ -296,6 +296,16 @@ class _MacosSettingsPage extends ConsumerWidget {
                         ),
                       ),
                       _SettingRow(
+                        label: '脏区着色',
+                        caption: '标记实际重绘区域',
+                        control: MacosSwitch(
+                          value: settings.damageVisualization,
+                          onChanged: settings.debugMode
+                              ? notifier.setDamageVisualization
+                              : null,
+                        ),
+                      ),
+                      _SettingRow(
                         label: '调试面板',
                         caption: '显示浮动监控面板',
                         control: MacosSwitch(
