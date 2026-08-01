@@ -809,18 +809,11 @@ class _AudioHandle {
         unawaited(handle._lockGaplessLoop(loopFile));
       }),
     );
-    subscriptions.add(
-      player.stream.completed.listen((completed) {
-        if (!completed ||
-            handle._disposed ||
-            handle._completed ||
-            handle._loopSegmentStarted) {
-          return;
-        }
-        handle._completed = true;
-        onCompleted(id);
-      }),
-    );
+    // media_kit 的 completed 表示“当前 Media 播放结束”，而不是整个
+    // Playlist 播放结束。A 段结束时 completed 会先于 playlist.index=1
+    // 到达；这里若把它当作整个 BGM 完成，会立即 dispose player，导致
+    // B 段还没开始就被停止。A-B BGM 在语义上是无限循环，因此完成状态
+    // 只由显式 stop/dispose 管理，不订阅 completed。
     subscriptions.add(
       player.stream.error.listen((error) {
         Log.warn('[MediaBridge] BGM A-B playlist decode error: $error');
