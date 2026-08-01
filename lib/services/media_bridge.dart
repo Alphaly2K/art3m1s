@@ -29,7 +29,9 @@ class MediaBridge {
     required MediaFinishedCallback onSoundFinished,
     required this.uploadVideoLayerFrame,
   }) : _videoFinishedCallback = onVideoFinished,
-       _soundFinishedCallback = onSoundFinished;
+       _soundFinishedCallback = onSoundFinished {
+    _fullscreenVideoPool.prewarm();
+  }
 
   final MediaFinishedCallback _videoFinishedCallback;
   final MediaFinishedCallback _soundFinishedCallback;
@@ -49,6 +51,7 @@ class MediaBridge {
   };
   final Map<String, _AudioHandle> _sounds = {};
   final Map<String, File> _assetCache = {};
+  final _MediaKitVideoPool _fullscreenVideoPool = _MediaKitVideoPool();
   final Directory _cacheDir = Directory.systemTemp.createTempSync(
     'art3m1s_media_',
   );
@@ -292,6 +295,7 @@ class MediaBridge {
     );
     try {
       handle = await _VideoHandle.create(
+        pool: _fullscreenVideoPool,
         id: _videoId,
         file: file,
         loop: loop,
@@ -573,6 +577,7 @@ class MediaBridge {
     if (_disposed) return;
     _disposed = true;
     await _stopAllVideos();
+    await _fullscreenVideoPool.dispose();
     await _stopAllAudio();
     videoPlayback.dispose();
     fullscreenVideoBlocking.dispose();
@@ -927,6 +932,7 @@ class _AudioHandle {
 
 abstract class _VideoHandle {
   static Future<_VideoHandle> create({
+    required _MediaKitVideoPool pool,
     required String? id,
     required File file,
     required bool loop,
@@ -934,6 +940,7 @@ abstract class _VideoHandle {
     required void Function(String? id) onCompleted,
   }) async {
     return _MediaKitVideoHandle.create(
+      pool: pool,
       id: id,
       file: file,
       loop: loop,
@@ -955,29 +962,146 @@ abstract class _VideoHandle {
   Future<void> dispose();
 }
 
+final class _MediaKitVideoLease {
+  const _MediaKitVideoLease(this.player, this.controller);
+
+  final media_kit.Player player;
+  final media_kit_video.VideoController controller;
+}
+
+final class _MediaKitVideoPool {
+  _MediaKitVideoLease? _idle;
+  Future<void>? _warming;
+  bool _disposed = false;
+
+  void prewarm() {
+    unawaited(
+      _warm().then<void>(
+        (_) {},
+        onError: (Object error, StackTrace stackTrace) {
+          Log.warn('[MediaBridge] fullscreen mpv prewarm failed: $error');
+        },
+      ),
+    );
+  }
+
+  Future<_MediaKitVideoLease> acquire() async {
+    while (true) {
+      final idle = _idle;
+      if (idle != null) {
+        _idle = null;
+        return idle;
+      }
+      await _warm();
+    }
+  }
+
+  Future<void> _warm() async {
+    if (_disposed) throw StateError('video player pool is disposed');
+    if (_idle != null) return;
+    final warming = _warming;
+    if (warming != null) {
+      await warming;
+      return;
+    }
+
+    final future = _createAndStoreLease();
+    _warming = future;
+    try {
+      await future;
+    } finally {
+      if (identical(_warming, future)) _warming = null;
+    }
+  }
+
+  Future<void> _createAndStoreLease() async {
+    final lease = await _createLease();
+    if (_disposed) {
+      await lease.player.dispose();
+      throw StateError('video player pool is disposed');
+    }
+    _idle = lease;
+  }
+
+  Future<_MediaKitVideoLease> _createLease() async {
+    final started = Stopwatch()..start();
+    final player = media_kit.Player();
+    try {
+      final controller = media_kit_video.VideoController(
+        player,
+        configuration: media_kit_video.VideoControllerConfiguration(
+          enableHardwareAcceleration: false,
+        ),
+      );
+      await player.setPlaylistMode(media_kit.PlaylistMode.none);
+      Log.debug(
+        '[MediaBridge] fullscreen mpv prewarmed: '
+        '${started.elapsedMilliseconds}ms',
+      );
+      return _MediaKitVideoLease(player, controller);
+    } catch (_) {
+      await player.dispose();
+      rethrow;
+    }
+  }
+
+  Future<void> release(_MediaKitVideoLease lease) async {
+    try {
+      await lease.player.stop();
+      await lease.player.setPlaylistMode(media_kit.PlaylistMode.none);
+    } catch (error) {
+      Log.warn('[MediaBridge] fullscreen mpv reset failed: $error');
+      await lease.player.dispose();
+      return;
+    }
+    if (_disposed || _idle != null) {
+      await lease.player.dispose();
+      return;
+    }
+    _idle = lease;
+  }
+
+  Future<void> dispose() async {
+    if (_disposed) return;
+    _disposed = true;
+    final idle = _idle;
+    _idle = null;
+    if (idle != null) await idle.player.dispose();
+  }
+}
+
 class _MediaKitVideoHandle implements _VideoHandle {
   _MediaKitVideoHandle({
     required this.id,
-    required this.player,
-    required this.controller,
+    required this.lease,
+    required this.pool,
     required this.subscriptions,
+    required this.startup,
   });
 
   @override
   final String? id;
-  final media_kit.Player player;
-  final media_kit_video.VideoController controller;
+  final _MediaKitVideoLease lease;
+  final _MediaKitVideoPool pool;
   final List<StreamSubscription<dynamic>> subscriptions;
+  final Stopwatch startup;
   bool _hasPlaybackSignal = false;
+  bool _disposed = false;
+
+  media_kit.Player get player => lease.player;
+  media_kit_video.VideoController get controller => lease.controller;
 
   static Future<_MediaKitVideoHandle> create({
+    required _MediaKitVideoPool pool,
     required String? id,
     required File file,
     required bool loop,
     required Duration? startupTimeout,
     required void Function(String? id) onCompleted,
   }) async {
-    final player = media_kit.Player();
+    final startup = Stopwatch()..start();
+    final lease = await pool.acquire();
+    final player = lease.player;
     var completed = false;
     void finish() {
       if (completed) return;
@@ -985,17 +1109,12 @@ class _MediaKitVideoHandle implements _VideoHandle {
       onCompleted(id);
     }
 
-    final controller = media_kit_video.VideoController(
-      player,
-      configuration: media_kit_video.VideoControllerConfiguration(
-        enableHardwareAcceleration: false,
-      ),
-    );
     final handle = _MediaKitVideoHandle(
       id: id,
-      player: player,
-      controller: controller,
+      lease: lease,
+      pool: pool,
       subscriptions: <StreamSubscription<dynamic>>[],
+      startup: startup,
     );
     handle.subscriptions.add(
       player.stream.completed.listen((isCompleted) {
@@ -1011,22 +1130,22 @@ class _MediaKitVideoHandle implements _VideoHandle {
     );
     handle.subscriptions.add(
       player.stream.width.listen((value) {
-        if ((value ?? 0) > 0) handle._hasPlaybackSignal = true;
+        if ((value ?? 0) > 0) handle._markPlaybackSignal();
       }),
     );
     handle.subscriptions.add(
       player.stream.height.listen((value) {
-        if ((value ?? 0) > 0) handle._hasPlaybackSignal = true;
+        if ((value ?? 0) > 0) handle._markPlaybackSignal();
       }),
     );
     handle.subscriptions.add(
       player.stream.duration.listen((value) {
-        if (value > Duration.zero) handle._hasPlaybackSignal = true;
+        if (value > Duration.zero) handle._markPlaybackSignal();
       }),
     );
     handle.subscriptions.add(
       player.stream.position.listen((value) {
-        if (value > Duration.zero) handle._hasPlaybackSignal = true;
+        if (value > Duration.zero) handle._markPlaybackSignal();
       }),
     );
     try {
@@ -1039,6 +1158,10 @@ class _MediaKitVideoHandle implements _VideoHandle {
       await _maybeTimeout(
         player.open(media_kit.Media(file.uri.toString()), play: false),
         startupTimeout,
+      );
+      Log.debug(
+        '[MediaBridge] fullscreen mpv opened: '
+        '${startup.elapsedMilliseconds}ms, file=${file.path}',
       );
       return handle;
     } catch (_) {
@@ -1060,6 +1183,15 @@ class _MediaKitVideoHandle implements _VideoHandle {
   @override
   bool get hasPlaybackSignal => _hasPlaybackSignal;
 
+  void _markPlaybackSignal() {
+    if (_hasPlaybackSignal) return;
+    _hasPlaybackSignal = true;
+    Log.debug(
+      '[MediaBridge] fullscreen mpv first signal: '
+      '${startup.elapsedMilliseconds}ms',
+    );
+  }
+
   @override
   Widget buildView() => media_kit_video.Video(
     controller: controller,
@@ -1078,8 +1210,10 @@ class _MediaKitVideoHandle implements _VideoHandle {
 
   @override
   Future<void> dispose() async {
+    if (_disposed) return;
+    _disposed = true;
     await Future.wait(subscriptions.map((sub) => sub.cancel()));
-    await player.dispose();
+    await pool.release(lease);
   }
 }
 
