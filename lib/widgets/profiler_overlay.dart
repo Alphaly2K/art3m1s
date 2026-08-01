@@ -174,6 +174,12 @@ class _ProfilerContents extends StatelessWidget {
                       children: [
                         const _SectionTitle('事件细分 / 每 tick', showColumns: true),
                         _TimingRow(
+                          '    队列排水',
+                          current.eventDrainMs,
+                          average.eventDrainMs,
+                          onePercent.eventDrainMs,
+                        ),
+                        _TimingRow(
                           '    运行时副作用',
                           current.eventRuntimeMs,
                           average.eventRuntimeMs,
@@ -210,40 +216,22 @@ class _ProfilerContents extends StatelessWidget {
                           onePercent.eventLayerSyncMs,
                         ),
                         _TimingRow(
+                          '    调试日志',
+                          current.eventLogMs,
+                          average.eventLogMs,
+                          onePercent.eventLogMs,
+                        ),
+                        _TimingRow(
+                          '    派发后回调',
+                          current.eventPostMs,
+                          average.eventPostMs,
+                          onePercent.eventPostMs,
+                        ),
+                        _TimingRow(
                           '    事件其他',
                           current.eventOtherMs,
                           average.eventOtherMs,
                           onePercent.eventOtherMs,
-                        ),
-                        _TimingRow(
-                          '  合成器',
-                          current.compositorMs,
-                          average.compositorMs,
-                          onePercent.compositorMs,
-                        ),
-                        _TimingRow(
-                          '  E-Mote',
-                          current.emoteMs,
-                          average.emoteMs,
-                          onePercent.emoteMs,
-                        ),
-                        _TimingRow(
-                          '  文本',
-                          current.textMs,
-                          average.textMs,
-                          onePercent.textMs,
-                        ),
-                        _TimingRow(
-                          '  音频 / 媒体',
-                          current.audioMediaMs,
-                          average.audioMediaMs,
-                          onePercent.audioMediaMs,
-                        ),
-                        _TimingRow(
-                          '  其他',
-                          current.logicOtherMs,
-                          average.logicOtherMs,
-                          onePercent.logicOtherMs,
                         ),
                       ],
                     ),
@@ -320,6 +308,37 @@ class _ProfilerContents extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       mainAxisSize: MainAxisSize.min,
                       children: [
+                        const _SectionTitle('逻辑续 / 每 tick', showColumns: true),
+                        _TimingRow(
+                          '  合成器',
+                          current.compositorMs,
+                          average.compositorMs,
+                          onePercent.compositorMs,
+                        ),
+                        _TimingRow(
+                          '  E-Mote',
+                          current.emoteMs,
+                          average.emoteMs,
+                          onePercent.emoteMs,
+                        ),
+                        _TimingRow(
+                          '  文本',
+                          current.textMs,
+                          average.textMs,
+                          onePercent.textMs,
+                        ),
+                        _TimingRow(
+                          '  音频 / 媒体',
+                          current.audioMediaMs,
+                          average.audioMediaMs,
+                          onePercent.audioMediaMs,
+                        ),
+                        _TimingRow(
+                          '  其他',
+                          current.logicOtherMs,
+                          average.logicOtherMs,
+                          onePercent.logicOtherMs,
+                        ),
                         const _SectionTitle('瞬时状态'),
                         _ValueRow(
                           '当前帧 / 脏区',

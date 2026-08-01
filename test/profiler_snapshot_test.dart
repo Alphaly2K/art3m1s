@@ -20,6 +20,9 @@ void main() {
         'event_transition_ms': 2.0,
         'event_compositor_ms': 1.5,
         'event_layer_sync_ms': 0.25,
+        'event_drain_ms': 0.1,
+        'event_log_ms': 0.2,
+        'event_post_ms': 0.2,
         'damage_compute_ms': 0.25,
         'texture_upload_ms': 1.5,
       },
@@ -45,7 +48,10 @@ void main() {
     expect(snapshot.current.eventTransitionMs, 2.0);
     expect(snapshot.current.eventCompositorMs, 1.5);
     expect(snapshot.current.eventLayerSyncMs, 0.25);
-    expect(snapshot.current.eventOtherMs, 1.0);
+    expect(snapshot.current.eventDrainMs, 0.1);
+    expect(snapshot.current.eventLogMs, 0.2);
+    expect(snapshot.current.eventPostMs, 0.2);
+    expect(snapshot.current.eventOtherMs, closeTo(0.5, 1e-9));
     expect(snapshot.current.damageComputeMs, 0.25);
     expect(snapshot.current.textureUploadMs, 1.5);
     expect(snapshot.average.interpreterMs, 1.25);

@@ -11,6 +11,9 @@ class ProfilerTimings {
     this.eventTransitionMs = 0,
     this.eventCompositorMs = 0,
     this.eventLayerSyncMs = 0,
+    this.eventDrainMs = 0,
+    this.eventLogMs = 0,
+    this.eventPostMs = 0,
     this.emoteMs = 0,
     this.audioMediaMs = 0,
     this.compositorMs = 0,
@@ -43,6 +46,9 @@ class ProfilerTimings {
       eventTransitionMs: number('event_transition_ms'),
       eventCompositorMs: number('event_compositor_ms'),
       eventLayerSyncMs: number('event_layer_sync_ms'),
+      eventDrainMs: number('event_drain_ms'),
+      eventLogMs: number('event_log_ms'),
+      eventPostMs: number('event_post_ms'),
       emoteMs: number('emote_ms'),
       audioMediaMs: number('audio_media_ms'),
       compositorMs: number('compositor_ms'),
@@ -70,6 +76,9 @@ class ProfilerTimings {
   final double eventTransitionMs;
   final double eventCompositorMs;
   final double eventLayerSyncMs;
+  final double eventDrainMs;
+  final double eventLogMs;
+  final double eventPostMs;
   final double emoteMs;
   final double audioMediaMs;
   final double compositorMs;
@@ -103,7 +112,10 @@ class ProfilerTimings {
               eventTextMs -
               eventTransitionMs -
               eventCompositorMs -
-              eventLayerSyncMs)
+              eventLayerSyncMs -
+              eventDrainMs -
+              eventLogMs -
+              eventPostMs)
           .clamp(0, double.infinity)
           .toDouble();
 }
