@@ -1,6 +1,6 @@
 import Flutter
 import CoreVideo
-import IOSurface
+import Metal
 import UIKit
 import UniformTypeIdentifiers
 
@@ -108,7 +108,7 @@ import UniformTypeIdentifiers
     // historical "0 means failure" comment no longer matches the engine.
     sharedTexture = texture
     sharedTextureId = textureId
-    return ["textureId": textureId, "kind": 2, "handle": texture.ioSurfaceAddress]
+    return ["textureId": textureId, "kind": 3, "handle": texture.metalTextureAddress]
   }
 
   private func releaseSharedTexture() {
@@ -440,7 +440,10 @@ import UniformTypeIdentifiers
 
 private final class Art3m1sSharedTexture: NSObject, FlutterTexture {
   let pixelBuffer: CVPixelBuffer
-  let ioSurfaceAddress: Int64
+  let metalTextureAddress: Int64
+  private let metalTextureCache: CVMetalTextureCache
+  private let cvMetalTexture: CVMetalTexture
+  private let metalTexture: MTLTexture
 
   init(width: Int, height: Int) throws {
     let attributes: [CFString: Any] = [
@@ -462,14 +465,51 @@ private final class Art3m1sSharedTexture: NSObject, FlutterTexture {
         NSLocalizedDescriptionKey: "CVPixelBufferCreate failed: \(status)"
       ])
     }
-    guard let surface = CVPixelBufferGetIOSurface(buffer) else {
+    guard let device = MTLCreateSystemDefaultDevice() else {
       throw NSError(domain: "Art3m1s", code: 22, userInfo: [
-        NSLocalizedDescriptionKey: "CVPixelBuffer has no IOSurface"
+        NSLocalizedDescriptionKey: "Metal device is unavailable"
+      ])
+    }
+    var cache: CVMetalTextureCache?
+    let cacheStatus = CVMetalTextureCacheCreate(
+      kCFAllocatorDefault,
+      nil,
+      device,
+      nil,
+      &cache
+    )
+    guard cacheStatus == kCVReturnSuccess, let cache else {
+      throw NSError(domain: "Art3m1s", code: Int(cacheStatus), userInfo: [
+        NSLocalizedDescriptionKey: "CVMetalTextureCacheCreate failed: \(cacheStatus)"
+      ])
+    }
+    var cvTexture: CVMetalTexture?
+    let textureStatus = CVMetalTextureCacheCreateTextureFromImage(
+      kCFAllocatorDefault,
+      cache,
+      buffer,
+      nil,
+      .bgra8Unorm,
+      width,
+      height,
+      0,
+      &cvTexture
+    )
+    guard
+      textureStatus == kCVReturnSuccess,
+      let cvTexture,
+      let metalTexture = CVMetalTextureGetTexture(cvTexture)
+    else {
+      throw NSError(domain: "Art3m1s", code: Int(textureStatus), userInfo: [
+        NSLocalizedDescriptionKey: "CVMetalTexture creation failed: \(textureStatus)"
       ])
     }
     pixelBuffer = buffer
-    let surfacePointer = unsafeBitCast(surface, to: UnsafeMutableRawPointer.self)
-    ioSurfaceAddress = Int64(Int(bitPattern: surfacePointer))
+    metalTextureCache = cache
+    cvMetalTexture = cvTexture
+    self.metalTexture = metalTexture
+    let texturePointer = Unmanaged.passUnretained(metalTexture as AnyObject).toOpaque()
+    metalTextureAddress = Int64(Int(bitPattern: texturePointer))
     super.init()
   }
 
