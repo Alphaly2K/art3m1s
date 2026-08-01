@@ -12,7 +12,10 @@ class ProfilerOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final width = math.min(360.0, MediaQuery.sizeOf(context).width - 16);
+    final availableWidth = MediaQuery.sizeOf(context).width - 16;
+    final width = availableWidth >= 780
+        ? math.min(840.0, availableWidth)
+        : math.min(360.0, availableWidth);
     return Positioned(
       top: 8,
       right: 8,
@@ -84,161 +87,267 @@ class _ProfilerContents extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 5),
-          const _SectionTitle('CPU / 每 tick', showColumns: true),
-          _TimingRow(
-            'FFI 调用总计',
-            current.ffiCallMs,
-            average.ffiCallMs,
-            onePercent.ffiCallMs,
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final fourColumns = constraints.maxWidth >= 760;
+              final columnWidth = fourColumns
+                  ? (constraints.maxWidth - 40) / 4
+                  : constraints.maxWidth;
+              return Flex(
+                direction: fourColumns ? Axis.horizontal : Axis.vertical,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SizedBox(
+                    width: columnWidth,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const _SectionTitle('CPU / 每 tick', showColumns: true),
+                        _TimingRow(
+                          'Core Tick 总计',
+                          current.ffiCallMs,
+                          average.ffiCallMs,
+                          onePercent.ffiCallMs,
+                        ),
+                        _TimingRow(
+                          '逻辑总计',
+                          current.logicMs,
+                          average.logicMs,
+                          onePercent.logicMs,
+                        ),
+                        _TimingRow(
+                          '  解释器',
+                          current.interpreterMs,
+                          average.interpreterMs,
+                          onePercent.interpreterMs,
+                        ),
+                        _TimingRow(
+                          '  输入 / 命中',
+                          current.inputMs,
+                          average.inputMs,
+                          onePercent.inputMs,
+                        ),
+                        _TimingRow(
+                          '  事件派发',
+                          current.eventsMs,
+                          average.eventsMs,
+                          onePercent.eventsMs,
+                        ),
+                        const _SectionTitle('窗口吞吐'),
+                        _ValueRow(
+                          'Tick / Render',
+                          '${value.tickHz.toStringAsFixed(1)} / ${value.renderedFps.toStringAsFixed(1)} fps',
+                        ),
+                        _ValueRow(
+                          '渲染 / 跳过帧',
+                          '${value.renderedFrames} / ${value.skippedFrames}',
+                        ),
+                        _ValueRow(
+                          '宿主 FFI',
+                          '${value.hostFfiCallsPerSecond.toStringAsFixed(0)}/s  ${value.hostFfiMibPerSecond.toStringAsFixed(1)} MiB/s',
+                        ),
+                        _ValueRow(
+                          '纹理 / Mesh 上传',
+                          '${value.uploadedMibPerSecond.toStringAsFixed(1)} / ${value.dynamicMeshUploadedMibPerSecond.toStringAsFixed(1)} MiB/s',
+                        ),
+                        _ValueRow(
+                          '图层视频上传',
+                          '${value.videoUploadedFramesPerSecond.toStringAsFixed(1)} fps  ${value.videoUploadedMibPerSecond.toStringAsFixed(1)} MiB/s',
+                        ),
+                        if (value.droppedSamples > 0)
+                          _ValueRow(
+                            '丢弃样本',
+                            '${value.droppedSamples}',
+                            warning: true,
+                          ),
+                      ],
+                    ),
+                  ),
+                  if (fourColumns) const SizedBox(width: 12),
+                  SizedBox(
+                    width: columnWidth,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const _SectionTitle('事件细分 / 每 tick', showColumns: true),
+                        _TimingRow(
+                          '    运行时副作用',
+                          current.eventRuntimeMs,
+                          average.eventRuntimeMs,
+                          onePercent.eventRuntimeMs,
+                        ),
+                        _TimingRow(
+                          '    媒体事件',
+                          current.eventMediaMs,
+                          average.eventMediaMs,
+                          onePercent.eventMediaMs,
+                        ),
+                        _TimingRow(
+                          '    文本事件',
+                          current.eventTextMs,
+                          average.eventTextMs,
+                          onePercent.eventTextMs,
+                        ),
+                        _TimingRow(
+                          '    转场源重建',
+                          current.eventTransitionMs,
+                          average.eventTransitionMs,
+                          onePercent.eventTransitionMs,
+                        ),
+                        _TimingRow(
+                          '    合成器应用',
+                          current.eventCompositorMs,
+                          average.eventCompositorMs,
+                          onePercent.eventCompositorMs,
+                        ),
+                        _TimingRow(
+                          '    图层快照',
+                          current.eventLayerSyncMs,
+                          average.eventLayerSyncMs,
+                          onePercent.eventLayerSyncMs,
+                        ),
+                        _TimingRow(
+                          '    事件其他',
+                          current.eventOtherMs,
+                          average.eventOtherMs,
+                          onePercent.eventOtherMs,
+                        ),
+                        _TimingRow(
+                          '  合成器',
+                          current.compositorMs,
+                          average.compositorMs,
+                          onePercent.compositorMs,
+                        ),
+                        _TimingRow(
+                          '  E-Mote',
+                          current.emoteMs,
+                          average.emoteMs,
+                          onePercent.emoteMs,
+                        ),
+                        _TimingRow(
+                          '  文本',
+                          current.textMs,
+                          average.textMs,
+                          onePercent.textMs,
+                        ),
+                        _TimingRow(
+                          '  音频 / 媒体',
+                          current.audioMediaMs,
+                          average.audioMediaMs,
+                          onePercent.audioMediaMs,
+                        ),
+                        _TimingRow(
+                          '  其他',
+                          current.logicOtherMs,
+                          average.logicOtherMs,
+                          onePercent.logicOtherMs,
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (fourColumns) const SizedBox(width: 12),
+                  SizedBox(
+                    width: columnWidth,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const _SectionTitle('渲染 / 每 tick', showColumns: true),
+                        _TimingRow(
+                          'DrawList / 纹理',
+                          current.frameBuildMs,
+                          average.frameBuildMs,
+                          onePercent.frameBuildMs,
+                        ),
+                        _TimingRow(
+                          'Damage 计算',
+                          current.damageComputeMs,
+                          average.damageComputeMs,
+                          onePercent.damageComputeMs,
+                        ),
+                        _TimingRow(
+                          '转场捕获',
+                          current.transitionCaptureMs,
+                          average.transitionCaptureMs,
+                          onePercent.transitionCaptureMs,
+                        ),
+                        _TimingRow(
+                          '纹理上传',
+                          current.textureUploadMs,
+                          average.textureUploadMs,
+                          onePercent.textureUploadMs,
+                        ),
+                        _TimingRow(
+                          '  图层视频',
+                          current.videoUploadMs,
+                          average.videoUploadMs,
+                          onePercent.videoUploadMs,
+                        ),
+                        _TimingRow(
+                          'GL 提交 (CPU)',
+                          current.gpuSubmitMs,
+                          average.gpuSubmitMs,
+                          onePercent.gpuSubmitMs,
+                        ),
+                        _TimingRow(
+                          '共享纹理提交',
+                          current.presentMs,
+                          average.presentMs,
+                          onePercent.presentMs,
+                        ),
+                        _TimingRow(
+                          'RGBA 回读',
+                          current.readbackMs,
+                          average.readbackMs,
+                          onePercent.readbackMs,
+                        ),
+                        _TimingRow(
+                          '宿主文件 FFI',
+                          current.hostFfiMs,
+                          average.hostFfiMs,
+                          onePercent.hostFfiMs,
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (fourColumns) const SizedBox(width: 12),
+                  SizedBox(
+                    width: columnWidth,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const _SectionTitle('瞬时状态'),
+                        _ValueRow(
+                          '当前帧 / 脏区',
+                          '${value.currentRendered ? '渲染' : '跳过'}  ${value.damagePercent.toStringAsFixed(1)}%',
+                        ),
+                        _ValueRow(
+                          'Draw / Vertices',
+                          '${value.drawCalls} / ${value.vertices}',
+                        ),
+                        _ValueRow(
+                          'Binds / Commands',
+                          '${value.textureBinds} / ${value.drawListCommands}',
+                        ),
+                        _ValueRow(
+                          '纹理 GPU / CPU',
+                          '${value.textureCount}  ${value.textureGpuMib.toStringAsFixed(1)} / ${value.textureCpuMib.toStringAsFixed(1)} MiB',
+                        ),
+                        _ValueRow(
+                          'E-Mote',
+                          '${value.emoteLayers} layer  ${value.emoteSourceMib.toStringAsFixed(1)} MiB',
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              );
+            },
           ),
-          _TimingRow(
-            '逻辑总计',
-            current.logicMs,
-            average.logicMs,
-            onePercent.logicMs,
-          ),
-          _TimingRow(
-            '  解释器',
-            current.interpreterMs,
-            average.interpreterMs,
-            onePercent.interpreterMs,
-          ),
-          _TimingRow(
-            '  输入 / 命中',
-            current.inputMs,
-            average.inputMs,
-            onePercent.inputMs,
-          ),
-          _TimingRow(
-            '  事件派发',
-            current.eventsMs,
-            average.eventsMs,
-            onePercent.eventsMs,
-          ),
-          _TimingRow(
-            '  合成器',
-            current.compositorMs,
-            average.compositorMs,
-            onePercent.compositorMs,
-          ),
-          _TimingRow(
-            '  E-Mote',
-            current.emoteMs,
-            average.emoteMs,
-            onePercent.emoteMs,
-          ),
-          _TimingRow('  文本', current.textMs, average.textMs, onePercent.textMs),
-          _TimingRow(
-            '  音频 / 媒体',
-            current.audioMediaMs,
-            average.audioMediaMs,
-            onePercent.audioMediaMs,
-          ),
-          _TimingRow(
-            '  其他',
-            current.logicOtherMs,
-            average.logicOtherMs,
-            onePercent.logicOtherMs,
-          ),
-          const _SectionTitle('渲染 / 每 tick', showColumns: true),
-          _TimingRow(
-            'DrawList / 纹理',
-            current.frameBuildMs,
-            average.frameBuildMs,
-            onePercent.frameBuildMs,
-          ),
-          _TimingRow(
-            'Damage 计算',
-            current.damageComputeMs,
-            average.damageComputeMs,
-            onePercent.damageComputeMs,
-          ),
-          _TimingRow(
-            '转场捕获',
-            current.transitionCaptureMs,
-            average.transitionCaptureMs,
-            onePercent.transitionCaptureMs,
-          ),
-          _TimingRow(
-            '纹理上传',
-            current.textureUploadMs,
-            average.textureUploadMs,
-            onePercent.textureUploadMs,
-          ),
-          _TimingRow(
-            '  图层视频',
-            current.videoUploadMs,
-            average.videoUploadMs,
-            onePercent.videoUploadMs,
-          ),
-          _TimingRow(
-            'GL 提交 (CPU)',
-            current.gpuSubmitMs,
-            average.gpuSubmitMs,
-            onePercent.gpuSubmitMs,
-          ),
-          _TimingRow(
-            '共享纹理提交',
-            current.presentMs,
-            average.presentMs,
-            onePercent.presentMs,
-          ),
-          _TimingRow(
-            'RGBA 回读',
-            current.readbackMs,
-            average.readbackMs,
-            onePercent.readbackMs,
-          ),
-          _TimingRow(
-            '宿主文件 FFI',
-            current.hostFfiMs,
-            average.hostFfiMs,
-            onePercent.hostFfiMs,
-          ),
-          const _SectionTitle('瞬时状态'),
-          _ValueRow(
-            '当前帧 / 脏区',
-            '${value.currentRendered ? '渲染' : '跳过'}  ${value.damagePercent.toStringAsFixed(1)}%',
-          ),
-          _ValueRow(
-            'Draw / Vertices',
-            '${value.drawCalls} / ${value.vertices}',
-          ),
-          _ValueRow(
-            'Binds / Commands',
-            '${value.textureBinds} / ${value.drawListCommands}',
-          ),
-          _ValueRow(
-            '纹理 GPU / CPU',
-            '${value.textureCount}  ${value.textureGpuMib.toStringAsFixed(1)} / ${value.textureCpuMib.toStringAsFixed(1)} MiB',
-          ),
-          _ValueRow(
-            'E-Mote',
-            '${value.emoteLayers} layer  ${value.emoteSourceMib.toStringAsFixed(1)} MiB',
-          ),
-          const _SectionTitle('窗口吞吐'),
-          _ValueRow(
-            'Tick / Render',
-            '${value.tickHz.toStringAsFixed(1)} / ${value.renderedFps.toStringAsFixed(1)} fps',
-          ),
-          _ValueRow(
-            '渲染 / 跳过帧',
-            '${value.renderedFrames} / ${value.skippedFrames}',
-          ),
-          _ValueRow(
-            '宿主 FFI',
-            '${value.hostFfiCallsPerSecond.toStringAsFixed(0)}/s  ${value.hostFfiMibPerSecond.toStringAsFixed(1)} MiB/s',
-          ),
-          _ValueRow(
-            '纹理 / Mesh 上传',
-            '${value.uploadedMibPerSecond.toStringAsFixed(1)} / ${value.dynamicMeshUploadedMibPerSecond.toStringAsFixed(1)} MiB/s',
-          ),
-          _ValueRow(
-            '图层视频上传',
-            '${value.videoUploadedFramesPerSecond.toStringAsFixed(1)} fps  ${value.videoUploadedMibPerSecond.toStringAsFixed(1)} MiB/s',
-          ),
-          if (value.droppedSamples > 0)
-            _ValueRow('丢弃样本', '${value.droppedSamples}', warning: true),
         ],
       ),
     );
@@ -268,9 +377,14 @@ class _SectionTitle extends StatelessWidget {
     padding: const EdgeInsets.only(top: 5, bottom: 2),
     child: Row(
       children: [
-        Text(text, style: const TextStyle(color: Color(0xFF8E8E98))),
+        Expanded(
+          child: Text(
+            text,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: Color(0xFF8E8E98)),
+          ),
+        ),
         if (showColumns) ...[
-          const Spacer(),
           const SizedBox(
             width: 48,
             child: Text('now', textAlign: TextAlign.right),
@@ -334,11 +448,20 @@ class _ValueRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Row(
     children: [
-      Expanded(child: Text(label)),
-      Text(
-        value,
-        style: TextStyle(
-          color: warning ? const Color(0xFFFFB86C) : const Color(0xFFD7D7DB),
+      Expanded(
+        flex: 2,
+        child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+      ),
+      Expanded(
+        flex: 3,
+        child: Text(
+          value,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          textAlign: TextAlign.right,
+          style: TextStyle(
+            color: warning ? const Color(0xFFFFB86C) : const Color(0xFFD7D7DB),
+          ),
         ),
       ),
     ],

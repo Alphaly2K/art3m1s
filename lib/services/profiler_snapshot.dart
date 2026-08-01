@@ -5,6 +5,12 @@ class ProfilerTimings {
     this.inputMs = 0,
     this.interpreterMs = 0,
     this.eventsMs = 0,
+    this.eventRuntimeMs = 0,
+    this.eventMediaMs = 0,
+    this.eventTextMs = 0,
+    this.eventTransitionMs = 0,
+    this.eventCompositorMs = 0,
+    this.eventLayerSyncMs = 0,
     this.emoteMs = 0,
     this.audioMediaMs = 0,
     this.compositorMs = 0,
@@ -31,6 +37,12 @@ class ProfilerTimings {
       inputMs: number('input_ms'),
       interpreterMs: number('interpreter_ms'),
       eventsMs: number('events_ms'),
+      eventRuntimeMs: number('event_runtime_ms'),
+      eventMediaMs: number('event_media_ms'),
+      eventTextMs: number('event_text_ms'),
+      eventTransitionMs: number('event_transition_ms'),
+      eventCompositorMs: number('event_compositor_ms'),
+      eventLayerSyncMs: number('event_layer_sync_ms'),
       emoteMs: number('emote_ms'),
       audioMediaMs: number('audio_media_ms'),
       compositorMs: number('compositor_ms'),
@@ -52,6 +64,12 @@ class ProfilerTimings {
   final double inputMs;
   final double interpreterMs;
   final double eventsMs;
+  final double eventRuntimeMs;
+  final double eventMediaMs;
+  final double eventTextMs;
+  final double eventTransitionMs;
+  final double eventCompositorMs;
+  final double eventLayerSyncMs;
   final double emoteMs;
   final double audioMediaMs;
   final double compositorMs;
@@ -75,6 +93,17 @@ class ProfilerTimings {
               audioMediaMs -
               compositorMs -
               textMs)
+          .clamp(0, double.infinity)
+          .toDouble();
+
+  double get eventOtherMs =>
+      (eventsMs -
+              eventRuntimeMs -
+              eventMediaMs -
+              eventTextMs -
+              eventTransitionMs -
+              eventCompositorMs -
+              eventLayerSyncMs)
           .clamp(0, double.infinity)
           .toDouble();
 }

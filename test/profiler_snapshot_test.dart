@@ -13,6 +13,13 @@ void main() {
       'rendered_fps': 12.0,
       'current': {
         'interpreter_ms': 2.5,
+        'events_ms': 7.0,
+        'event_runtime_ms': 1.0,
+        'event_media_ms': 0.5,
+        'event_text_ms': 0.75,
+        'event_transition_ms': 2.0,
+        'event_compositor_ms': 1.5,
+        'event_layer_sync_ms': 0.25,
         'damage_compute_ms': 0.25,
         'texture_upload_ms': 1.5,
       },
@@ -34,6 +41,11 @@ void main() {
     expect(snapshot.sessionMs, 12500);
     expect(snapshot.sampleWindowMs, 10000);
     expect(snapshot.current.interpreterMs, 2.5);
+    expect(snapshot.current.eventRuntimeMs, 1.0);
+    expect(snapshot.current.eventTransitionMs, 2.0);
+    expect(snapshot.current.eventCompositorMs, 1.5);
+    expect(snapshot.current.eventLayerSyncMs, 0.25);
+    expect(snapshot.current.eventOtherMs, 1.0);
     expect(snapshot.current.damageComputeMs, 0.25);
     expect(snapshot.current.textureUploadMs, 1.5);
     expect(snapshot.average.interpreterMs, 1.25);
