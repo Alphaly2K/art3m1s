@@ -41,7 +41,7 @@ Art3m1s 是使用 Flutter 编写的跨平台 Artemis 视觉小说运行时宿主
             ├─ 输入与生命周期
             ├─ 60 FPS 运行时循环
             ├─ MediaBridge
-            └─ RGBA 帧显示
+            └─ 系统共享纹理 / RGBA 回退
                      │
                   CoreBridge
             ┌────────┼────────┐
@@ -62,7 +62,7 @@ Art3m1s 是使用 Flutter 编写的跨平台 Artemis 视觉小说运行时宿主
 - 媒体命令以及音频/视频播放完成通知；
 - 对话框、标题、浏览器/平台请求和窗口状态；
 - 字体查找与文本注入；
-- 同步帧渲染与图层视频纹理上传。
+- 系统共享纹理、同步帧提交与图层视频纹理上传。
 
 同一 runtime 的 core 调用会串行执行。关闭 runtime 时会先解除回调并停止媒体任务，
 再销毁 native handle。
@@ -156,10 +156,29 @@ Fable 的本轮 macOS UI 更新还加入了原生应用菜单、更加清晰的�
 
 - Flutter 稳定版
 - Rust 稳定版
+- [vcpkg](https://github.com/microsoft/vcpkg)（构建 Darwin 官方 ANGLE）
 - 对应目标平台的 SDK
 - 为目标平台编译的 `art3m1s-core` native library
 - 与 core 固定版本一致的 `pfs-upk-rust` native library
 - 当前平台所需的 mpv/media_kit 运行时依赖
+
+### 统一构建入口
+
+构建脚本会自动注入当前 Git commit 和 `pubspec.yaml` 版本，并构建、复制 core、PFS
+与图形运行库：
+
+```bash
+dart run tool/build.dart [all|ios|macos|android|windows|linux] \
+  [--release|--debug] [--device-only]
+```
+
+`all` 表示当前宿主能够原生构建的全部目标：macOS 构建 iOS、macOS 和 Android，
+Windows 构建 Windows 和 Android，Linux 构建 Linux 和 Android。iOS 默认同时生成真机与
+Apple Silicon 模拟器切片；发布真机包可加 `--device-only`。iOS 输出默认不签名。
+
+可通过 `CORE_SRC`、`PFS_SRC`、`FLUTTER_ROOT` 和 `VCPKG_ROOT` 指定依赖位置。Darwin
+脚本在未设置 `VCPKG_ROOT` 时会把 vcpkg 引导到 `.build/vcpkg`。Windows 沿用发布链
+下载的预编译 ANGLE DLL，不在本地重复编译 ANGLE。
 
 ### macOS 开发
 
@@ -196,18 +215,15 @@ rustup target add aarch64-apple-ios aarch64-apple-ios-sim
 
 CORE_SRC=/path/to/art3m1s-core \
 PFS_SRC=/path/to/pfs-upk-rust \
-METALANGLE_SIM_FRAMEWORK=/path/to/MetalANGLE-simulator.framework \
+VCPKG_ROOT=/path/to/vcpkg \
 ./scripts/ios_build_rust.sh --release
 ```
 
-脚本默认构建 `aarch64-apple-ios` 与 `aarch64-apple-ios-sim`，并输出包含真机与
-Apple Silicon 模拟器切片的 `.xcframework`。MetalANGLE 的真机源 framework 默认读取
-`ios/Frameworks/MetalANGLEDevice.framework`（首次也兼容旧名 `MetalANGLE.framework`），
-模拟器 framework 首次通过 `METALANGLE_SIM_FRAMEWORK` 指定；脚本会将两者分别保存为
-`MetalANGLEDevice.framework` 与 `MetalANGLESimulator.framework`，后续无需重复指定。
-只为真机构建时使用 `--device-only`；
+脚本默认构建 `aarch64-apple-ios` 与 `aarch64-apple-ios-sim`，并通过 vcpkg 构建官方
+Chromium ANGLE Metal 后端，输出包含真机与 Apple Silicon 模拟器切片的
+`libEGL.xcframework` 和 `libGLESv2.xcframework`。只为真机构建时使用 `--device-only`；
 需要在打包过程中直接签署 framework 时使用 `--sign "证书名称"`。
-构建完成后 `ios/Frameworks/` 中会生成 core、PFS 与 MetalANGLE 三个 XCFramework。
+构建完成后 `ios/Frameworks/` 中会生成 core、PFS、EGL 与 GLESv2 XCFramework。
 
 ### 验证
 
@@ -232,7 +248,8 @@ flutter test
 
 ## 当前限制
 
-- 画面显示仍会把 CPU RGBA buffer 转换成 `ui.Image`，目前不是共享 GPU surface。
+- 系统共享纹理不可用时会退回 CPU RGBA 回读；应通过真机日志确认目标设备实际采用的
+  提交路径。
 - Artemis HLSL 和 E-Mote 兼容层只覆盖测试游戏中观察到的变体，并不支持所有私有
   引擎版本。
 - 部分引擎平台事件仍依赖各目标平台的宿主实现。
