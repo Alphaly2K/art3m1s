@@ -102,6 +102,15 @@ class SettingsScreen extends ConsumerWidget {
                 : null,
           ),
           SwitchListTile(
+            title: const Text('Profiler 浮层'),
+            subtitle: const Text('显示分阶段耗时与内存统计'),
+            value: settings.profilerOverlay,
+            onChanged: settings.debugMode
+                ? (v) =>
+                      ref.read(settingsProvider.notifier).setProfilerOverlay(v)
+                : null,
+          ),
+          SwitchListTile(
             title: const Text('调试面板'),
             subtitle: const Text('显示浮动监控面板'),
             value: settings.debugOverlay,

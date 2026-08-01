@@ -252,6 +252,16 @@ class _CupertinoSettingsScreen extends ConsumerWidget {
                   ),
                 ),
                 CupertinoListTile.notched(
+                  title: const Text('Profiler 浮层'),
+                  subtitle: const Text('显示分阶段耗时与内存统计'),
+                  trailing: CupertinoSwitch(
+                    value: settings.profilerOverlay,
+                    onChanged: settings.debugMode
+                        ? notifier.setProfilerOverlay
+                        : null,
+                  ),
+                ),
+                CupertinoListTile.notched(
                   title: const Text('调试面板'),
                   subtitle: const Text('显示浮动监控面板'),
                   trailing: CupertinoSwitch(

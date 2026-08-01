@@ -11,6 +11,7 @@ import '../services/logger.dart';
 import 'caption_table_probe.dart';
 import 'file_provider.dart';
 import 'media_bridge.dart';
+import 'profiler_snapshot.dart';
 import 'project_charset.dart';
 import 'text_translation_service.dart';
 
@@ -361,6 +362,14 @@ typedef RuntimeClearExternalSurface = void Function(Pointer<Void> rt);
 typedef RuntimeAdvancePresentNative =
     Int32 Function(Pointer<Void> rt, Uint32 deltaMs);
 typedef RuntimeAdvancePresent = int Function(Pointer<Void> rt, int deltaMs);
+typedef RuntimeSetProfilerEnabledNative =
+    Void Function(Pointer<Void> rt, Int32 enabled);
+typedef RuntimeSetProfilerEnabled =
+    void Function(Pointer<Void> rt, int enabled);
+typedef RuntimeProfilerSnapshotNative =
+    Int32 Function(Pointer<Void> rt, Pointer<Uint8> output, Uint32 capacity);
+typedef RuntimeProfilerSnapshot =
+    int Function(Pointer<Void> rt, Pointer<Uint8> output, int capacity);
 
 // ── CoreBridge — manages the core runtime lifecycle ─────────────
 
@@ -389,6 +398,9 @@ class CoreBridge {
   RuntimeSetExternalSurface? _setExternalSurface;
   RuntimeClearExternalSurface? _clearExternalSurface;
   RuntimeAdvancePresent? _advancePresent;
+  RuntimeSetProfilerEnabled? _setProfilerEnabled;
+  RuntimeProfilerSnapshot? _profilerSnapshot;
+  bool _profilerSymbolsUnavailable = false;
   bool _sharedTextureSymbolsUnavailable = false;
   int? _sharedTextureId;
   int? _sharedTextureKind;
@@ -812,6 +824,59 @@ class CoreBridge {
       fn(enabled ? 1 : 0);
     } catch (_) {
       // Older cores do not expose this optional debug visualization control.
+    }
+  }
+
+  bool setProfilerEnabled(bool enabled) {
+    final runtime = _runtime;
+    final lib = _lib;
+    if (runtime == null || lib == null || _profilerSymbolsUnavailable) {
+      return false;
+    }
+    try {
+      final fn = _setProfilerEnabled ??= lib
+          .lookupFunction<
+            RuntimeSetProfilerEnabledNative,
+            RuntimeSetProfilerEnabled
+          >('art3m1s_runtime_set_profiler_enabled');
+      fn(runtime, enabled ? 1 : 0);
+      return true;
+    } catch (error) {
+      _profilerSymbolsUnavailable = true;
+      Log.info('[CoreBridge] 当前 core 不支持 Profiler: $error');
+      return false;
+    }
+  }
+
+  ProfilerSnapshot? readProfilerSnapshot() {
+    final runtime = _runtime;
+    final lib = _lib;
+    if (runtime == null || lib == null || _profilerSymbolsUnavailable) {
+      return null;
+    }
+    try {
+      final fn = _profilerSnapshot ??= lib
+          .lookupFunction<
+            RuntimeProfilerSnapshotNative,
+            RuntimeProfilerSnapshot
+          >('art3m1s_runtime_profiler_snapshot');
+      final required = fn(runtime, Pointer<Uint8>.fromAddress(0), 0);
+      if (required <= 0 || required > 64 * 1024) return null;
+      final output = malloc.allocate<Uint8>(required);
+      try {
+        final written = fn(runtime, output, required);
+        if (written <= 0 || written > required) return null;
+        final decoded = jsonDecode(utf8.decode(output.asTypedList(written)));
+        return decoded is Map<String, dynamic>
+            ? ProfilerSnapshot.fromJson(decoded)
+            : null;
+      } finally {
+        malloc.free(output);
+      }
+    } catch (error) {
+      _profilerSymbolsUnavailable = true;
+      Log.warn('[CoreBridge] Profiler 快照读取失败: $error');
+      return null;
     }
   }
 
@@ -1260,6 +1325,9 @@ class CoreBridge {
     _setExternalSurface = null;
     _clearExternalSurface = null;
     _advancePresent = null;
+    _setProfilerEnabled = null;
+    _profilerSnapshot = null;
+    _profilerSymbolsUnavailable = false;
     _sharedTextureSymbolsUnavailable = false;
     for (final id in _videoLayerIds.values) {
       malloc.free(id);

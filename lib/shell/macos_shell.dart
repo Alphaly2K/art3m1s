@@ -306,6 +306,16 @@ class _MacosSettingsPage extends ConsumerWidget {
                         ),
                       ),
                       _SettingRow(
+                        label: 'Profiler 浮层',
+                        caption: '显示分阶段耗时与内存统计',
+                        control: MacosSwitch(
+                          value: settings.profilerOverlay,
+                          onChanged: settings.debugMode
+                              ? notifier.setProfilerOverlay
+                              : null,
+                        ),
+                      ),
+                      _SettingRow(
                         label: '调试面板',
                         caption: '显示浮动监控面板',
                         control: MacosSwitch(

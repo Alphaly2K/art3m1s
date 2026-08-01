@@ -227,6 +227,16 @@ class _FluentSettingsPage extends ConsumerWidget {
               ),
             ),
             _FluentSettingRow(
+              label: 'Profiler 浮层',
+              caption: '显示分阶段耗时与内存统计',
+              control: ToggleSwitch(
+                checked: settings.profilerOverlay,
+                onChanged: settings.debugMode
+                    ? notifier.setProfilerOverlay
+                    : null,
+              ),
+            ),
+            _FluentSettingRow(
               label: '调试面板',
               caption: '显示浮动监控面板',
               control: ToggleSwitch(

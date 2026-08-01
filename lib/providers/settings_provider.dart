@@ -16,6 +16,7 @@ final settingsProvider = StateNotifierProvider<SettingsNotifier, SettingsState>(
 class SettingsState {
   final bool debugMode;
   final bool damageVisualization;
+  final bool profilerOverlay;
   final bool debugOverlay;
   final bool showFps;
   final bool mobileTouchpadEnabled;
@@ -26,6 +27,7 @@ class SettingsState {
   const SettingsState({
     this.debugMode = false,
     this.damageVisualization = false,
+    this.profilerOverlay = false,
     this.debugOverlay = false,
     this.showFps = false,
     this.mobileTouchpadEnabled = false,
@@ -37,6 +39,7 @@ class SettingsState {
   SettingsState copyWith({
     bool? debugMode,
     bool? damageVisualization,
+    bool? profilerOverlay,
     bool? debugOverlay,
     bool? showFps,
     bool? mobileTouchpadEnabled,
@@ -47,6 +50,7 @@ class SettingsState {
     return SettingsState(
       debugMode: debugMode ?? this.debugMode,
       damageVisualization: damageVisualization ?? this.damageVisualization,
+      profilerOverlay: profilerOverlay ?? this.profilerOverlay,
       debugOverlay: debugOverlay ?? this.debugOverlay,
       showFps: showFps ?? this.showFps,
       mobileTouchpadEnabled:
@@ -130,6 +134,8 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
         debugMode: debugMode,
         damageVisualization:
             debugMode && (prefs.getBool('damage_visualization') ?? false),
+        profilerOverlay:
+            debugMode && (prefs.getBool('profiler_overlay') ?? false),
         debugOverlay:
             prefs.getBool('debug_overlay') ??
             prefs.getBool('debugOverlay') ??
@@ -168,10 +174,16 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
     Log.setDebugEnabled(v);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('debug_mode', v);
-    if (!v) await prefs.setBool('damage_visualization', false);
+    if (!v) {
+      await Future.wait([
+        prefs.setBool('damage_visualization', false),
+        prefs.setBool('profiler_overlay', false),
+      ]);
+    }
     state = state.copyWith(
       debugMode: v,
       damageVisualization: v ? state.damageVisualization : false,
+      profilerOverlay: v ? state.profilerOverlay : false,
     );
   }
 
@@ -180,6 +192,13 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('damage_visualization', enabled);
     state = state.copyWith(damageVisualization: enabled);
+  }
+
+  Future<void> setProfilerOverlay(bool v) async {
+    final enabled = state.debugMode && v;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('profiler_overlay', enabled);
+    state = state.copyWith(profilerOverlay: enabled);
   }
 
   Future<void> setDebugOverlay(bool v) async {

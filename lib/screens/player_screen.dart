@@ -14,11 +14,13 @@ import '../services/app_data_paths.dart';
 import '../services/core_bridge.dart';
 import '../services/file_provider.dart';
 import '../services/logger.dart';
+import '../services/profiler_snapshot.dart';
 import '../services/project_charset.dart';
 import '../services/text_translation_service.dart';
 import '../widgets/engine_dialog.dart';
 import '../widgets/mobile_game_cursor.dart';
 import '../widgets/mobile_touchpad_surface.dart';
+import '../widgets/profiler_overlay.dart';
 
 class PlayerScreen extends ConsumerStatefulWidget {
   final String gameId;
@@ -72,6 +74,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
   // FPS
   final ValueNotifier<double> _fpsNotifier = ValueNotifier(0);
+  final ValueNotifier<ProfilerSnapshot?> _profilerNotifier = ValueNotifier(
+    null,
+  );
+  Timer? _profilerTimer;
+  bool _profilerEnabled = false;
   final Stopwatch _frameClock = Stopwatch();
   int _nextFrameUs = 0;
   int _frameIndex = 0;
@@ -229,6 +236,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     _bridge.registerFileReader();
     final renderBackend = ref.read(settingsProvider).backend;
     _bridge.createRuntime(_stageW, _stageH, backend: renderBackend);
+    _setProfilerEnabled(settings.debugMode && settings.profilerOverlay);
     if (!_bridge.loadProjectBytes(iniContent, platform: runtimePlatform)) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -365,6 +373,23 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     _fpsWindowFrames = 0;
   }
 
+  void _setProfilerEnabled(bool enabled) {
+    if (_profilerEnabled == enabled || !_bridge.isInitialized) return;
+    _profilerTimer?.cancel();
+    _profilerTimer = null;
+    _profilerEnabled = enabled && _bridge.setProfilerEnabled(enabled);
+    if (!_profilerEnabled) {
+      _bridge.setProfilerEnabled(false);
+      _profilerNotifier.value = null;
+      return;
+    }
+    _profilerTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
+      if (_closing || !mounted) return;
+      final snapshot = _bridge.readProfilerSnapshot();
+      if (snapshot != null) _profilerNotifier.value = snapshot;
+    });
+  }
+
   void _decodeFrame(Uint8List pixels) {
     if (_closing || !mounted) {
       _frameInFlight = false;
@@ -395,9 +420,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     _unlockOrientation();
     _timer?.cancel();
     _panelTimer?.cancel();
+    _profilerTimer?.cancel();
+    if (_profilerEnabled) _bridge.setProfilerEnabled(false);
     _endTouchpadDrag();
     _touchpadCursorPosition.dispose();
     _fpsNotifier.dispose();
+    _profilerNotifier.dispose();
     _frameImage?.dispose();
     _gameFocusNode.dispose();
     _keyboardCtrl.removeListener(_onKeyboardInput);
@@ -487,6 +515,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   @override
   Widget build(BuildContext context) {
     final showFps = ref.watch(settingsProvider.select((s) => s.showFps));
+    final showProfiler = ref.watch(
+      settingsProvider.select((s) => s.debugMode && s.profilerOverlay),
+    );
+    if (showProfiler != _profilerEnabled) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && !_closing) _setProfilerEnabled(showProfiler);
+      });
+    }
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -499,6 +535,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
             const Center(child: CircularProgressIndicator()),
           _buildVideoLayer(),
           if (showFps) _buildFpsDisplay(),
+          if (showProfiler) ProfilerOverlay(snapshot: _profilerNotifier),
           _buildFloatingBall(),
           _buildControlPanel(),
           _buildHiddenKeyboard(),
