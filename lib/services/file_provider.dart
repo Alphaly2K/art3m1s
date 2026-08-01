@@ -27,6 +27,13 @@ typedef FileDeleteNative = Int32 Function(Pointer<Utf8> path);
 typedef RegisterFileDeleteNative =
     Void Function(Pointer<NativeFunction<FileDeleteNative>>);
 
+final class _PfsResource {
+  const _PfsResource(this.archive, this.size);
+
+  final Pointer<Void> archive;
+  final int size;
+}
+
 class FileProvider {
   static final PfsBridge _pfs = PfsBridge();
   static final List<Pointer<Void>> _archives = [];
@@ -36,6 +43,8 @@ class FileProvider {
   static String? _directory;
   static bool _environmentPatchEnabled = false;
   static final Map<String, Uint8List> _environmentPatchCache = {};
+  static final Map<String, _PfsResource> _pfsResourceCache = {};
+  static final Set<String> _missingPfsResources = {};
 
   /// 存档读写基准目录（应用沙箱内）。core 通过回调传相对路径（如
   /// `savedata/save0001.dat`），一律拼到此目录下落盘/读取（方案 A1 +
@@ -100,6 +109,8 @@ class FileProvider {
     _saveDir = null;
     _environmentPatchEnabled = false;
     _environmentPatchCache.clear();
+    _pfsResourceCache.clear();
+    _missingPfsResources.clear();
   }
 
   static Uint8List? readFile(String path) => _lookup(path);
@@ -151,16 +162,14 @@ class FileProvider {
   }
 
   static Uint8List? _lookupResource(String path) {
-    for (final h in _archives.reversed) {
-      final size = _pfs.fileSize(h, path);
-      if (size > 0) {
-        final buf = malloc.allocate<Uint8>(size);
-        try {
-          final read = _pfs.read(h, path, 0, buf, size);
-          if (read > 0) return Uint8List.fromList(buf.asTypedList(read));
-        } finally {
-          malloc.free(buf);
-        }
+    final resource = _findPfsResource(path);
+    if (resource != null) {
+      final buf = malloc.allocate<Uint8>(resource.size);
+      try {
+        final read = _pfs.read(resource.archive, path, 0, buf, resource.size);
+        if (read > 0) return Uint8List.fromList(buf.asTypedList(read));
+      } finally {
+        malloc.free(buf);
       }
     }
     if (_directory != null) {
@@ -194,10 +203,8 @@ class FileProvider {
     }
     final patched = _patchedResource(path);
     if (patched != null) return patched.length;
-    for (final h in _archives.reversed) {
-      final sz = _pfs.fileSize(h, path);
-      if (sz > 0) return sz;
-    }
+    final resource = _findPfsResource(path);
+    if (resource != null) return resource.size;
     if (_directory != null) {
       final file = File('$_directory${Platform.pathSeparator}$path');
       if (file.existsSync()) return file.lengthSync();
@@ -220,9 +227,9 @@ class FileProvider {
     if (patched != null) {
       return _readFromBytes(patched, buf, bufSize, offset);
     }
-    for (final h in _archives.reversed) {
-      final sz = _pfs.fileSize(h, path);
-      if (sz > 0) return _pfs.read(h, path, offset, buf, bufSize);
+    final resource = _findPfsResource(path);
+    if (resource != null) {
+      return _pfs.read(resource.archive, path, offset, buf, bufSize);
     }
     if (_directory != null) {
       final r = _readFromFile(
@@ -234,6 +241,23 @@ class FileProvider {
       if (r >= 0) return r;
     }
     return -1;
+  }
+
+  static _PfsResource? _findPfsResource(String path) {
+    final key = path.replaceAll('\\', '/');
+    final cached = _pfsResourceCache[key];
+    if (cached != null) return cached;
+    if (_missingPfsResources.contains(key)) return null;
+
+    for (final archive in _archives.reversed) {
+      final size = _pfs.fileSize(archive, path);
+      if (size <= 0) continue;
+      final resource = _PfsResource(archive, size);
+      _pfsResourceCache[key] = resource;
+      return resource;
+    }
+    _missingPfsResources.add(key);
+    return null;
   }
 
   static Uint8List? _patchedResource(String path) {
@@ -275,7 +299,7 @@ class FileProvider {
     final count = bufSize < data.length - offset
         ? bufSize
         : data.length - offset;
-    buf.asTypedList(count).setAll(0, data.sublist(offset, offset + count));
+    buf.asTypedList(count).setRange(0, count, data, offset);
     return count;
   }
 
@@ -296,9 +320,7 @@ class FileProvider {
         final remaining = raf.lengthSync() - offset;
         final toRead = bufSize < remaining ? bufSize : remaining;
         final data = raf.readSync(toRead);
-        for (var i = 0; i < data.length; i++) {
-          buf[i] = data[i];
-        }
+        buf.asTypedList(data.length).setRange(0, data.length, data);
         return data.length;
       } finally {
         raf.closeSync();
