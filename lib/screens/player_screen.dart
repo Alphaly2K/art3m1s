@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 
 import '../controllers/mobile_touchpad.dart';
@@ -45,9 +46,9 @@ class PlayerScreen extends ConsumerStatefulWidget {
 }
 
 class _PlayerScreenState extends ConsumerState<PlayerScreen>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, SingleTickerProviderStateMixin {
   late final CoreBridge _bridge;
-  Timer? _timer;
+  late final Ticker _gameTicker;
   ui.Image? _frameImage;
   bool _sharedTextureReady = false;
   bool _frameInFlight = false;
@@ -79,6 +80,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   );
   Timer? _profilerTimer;
   bool _profilerEnabled = false;
+  bool _appActive = true;
+  bool _gameLoopStarted = false;
   final Stopwatch _frameClock = Stopwatch();
   int _nextFrameUs = 0;
   int _frameIndex = 0;
@@ -92,6 +95,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     super.initState();
     Log.startRuntimeSession();
     _bridge = CoreBridge(onDialogRequested: _showEngineDialog);
+    _gameTicker = createTicker(_onGameTick);
+    _bridge.media.fullscreenVideoBlocking.addListener(_syncGameTicker);
     _touchpadPointer = MobileTouchpadPointer(
       stageWidth: _stageW,
       stageHeight: _stageH,
@@ -108,18 +113,26 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     // 生命周期 → core：驱动 [autosave allow=1]（切后台自动存档）+ 同步最小化位。
     switch (state) {
       case AppLifecycleState.resumed:
+        _appActive = true;
+        _syncGameTicker();
         _bridge.setWindowStateBits(minimized: false);
         _bridge.notifyLifecycle(2); // 回前台
       case AppLifecycleState.paused:
       case AppLifecycleState.hidden:
+        _appActive = false;
+        _syncGameTicker();
         _endTouchpadDrag();
         _bridge.setWindowStateBits(minimized: true);
         _bridge.notifyLifecycle(1); // 切后台
+      case AppLifecycleState.inactive:
+        _appActive = false;
+        _syncGameTicker();
+        _endTouchpadDrag();
       case AppLifecycleState.detached:
+        _appActive = false;
+        _syncGameTicker();
         _endTouchpadDrag();
         _bridge.notifyLifecycle(0); // 退出
-      case AppLifecycleState.inactive:
-        break;
     }
   }
 
@@ -291,70 +304,85 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     _frameIndex = 0;
     _fpsWindowStartUs = 0;
     _fpsWindowFrames = 0;
+    _gameLoopStarted = true;
+    _syncGameTicker();
+  }
 
-    _timer = Timer.periodic(const Duration(milliseconds: 1), (_) {
-      if (_closing || !mounted) return;
-      final nowUs = _frameClock.elapsedMicroseconds;
-      if (nowUs < _nextFrameUs) return;
-      final overdueUs = nowUs - _nextFrameUs;
-      final dueTicks = (1 + overdueUs ~/ _targetFrameUs).clamp(
-        1,
-        _maxCatchUpTicks,
-      );
-      _nextFrameUs += _targetFrameUs * dueTicks;
-      if (nowUs - _nextFrameUs > _targetFrameUs * 2) {
-        _nextFrameUs = nowUs + _targetFrameUs;
-      }
+  void _syncGameTicker() {
+    final shouldRun =
+        _gameLoopStarted &&
+        !_closing &&
+        _appActive &&
+        !_bridge.media.isFullscreenVideoBlocking;
+    if (shouldRun) {
+      if (_gameTicker.isActive) return;
+      // Paused/background/fullscreen-video time does not belong to the script
+      // clock. Resume at the next vsync instead of catching paused time up.
+      _nextFrameUs = _frameClock.elapsedMicroseconds;
+      _gameTicker.start();
+    } else if (_gameTicker.isActive) {
+      _gameTicker.stop();
+    }
+  }
 
-      if (_bridge.isExitRequested()) {
-        Log.info('[PlayerScreen] exit requested, popping...');
-        _closePlayer();
-        return;
-      }
+  void _onGameTick(Duration _) {
+    if (_closing || !mounted) return;
+    final nowUs = _frameClock.elapsedMicroseconds;
+    if (nowUs < _nextFrameUs) return;
+    final overdueUs = nowUs - _nextFrameUs;
+    final dueTicks = (1 + overdueUs ~/ _targetFrameUs).clamp(
+      1,
+      _maxCatchUpTicks,
+    );
+    _nextFrameUs += _targetFrameUs * dueTicks;
+    if (nowUs - _nextFrameUs > _targetFrameUs * 2) {
+      _nextFrameUs = nowUs + _targetFrameUs;
+    }
 
-      if (_bridge.media.isFullscreenVideoBlocking) {
-        return;
-      }
+    if (_bridge.isExitRequested()) {
+      Log.info('[PlayerScreen] exit requested, popping...');
+      _closePlayer();
+      return;
+    }
 
-      // 口型 CSV 以 60 Hz 每次 onEnterFrame 消费一个采样。显示链繁忙或一次
-      // Timer 回调迟到时，先补齐逻辑 tick，只在最后一次尝试回读和显示画面。
-      for (var tick = 0; tick < dueTicks - 1; tick++) {
-        _bridge.advanceWithoutRender(_nextFrameDeltaMs());
-      }
-      if (_bridge.hasActiveSharedTexture) {
-        final deltaMs = _nextFrameDeltaMs();
-        _trackFps(nowUs);
-        final result = _bridge.advanceAndPresent(deltaMs.clamp(0, 100));
-        if (_bridge.isExitRequested() && mounted) {
-          _closePlayer();
-          return;
-        }
-        if (result > 0 && !_sharedTextureReady && mounted) {
-          _sharedTextureReady = true;
-          setState(() {});
-        }
-        return;
-      }
-      if (_frameInFlight) {
-        _bridge.advanceWithoutRender(_nextFrameDeltaMs());
-        return;
-      }
-
-      _frameInFlight = true;
+    // 口型 CSV 以 60 Hz 每次 onEnterFrame 消费一个采样。显示链繁忙或一次
+    // vsync 回调迟到时，先补齐逻辑 tick，只在最后一次尝试回读和显示画面。
+    for (var tick = 0; tick < dueTicks - 1; tick++) {
+      _bridge.advanceWithoutRender(_nextFrameDeltaMs());
+    }
+    if (_bridge.hasActiveSharedTexture) {
       final deltaMs = _nextFrameDeltaMs();
       _trackFps(nowUs);
-      final pixels = _bridge.advanceAndRender(deltaMs.clamp(0, 100));
+      final result = _bridge.advanceAndPresent(deltaMs.clamp(0, 100));
       if (_bridge.isExitRequested() && mounted) {
-        _frameInFlight = false;
         _closePlayer();
         return;
       }
-      if (pixels != null && mounted) {
-        _decodeFrame(pixels);
-      } else {
-        _frameInFlight = false;
+      if (result > 0 && !_sharedTextureReady && mounted) {
+        _sharedTextureReady = true;
+        setState(() {});
       }
-    });
+      return;
+    }
+    if (_frameInFlight) {
+      _bridge.advanceWithoutRender(_nextFrameDeltaMs());
+      return;
+    }
+
+    _frameInFlight = true;
+    final deltaMs = _nextFrameDeltaMs();
+    _trackFps(nowUs);
+    final pixels = _bridge.advanceAndRender(deltaMs.clamp(0, 100));
+    if (_bridge.isExitRequested() && mounted) {
+      _frameInFlight = false;
+      _closePlayer();
+      return;
+    }
+    if (pixels != null && mounted) {
+      _decodeFrame(pixels);
+    } else {
+      _frameInFlight = false;
+    }
   }
 
   int _nextFrameDeltaMs() {
@@ -418,7 +446,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     _closing = true;
     WidgetsBinding.instance.removeObserver(this);
     _unlockOrientation();
-    _timer?.cancel();
+    _bridge.media.fullscreenVideoBlocking.removeListener(_syncGameTicker);
+    _gameTicker.dispose();
     _panelTimer?.cancel();
     _profilerTimer?.cancel();
     if (_profilerEnabled) _bridge.setProfilerEnabled(false);
@@ -439,7 +468,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   void _closePlayer() {
     if (_closing) return;
     _closing = true;
-    _timer?.cancel();
+    _syncGameTicker();
     _panelTimer?.cancel();
     if (mounted) {
       Navigator.of(context).pop();
