@@ -71,7 +71,12 @@ end
 
 STUB_FRAMEWORKS.each { |fw| ensure_framework_stub(fw[:name], fw[:id]) }
 
-REQUIRED_XCFRAMEWORKS = %w[art3m1s_core pfs_upk MetalANGLE]
+REQUIRED_XCFRAMEWORKS = %w[
+  art3m1s_core
+  pfs_upk
+  libEGL
+  libGLESv2
+]
 missing_xcframeworks = REQUIRED_XCFRAMEWORKS.reject do |name|
   File.directory?(File.join(FRAMEWORKS_DIR, "#{name}.xcframework"))
 end

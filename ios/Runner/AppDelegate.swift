@@ -1,5 +1,6 @@
 import Flutter
 import CoreVideo
+import IOSurface
 import Metal
 import UIKit
 import UniformTypeIdentifiers
@@ -108,7 +109,13 @@ import UniformTypeIdentifiers
     // historical "0 means failure" comment no longer matches the engine.
     sharedTexture = texture
     sharedTextureId = textureId
-    return ["textureId": textureId, "kind": 3, "handle": texture.metalTextureAddress]
+    return [
+      "textureId": textureId,
+      "kind": 2,
+      "handle": texture.ioSurfaceAddress,
+      "fallbackKind": 3,
+      "fallbackHandle": texture.metalTextureAddress,
+    ]
   }
 
   private func releaseSharedTexture() {
@@ -440,6 +447,7 @@ import UniformTypeIdentifiers
 
 private final class Art3m1sSharedTexture: NSObject, FlutterTexture {
   let pixelBuffer: CVPixelBuffer
+  let ioSurfaceAddress: Int64
   let metalTextureAddress: Int64
   private let metalTextureCache: CVMetalTextureCache
   private let cvMetalTexture: CVMetalTexture
@@ -463,6 +471,11 @@ private final class Art3m1sSharedTexture: NSObject, FlutterTexture {
     guard status == kCVReturnSuccess, let buffer else {
       throw NSError(domain: "Art3m1s", code: Int(status), userInfo: [
         NSLocalizedDescriptionKey: "CVPixelBufferCreate failed: \(status)"
+      ])
+    }
+    guard let surface = CVPixelBufferGetIOSurface(buffer) else {
+      throw NSError(domain: "Art3m1s", code: 23, userInfo: [
+        NSLocalizedDescriptionKey: "CVPixelBuffer has no IOSurface"
       ])
     }
     guard let device = MTLCreateSystemDefaultDevice() else {
@@ -505,6 +518,8 @@ private final class Art3m1sSharedTexture: NSObject, FlutterTexture {
       ])
     }
     pixelBuffer = buffer
+    let surfacePointer = unsafeBitCast(surface, to: UnsafeMutableRawPointer.self)
+    ioSurfaceAddress = Int64(Int(bitPattern: surfacePointer))
     metalTextureCache = cache
     cvMetalTexture = cvTexture
     self.metalTexture = metalTexture

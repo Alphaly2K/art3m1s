@@ -594,30 +594,38 @@ class CoreBridge {
     final runtime = _runtime;
     final setSurface = _setExternalSurface;
     final textureId = (descriptor['textureId'] as num?)?.toInt();
-    final kind = (descriptor['kind'] as num?)?.toInt();
-    final handle = (descriptor['handle'] as num?)?.toInt();
-    if (runtime == null ||
-        setSurface == null ||
-        textureId == null ||
-        kind == null ||
-        handle == null ||
-        handle == 0) {
+    if (runtime == null || setSurface == null || textureId == null) {
       return false;
     }
-    final attached =
-        setSurface(
-          runtime,
-          kind,
-          Pointer<Void>.fromAddress(handle),
-          _stageWidth,
-          _stageHeight,
-        ) !=
-        0;
-    if (!attached) return false;
-    _sharedTextureId = textureId;
-    _sharedTextureKind = kind;
-    _sharedTextureAttached = true;
-    return true;
+
+    final candidates = <(int?, int?)>[
+      (
+        (descriptor['kind'] as num?)?.toInt(),
+        (descriptor['handle'] as num?)?.toInt(),
+      ),
+      (
+        (descriptor['fallbackKind'] as num?)?.toInt(),
+        (descriptor['fallbackHandle'] as num?)?.toInt(),
+      ),
+    ];
+    for (final (kind, handle) in candidates) {
+      if (kind == null || handle == null || handle == 0) continue;
+      final attached =
+          setSurface(
+            runtime,
+            kind,
+            Pointer<Void>.fromAddress(handle),
+            _stageWidth,
+            _stageHeight,
+          ) !=
+          0;
+      if (!attached) continue;
+      _sharedTextureId = textureId;
+      _sharedTextureKind = kind;
+      _sharedTextureAttached = true;
+      return true;
+    }
+    return false;
   }
 
   Future<void> _handleSharedTextureCall(MethodCall call) async {
@@ -648,7 +656,7 @@ class CoreBridge {
     }
     media.pumpLayerVideoFrames();
     final result = present(runtime, deltaMs);
-    if (result > 0 && _sharedTextureKind == 2) {
+    if (result > 0 && (_sharedTextureKind == 2 || _sharedTextureKind == 3)) {
       unawaited(
         _sharedTextureChannel.invokeMethod<void>('frameAvailable').catchError((
           Object error,
@@ -689,8 +697,11 @@ class CoreBridge {
   Future<void> initialize() async {
     try {
       _loadLibrary();
+      final executableDirectory = File(Platform.resolvedExecutable).parent;
       if (Platform.isMacOS) {
-        configureAngle(File(Platform.resolvedExecutable).parent.path);
+        configureAngle(executableDirectory.path);
+      } else if (Platform.isIOS) {
+        configureAngle('${executableDirectory.path}/Frameworks');
       }
     } catch (e) {
       Log.error('[CoreBridge] Core 库加载失败: $e');

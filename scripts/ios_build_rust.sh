@@ -20,14 +20,6 @@ OUT_DIR="$PROJECT_DIR/ios/Frameworks"
 # ── 可配置: Rust 项目路径 ──────────────────────────────────────────────
 CORE_SRC="${CORE_SRC:-$PROJECT_DIR/../art3m1s-core}"
 PFS_SRC="${PFS_SRC:-$CORE_SRC/crates/pfs-upk-rust}"
-if [[ -z "${METALANGLE_DEVICE_FRAMEWORK:-}" ]]; then
-  if [[ -d "$OUT_DIR/MetalANGLEDevice.framework" ]]; then
-    METALANGLE_DEVICE_FRAMEWORK="$OUT_DIR/MetalANGLEDevice.framework"
-  else
-    METALANGLE_DEVICE_FRAMEWORK="$OUT_DIR/MetalANGLE.framework"
-  fi
-fi
-METALANGLE_SIM_FRAMEWORK="${METALANGLE_SIM_FRAMEWORK:-$OUT_DIR/MetalANGLESimulator.framework}"
 
 # ── 参数解析 ────────────────────────────────────────────────────────────
 PROFILE="release"
@@ -61,6 +53,13 @@ require cargo
 require lipo
 require xcodebuild
 require install_name_tool
+
+# Build official Chromium ANGLE before packaging the Rust frameworks.
+ANGLE_ARGS=(ios)
+if [[ "$BUILD_SIM" != "1" ]]; then
+  ANGLE_ARGS+=(--device-only)
+fi
+"$SCRIPT_DIR/build_angle.sh" "${ANGLE_ARGS[@]}"
 
 # ── iOS targets ─────────────────────────────────────────────────────────
 IOS_DEVICE_TARGET="aarch64-apple-ios"
@@ -203,76 +202,11 @@ make_framework() {
   echo "  -> $xcframework"
 }
 
-make_metalangle_xcframework() {
-  if [[ ! -d "$METALANGLE_DEVICE_FRAMEWORK" ]]; then
-    echo "ERROR: 缺少真机 MetalANGLE: $METALANGLE_DEVICE_FRAMEWORK"
-    exit 1
-  fi
-  if [[ "$BUILD_SIM" == "1" ]] && [[ ! -d "$METALANGLE_SIM_FRAMEWORK" ]]; then
-    echo "ERROR: simulator 构建需要 METALANGLE_SIM_FRAMEWORK"
-    exit 1
-  fi
-
-  echo ""
-  echo "=== 生成 MetalANGLE XCFramework ==="
-  local slices_dir="$OUT_DIR/.ios-framework-build/MetalANGLE"
-  local device_fw="$slices_dir/device/MetalANGLE.framework"
-  local sim_fw="$slices_dir/simulator/MetalANGLE.framework"
-  local xcframework="$OUT_DIR/MetalANGLE.xcframework"
-
-  rm -rf "$slices_dir" "$xcframework"
-  mkdir -p "$(dirname "$device_fw")"
-  cp -R "$METALANGLE_DEVICE_FRAMEWORK" "$device_fw"
-  rm -rf "$device_fw/_CodeSignature"
-  lipo "$METALANGLE_DEVICE_FRAMEWORK/MetalANGLE" -thin arm64 \
-    -output "$device_fw/MetalANGLE"
-  install_name_tool -id "@rpath/MetalANGLE.framework/MetalANGLE" \
-    "$device_fw/MetalANGLE"
-  if [[ -n "$CODE_SIGN_ID" ]]; then
-    codesign --force --sign "$CODE_SIGN_ID" --timestamp=none "$device_fw"
-  fi
-
-  local xcframework_args=(-framework "$device_fw")
-  if [[ "$BUILD_SIM" == "1" ]]; then
-    mkdir -p "$(dirname "$sim_fw")"
-    cp -R "$METALANGLE_SIM_FRAMEWORK" "$sim_fw"
-    rm -rf "$sim_fw/_CodeSignature"
-    lipo "$METALANGLE_SIM_FRAMEWORK/MetalANGLE" -thin arm64 \
-      -output "$sim_fw/MetalANGLE"
-    install_name_tool -id "@rpath/MetalANGLE.framework/MetalANGLE" \
-      "$sim_fw/MetalANGLE"
-    if [[ -n "$CODE_SIGN_ID" ]]; then
-      codesign --force --sign "$CODE_SIGN_ID" --timestamp=none "$sim_fw"
-    fi
-    xcframework_args+=(-framework "$sim_fw")
-  fi
-
-  xcodebuild -create-xcframework \
-    "${xcframework_args[@]}" \
-    -output "$xcframework"
-
-  # 本地 Pod 根目录会进入 FRAMEWORK_SEARCH_PATHS。若保留同名的真机
-  # MetalANGLE.framework，simulator 链接器会优先捡到它而绕过 XCFramework。
-  if [[ "$METALANGLE_DEVICE_FRAMEWORK" == "$OUT_DIR/MetalANGLE.framework" ]]; then
-    rm -rf "$OUT_DIR/MetalANGLEDevice.framework"
-    mv "$METALANGLE_DEVICE_FRAMEWORK" "$OUT_DIR/MetalANGLEDevice.framework"
-    METALANGLE_DEVICE_FRAMEWORK="$OUT_DIR/MetalANGLEDevice.framework"
-  fi
-  if [[ "$BUILD_SIM" == "1" ]] && \
-     [[ "$METALANGLE_SIM_FRAMEWORK" != "$OUT_DIR/MetalANGLESimulator.framework" ]]; then
-    rm -rf "$OUT_DIR/MetalANGLESimulator.framework"
-    cp -R "$METALANGLE_SIM_FRAMEWORK" "$OUT_DIR/MetalANGLESimulator.framework"
-    METALANGLE_SIM_FRAMEWORK="$OUT_DIR/MetalANGLESimulator.framework"
-  fi
-  echo "  -> $xcframework"
-}
-
 # ── 编译 ────────────────────────────────────────────────────────────────
 mkdir -p "$OUT_DIR"
 
 make_framework "art3m1s_core" "$CORE_SRC" "moe.alphaly.art3m1s.core"
 make_framework "pfs_upk"       "$PFS_SRC"  "moe.alphaly.art3m1s.pfs"
-make_metalangle_xcframework
 
 echo ""
 echo "=== 完成 ==="
@@ -280,7 +214,3 @@ echo "XCFrameworks 已输出到: $OUT_DIR"
 find "$OUT_DIR" -maxdepth 2 -name '*.xcframework' -print
 echo ""
 echo "若未签名，请用 --sign '证书名' 重新编译，或在 Xcode 中设置自动签名。"
-echo "真机 MetalANGLE 源文件保存在: $METALANGLE_DEVICE_FRAMEWORK"
-if [[ "$BUILD_SIM" == "1" ]]; then
-  echo "模拟器 MetalANGLE 源文件保存在: $METALANGLE_SIM_FRAMEWORK"
-fi

@@ -76,7 +76,7 @@ class AboutScreen extends StatelessWidget {
               'glow',
               'image',
               'encoding_rs',
-              'MetalANGLE',
+              'ANGLE (Metal)',
             ],
           ),
         ],
