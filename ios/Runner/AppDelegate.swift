@@ -104,11 +104,8 @@ import UniformTypeIdentifiers
     }
     let texture = try Art3m1sSharedTexture(width: width, height: height)
     let textureId = registry.register(texture)
-    guard textureId != 0 else {
-      throw NSError(domain: "Art3m1s", code: 21, userInfo: [
-        NSLocalizedDescriptionKey: "Flutter rejected the shared texture"
-      ])
-    }
+    // Flutter 3.44 assigns external texture IDs from zero. The public header's
+    // historical "0 means failure" comment no longer matches the engine.
     sharedTexture = texture
     sharedTextureId = textureId
     return ["textureId": textureId, "kind": 2, "handle": texture.ioSurfaceAddress]
