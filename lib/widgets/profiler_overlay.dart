@@ -76,14 +76,18 @@ class _ProfilerContents extends StatelessWidget {
               ),
               const Spacer(),
               Text(
-                '${value.tickHz.toStringAsFixed(1)} tick  '
-                '${value.renderedFps.toStringAsFixed(1)} render',
+                '累计 ${_formatElapsed(value.windowMs)}',
                 style: const TextStyle(color: Color(0xFFA7A7AE)),
               ),
             ],
           ),
+          _ValueRow(
+            '采样速率',
+            '${value.tickHz.toStringAsFixed(1)} tick/s  '
+                '${value.renderedFps.toStringAsFixed(1)} render/s',
+          ),
           const SizedBox(height: 5),
-          const _SectionTitle('CPU / 每 tick', showColumns: true),
+          const _SectionTitle('CPU / 累计每 tick', showColumns: true),
           _TimingRow('FFI 调用总计', average.ffiCallMs, maximum.ffiCallMs),
           _TimingRow('逻辑总计', average.logicMs, maximum.logicMs),
           _TimingRow('  解释器', average.interpreterMs, maximum.interpreterMs),
@@ -94,7 +98,7 @@ class _ProfilerContents extends StatelessWidget {
           _TimingRow('  文本', average.textMs, maximum.textMs),
           _TimingRow('  音频 / 媒体', average.audioMediaMs, maximum.audioMediaMs),
           _TimingRow('  其他', average.logicOtherMs, maximum.logicOtherMs),
-          const _SectionTitle('渲染', showColumns: true),
+          const _SectionTitle('渲染 / 累计每 tick', showColumns: true),
           _TimingRow(
             'DrawList / 纹理',
             average.frameBuildMs,
@@ -132,6 +136,19 @@ class _ProfilerContents extends StatelessWidget {
       ),
     );
   }
+}
+
+String _formatElapsed(int milliseconds) {
+  final seconds = milliseconds ~/ 1000;
+  if (seconds >= 3600) {
+    final hours = seconds ~/ 3600;
+    final minutes = (seconds % 3600) ~/ 60;
+    return '${hours}h ${minutes}m';
+  }
+  if (seconds >= 60) {
+    return '${seconds ~/ 60}m ${seconds % 60}s';
+  }
+  return '${(milliseconds / 1000).toStringAsFixed(1)}s';
 }
 
 class _SectionTitle extends StatelessWidget {
