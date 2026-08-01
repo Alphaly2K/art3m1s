@@ -51,8 +51,9 @@ class _ProfilerContents extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final current = value.current;
     final average = value.average;
-    final maximum = value.maximum;
+    final onePercent = value.onePercent;
     return DefaultTextStyle(
       style: const TextStyle(
         color: Color(0xFFD7D7DB),
@@ -76,51 +77,136 @@ class _ProfilerContents extends StatelessWidget {
               ),
               const Spacer(),
               Text(
-                '累计 ${_formatElapsed(value.windowMs)}',
+                '${_formatElapsed(value.sampleWindowMs)} 窗口  '
+                '会话 ${_formatElapsed(value.sessionMs)}',
                 style: const TextStyle(color: Color(0xFFA7A7AE)),
               ),
             ],
           ),
-          _ValueRow(
-            '采样速率',
-            '${value.tickHz.toStringAsFixed(1)} tick/s  '
-                '${value.renderedFps.toStringAsFixed(1)} render/s',
-          ),
           const SizedBox(height: 5),
-          const _SectionTitle('CPU / 累计每 tick', showColumns: true),
-          _TimingRow('FFI 调用总计', average.ffiCallMs, maximum.ffiCallMs),
-          _TimingRow('逻辑总计', average.logicMs, maximum.logicMs),
-          _TimingRow('  解释器', average.interpreterMs, maximum.interpreterMs),
-          _TimingRow('  输入 / 命中', average.inputMs, maximum.inputMs),
-          _TimingRow('  事件派发', average.eventsMs, maximum.eventsMs),
-          _TimingRow('  合成器', average.compositorMs, maximum.compositorMs),
-          _TimingRow('  E-Mote', average.emoteMs, maximum.emoteMs),
-          _TimingRow('  文本', average.textMs, maximum.textMs),
-          _TimingRow('  音频 / 媒体', average.audioMediaMs, maximum.audioMediaMs),
-          _TimingRow('  其他', average.logicOtherMs, maximum.logicOtherMs),
-          const _SectionTitle('渲染 / 累计每 tick', showColumns: true),
+          const _SectionTitle('CPU / 每 tick', showColumns: true),
+          _TimingRow(
+            'FFI 调用总计',
+            current.ffiCallMs,
+            average.ffiCallMs,
+            onePercent.ffiCallMs,
+          ),
+          _TimingRow(
+            '逻辑总计',
+            current.logicMs,
+            average.logicMs,
+            onePercent.logicMs,
+          ),
+          _TimingRow(
+            '  解释器',
+            current.interpreterMs,
+            average.interpreterMs,
+            onePercent.interpreterMs,
+          ),
+          _TimingRow(
+            '  输入 / 命中',
+            current.inputMs,
+            average.inputMs,
+            onePercent.inputMs,
+          ),
+          _TimingRow(
+            '  事件派发',
+            current.eventsMs,
+            average.eventsMs,
+            onePercent.eventsMs,
+          ),
+          _TimingRow(
+            '  合成器',
+            current.compositorMs,
+            average.compositorMs,
+            onePercent.compositorMs,
+          ),
+          _TimingRow(
+            '  E-Mote',
+            current.emoteMs,
+            average.emoteMs,
+            onePercent.emoteMs,
+          ),
+          _TimingRow('  文本', current.textMs, average.textMs, onePercent.textMs),
+          _TimingRow(
+            '  音频 / 媒体',
+            current.audioMediaMs,
+            average.audioMediaMs,
+            onePercent.audioMediaMs,
+          ),
+          _TimingRow(
+            '  其他',
+            current.logicOtherMs,
+            average.logicOtherMs,
+            onePercent.logicOtherMs,
+          ),
+          const _SectionTitle('渲染 / 每 tick', showColumns: true),
           _TimingRow(
             'DrawList / 纹理',
+            current.frameBuildMs,
             average.frameBuildMs,
-            maximum.frameBuildMs,
+            onePercent.frameBuildMs,
+          ),
+          _TimingRow(
+            'Damage 计算',
+            current.damageComputeMs,
+            average.damageComputeMs,
+            onePercent.damageComputeMs,
           ),
           _TimingRow(
             '转场捕获',
+            current.transitionCaptureMs,
             average.transitionCaptureMs,
-            maximum.transitionCaptureMs,
+            onePercent.transitionCaptureMs,
           ),
-          _TimingRow('GPU 命令提交', average.gpuSubmitMs, maximum.gpuSubmitMs),
-          _TimingRow('共享纹理提交', average.presentMs, maximum.presentMs),
-          _TimingRow('RGBA 回读', average.readbackMs, maximum.readbackMs),
-          _TimingRow('宿主文件 FFI', average.hostFfiMs, maximum.hostFfiMs),
-          const _SectionTitle('状态'),
+          _TimingRow(
+            '纹理上传',
+            current.textureUploadMs,
+            average.textureUploadMs,
+            onePercent.textureUploadMs,
+          ),
+          _TimingRow(
+            '  图层视频',
+            current.videoUploadMs,
+            average.videoUploadMs,
+            onePercent.videoUploadMs,
+          ),
+          _TimingRow(
+            'GL 提交 (CPU)',
+            current.gpuSubmitMs,
+            average.gpuSubmitMs,
+            onePercent.gpuSubmitMs,
+          ),
+          _TimingRow(
+            '共享纹理提交',
+            current.presentMs,
+            average.presentMs,
+            onePercent.presentMs,
+          ),
+          _TimingRow(
+            'RGBA 回读',
+            current.readbackMs,
+            average.readbackMs,
+            onePercent.readbackMs,
+          ),
+          _TimingRow(
+            '宿主文件 FFI',
+            current.hostFfiMs,
+            average.hostFfiMs,
+            onePercent.hostFfiMs,
+          ),
+          const _SectionTitle('瞬时状态'),
           _ValueRow(
-            '脏区 / Draw calls',
-            '${value.damagePercent.toStringAsFixed(1)}% / ${value.drawCalls.toStringAsFixed(1)}',
+            '当前帧 / 脏区',
+            '${value.currentRendered ? '渲染' : '跳过'}  ${value.damagePercent.toStringAsFixed(1)}%',
           ),
           _ValueRow(
-            '宿主 FFI',
-            '${value.hostFfiCallsPerSecond.toStringAsFixed(0)}/s  ${value.hostFfiMibPerSecond.toStringAsFixed(1)} MiB/s',
+            'Draw / Vertices',
+            '${value.drawCalls} / ${value.vertices}',
+          ),
+          _ValueRow(
+            'Binds / Commands',
+            '${value.textureBinds} / ${value.drawListCommands}',
           ),
           _ValueRow(
             '纹理 GPU / CPU',
@@ -129,6 +215,27 @@ class _ProfilerContents extends StatelessWidget {
           _ValueRow(
             'E-Mote',
             '${value.emoteLayers} layer  ${value.emoteSourceMib.toStringAsFixed(1)} MiB',
+          ),
+          const _SectionTitle('窗口吞吐'),
+          _ValueRow(
+            'Tick / Render',
+            '${value.tickHz.toStringAsFixed(1)} / ${value.renderedFps.toStringAsFixed(1)} fps',
+          ),
+          _ValueRow(
+            '渲染 / 跳过帧',
+            '${value.renderedFrames} / ${value.skippedFrames}',
+          ),
+          _ValueRow(
+            '宿主 FFI',
+            '${value.hostFfiCallsPerSecond.toStringAsFixed(0)}/s  ${value.hostFfiMibPerSecond.toStringAsFixed(1)} MiB/s',
+          ),
+          _ValueRow(
+            '纹理 / Mesh 上传',
+            '${value.uploadedMibPerSecond.toStringAsFixed(1)} / ${value.dynamicMeshUploadedMibPerSecond.toStringAsFixed(1)} MiB/s',
+          ),
+          _ValueRow(
+            '图层视频上传',
+            '${value.videoUploadedFramesPerSecond.toStringAsFixed(1)} fps  ${value.videoUploadedMibPerSecond.toStringAsFixed(1)} MiB/s',
           ),
           if (value.droppedSamples > 0)
             _ValueRow('丢弃样本', '${value.droppedSamples}', warning: true),
@@ -165,12 +272,16 @@ class _SectionTitle extends StatelessWidget {
         if (showColumns) ...[
           const Spacer(),
           const SizedBox(
-            width: 52,
+            width: 48,
+            child: Text('now', textAlign: TextAlign.right),
+          ),
+          const SizedBox(
+            width: 48,
             child: Text('avg', textAlign: TextAlign.right),
           ),
           const SizedBox(
-            width: 52,
-            child: Text('max', textAlign: TextAlign.right),
+            width: 48,
+            child: Text('1%', textAlign: TextAlign.right),
           ),
         ],
       ],
@@ -179,26 +290,34 @@ class _SectionTitle extends StatelessWidget {
 }
 
 class _TimingRow extends StatelessWidget {
-  const _TimingRow(this.label, this.average, this.maximum);
+  const _TimingRow(this.label, this.current, this.average, this.onePercent);
   final String label;
+  final double current;
   final double average;
-  final double maximum;
+  final double onePercent;
 
   @override
   Widget build(BuildContext context) => Row(
     children: [
       Expanded(child: Text(label, overflow: TextOverflow.ellipsis)),
       SizedBox(
-        width: 52,
+        width: 48,
+        child: Text(
+          '${current.toStringAsFixed(2)}ms',
+          textAlign: TextAlign.right,
+        ),
+      ),
+      SizedBox(
+        width: 48,
         child: Text(
           '${average.toStringAsFixed(2)}ms',
           textAlign: TextAlign.right,
         ),
       ),
       SizedBox(
-        width: 52,
+        width: 48,
         child: Text(
-          '${maximum.toStringAsFixed(2)}ms',
+          '${onePercent.toStringAsFixed(2)}ms',
           textAlign: TextAlign.right,
         ),
       ),

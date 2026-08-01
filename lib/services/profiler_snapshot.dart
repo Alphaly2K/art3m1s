@@ -10,7 +10,10 @@ class ProfilerTimings {
     this.compositorMs = 0,
     this.textMs = 0,
     this.frameBuildMs = 0,
+    this.damageComputeMs = 0,
     this.transitionCaptureMs = 0,
+    this.textureUploadMs = 0,
+    this.videoUploadMs = 0,
     this.gpuSubmitMs = 0,
     this.presentMs = 0,
     this.readbackMs = 0,
@@ -33,7 +36,10 @@ class ProfilerTimings {
       compositorMs: number('compositor_ms'),
       textMs: number('text_ms'),
       frameBuildMs: number('frame_build_ms'),
+      damageComputeMs: number('damage_compute_ms'),
       transitionCaptureMs: number('transition_capture_ms'),
+      textureUploadMs: number('texture_upload_ms'),
+      videoUploadMs: number('video_upload_ms'),
       gpuSubmitMs: number('gpu_submit_ms'),
       presentMs: number('present_ms'),
       readbackMs: number('readback_ms'),
@@ -51,7 +57,10 @@ class ProfilerTimings {
   final double compositorMs;
   final double textMs;
   final double frameBuildMs;
+  final double damageComputeMs;
   final double transitionCaptureMs;
+  final double textureUploadMs;
+  final double videoUploadMs;
   final double gpuSubmitMs;
   final double presentMs;
   final double readbackMs;
@@ -73,15 +82,28 @@ class ProfilerTimings {
 class ProfilerSnapshot {
   const ProfilerSnapshot({
     required this.enabled,
-    required this.windowMs,
+    required this.sessionMs,
+    required this.sampleWindowMs,
+    required this.sampleCount,
     required this.tickHz,
     required this.renderedFps,
+    required this.current,
     required this.average,
-    required this.maximum,
+    required this.onePercent,
     required this.damagePercent,
+    required this.currentRendered,
     required this.drawCalls,
+    required this.vertices,
+    required this.textureBinds,
+    required this.drawListCommands,
+    required this.renderedFrames,
+    required this.skippedFrames,
     required this.hostFfiCallsPerSecond,
     required this.hostFfiMibPerSecond,
+    required this.uploadedMibPerSecond,
+    required this.videoUploadedMibPerSecond,
+    required this.videoUploadedFramesPerSecond,
+    required this.dynamicMeshUploadedMibPerSecond,
     required this.textureCount,
     required this.textureGpuMib,
     required this.textureCpuMib,
@@ -93,17 +115,39 @@ class ProfilerSnapshot {
   factory ProfilerSnapshot.fromJson(Map<String, dynamic> json) {
     double number(String key) => (json[key] as num?)?.toDouble() ?? 0;
     int integer(String key) => (json[key] as num?)?.toInt() ?? 0;
+    int integerWithFallback(String key, String fallback) =>
+        (json[key] as num?)?.toInt() ?? integer(fallback);
+    final average = ProfilerTimings.fromJson(json['average']);
     return ProfilerSnapshot(
       enabled: json['enabled'] == true,
-      windowMs: integer('window_ms'),
+      sessionMs: integerWithFallback('session_ms', 'window_ms'),
+      sampleWindowMs: integerWithFallback('sample_window_ms', 'window_ms'),
+      sampleCount: integer('sample_count'),
       tickHz: number('tick_hz'),
       renderedFps: number('rendered_fps'),
-      average: ProfilerTimings.fromJson(json['average']),
-      maximum: ProfilerTimings.fromJson(json['maximum']),
+      current: json.containsKey('current')
+          ? ProfilerTimings.fromJson(json['current'])
+          : average,
+      average: average,
+      onePercent: ProfilerTimings.fromJson(
+        json['one_percent'] ?? json['maximum'],
+      ),
       damagePercent: number('damage_percent'),
-      drawCalls: number('draw_calls'),
+      currentRendered: json['current_rendered'] == true,
+      drawCalls: integer('draw_calls'),
+      vertices: integer('vertices'),
+      textureBinds: integer('texture_binds'),
+      drawListCommands: integer('draw_list_commands'),
+      renderedFrames: integer('rendered_frames'),
+      skippedFrames: integer('skipped_frames'),
       hostFfiCallsPerSecond: number('host_ffi_calls_per_second'),
       hostFfiMibPerSecond: number('host_ffi_mib_per_second'),
+      uploadedMibPerSecond: number('uploaded_mib_per_second'),
+      videoUploadedMibPerSecond: number('video_uploaded_mib_per_second'),
+      videoUploadedFramesPerSecond: number('video_uploaded_frames_per_second'),
+      dynamicMeshUploadedMibPerSecond: number(
+        'dynamic_mesh_uploaded_mib_per_second',
+      ),
       textureCount: integer('texture_count'),
       textureGpuMib: number('texture_gpu_mib'),
       textureCpuMib: number('texture_cpu_mib'),
@@ -114,15 +158,28 @@ class ProfilerSnapshot {
   }
 
   final bool enabled;
-  final int windowMs;
+  final int sessionMs;
+  final int sampleWindowMs;
+  final int sampleCount;
   final double tickHz;
   final double renderedFps;
+  final ProfilerTimings current;
   final ProfilerTimings average;
-  final ProfilerTimings maximum;
+  final ProfilerTimings onePercent;
   final double damagePercent;
-  final double drawCalls;
+  final bool currentRendered;
+  final int drawCalls;
+  final int vertices;
+  final int textureBinds;
+  final int drawListCommands;
+  final int renderedFrames;
+  final int skippedFrames;
   final double hostFfiCallsPerSecond;
   final double hostFfiMibPerSecond;
+  final double uploadedMibPerSecond;
+  final double videoUploadedMibPerSecond;
+  final double videoUploadedFramesPerSecond;
+  final double dynamicMeshUploadedMibPerSecond;
   final int textureCount;
   final double textureGpuMib;
   final double textureCpuMib;
