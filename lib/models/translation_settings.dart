@@ -19,7 +19,7 @@ enum TranslationProvider {
   youdao;
 
   String get label => switch (this) {
-    TranslationProvider.openAi => 'OpenAI',
+    TranslationProvider.openAi => 'LLM Web API（OpenAI 兼容）',
     TranslationProvider.anthropic => 'Anthropic',
     TranslationProvider.deepL => 'DeepL',
     TranslationProvider.google => 'Google 翻译',
@@ -48,6 +48,10 @@ enum TranslationProvider {
       this == TranslationProvider.openAi ||
       this == TranslationProvider.anthropic;
 
+  bool get usesLlmProtocol =>
+      this == TranslationProvider.openAi ||
+      this == TranslationProvider.anthropic;
+
   bool get usesApiKey =>
       this == TranslationProvider.openAi ||
       this == TranslationProvider.anthropic ||
@@ -61,6 +65,40 @@ enum TranslationProvider {
       this == TranslationProvider.openAi ||
       this == TranslationProvider.anthropic ||
       this == TranslationProvider.deepL;
+}
+
+class TranslationLanguageOption {
+  const TranslationLanguageOption(this.value, this.label);
+
+  final String value;
+  final String label;
+}
+
+const translationSourceLanguages = <TranslationLanguageOption>[
+  TranslationLanguageOption('自动检测', '自动检测'),
+  ...translationTargetLanguages,
+];
+
+const translationTargetLanguages = <TranslationLanguageOption>[
+  TranslationLanguageOption('日语', '日语'),
+  TranslationLanguageOption('简体中文', '简体中文'),
+  TranslationLanguageOption('繁体中文', '繁体中文'),
+  TranslationLanguageOption('英语', '英语'),
+  TranslationLanguageOption('韩语', '韩语'),
+  TranslationLanguageOption('法语', '法语'),
+  TranslationLanguageOption('德语', '德语'),
+  TranslationLanguageOption('西班牙语', '西班牙语'),
+  TranslationLanguageOption('俄语', '俄语'),
+  TranslationLanguageOption('葡萄牙语', '葡萄牙语'),
+];
+
+String translationLanguageSelection(
+  String current,
+  List<TranslationLanguageOption> options,
+) {
+  return options.any((option) => option.value == current)
+      ? current
+      : options.first.value;
 }
 
 class TranslationProviderConfig {

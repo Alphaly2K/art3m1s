@@ -36,8 +36,45 @@ void main() {
       expect(result.translation, '水豚');
       expect(result.request.headers['authorization'], 'Bearer openai-key');
       final body = jsonDecode(result.request.body) as Map;
-      expect(body['input'], '鬼天竺鼠');
-      expect(body['instructions'], contains('カピバラ'));
+      final input = jsonDecode(body['input'] as String) as Map;
+      expect((input['segments'] as List).first['text'], '鬼天竺鼠');
+      expect((input['segments'] as List).first['ruby'], 'カピバラ');
+      expect(body['instructions'], contains('translations'));
+    });
+
+    test('OpenAI-compatible API adapts DeepSeek request parameters', () async {
+      final mock = await _MockApi.start({
+        'choices': [
+          {
+            'finish_reason': 'stop',
+            'message': {
+              'content': jsonEncode({
+                'translations': [
+                  {'id': 0, 'translation': '你好'},
+                ],
+              }),
+            },
+          },
+        ],
+      }, path: '/chat/completions');
+      final result = await _translate(
+        mock,
+        TranslationSettings(
+          mode: TranslationMode.online,
+          provider: TranslationProvider.openAi,
+          endpoint: mock.endpoint,
+          apiKey: 'deepseek-key',
+          model: 'deepseek-v4-flash',
+        ),
+        'こんにちは',
+      );
+
+      expect(result.translation, '你好');
+      final body = jsonDecode(result.request.body) as Map;
+      expect(body['thinking'], {'type': 'disabled'});
+      expect(body['response_format'], {'type': 'json_object'});
+      expect(body['max_tokens'], greaterThanOrEqualTo(1024));
+      expect((body['messages'] as List).first['content'], contains('JSON'));
     });
 
     test('Anthropic Messages uses required headers', () async {
@@ -198,10 +235,22 @@ void main() {
           if (active > maxActive) maxActive = active;
           final body =
               jsonDecode(await utf8.decoder.bind(request).join()) as Map;
+          final input = jsonDecode(body['input'] as String) as Map;
+          final segments = input['segments'] as List;
           await release.future;
           request.response.headers.contentType = ContentType.json;
           request.response.write(
-            jsonEncode({'output_text': '译:${body['input']}'}),
+            jsonEncode({
+              'output_text': jsonEncode({
+                'translations': [
+                  for (final segment in segments)
+                    {
+                      'id': segment['id'],
+                      'translation': '译:${segment['text']}',
+                    },
+                ],
+              }),
+            }),
           );
           await request.response.close();
           active--;
@@ -236,18 +285,18 @@ void main() {
           add('C');
           add('D');
           add('E');
-          for (var i = 0; i < 100 && requestCount < 3; i++) {
+          for (var i = 0; i < 100 && requestCount < 1; i++) {
             await Future<void>.delayed(const Duration(milliseconds: 5));
           }
-          expect(requestCount, 3);
-          expect(maxActive, 3);
+          expect(requestCount, 1);
+          expect(maxActive, 1);
           expect(results.every((result) => !result.isCompleted), isTrue);
 
           release.complete();
           final translated = await Future.wait(
             results.map((result) => result.future),
           ).timeout(const Duration(seconds: 5));
-          expect(requestCount, 5, reason: '重复的 A 应共享同一条 HTTP 请求');
+          expect(requestCount, 1, reason: '相邻片段应合并请求，重复的 A 应共享结果');
           expect(maxActive, lessThanOrEqualTo(3));
           expect(translated, ['译:A', '译:A', '译:B', '译:C', '译:D', '译:E']);
         } finally {
@@ -352,7 +401,9 @@ class _MockApi {
       request.headers.forEach((name, values) {
         headers[name] = values.join(',');
       });
-      completer.complete(_CapturedRequest(request.uri, headers, body));
+      if (!completer.isCompleted) {
+        completer.complete(_CapturedRequest(request.uri, headers, body));
+      }
       request.response.headers.contentType = ContentType.json;
       request.response.write(jsonEncode(responseBody));
       await request.response.close();

@@ -181,22 +181,54 @@ class _FluentTranslationSettingsScreenState
         _FluentSection(
           title: '语言',
           children: [
-            _FieldRow(
+            _FluentSettingRow(
               key: const ValueKey('translation-source-language'),
-              label: '源语言 / 代码',
-              initialValue: value.sourceLanguage,
-              onChanged: (text) => _save(
-                'sourceLanguage',
-                (v) => v.copyWith(sourceLanguage: text),
+              label: '源语言',
+              control: ComboBox<String>(
+                value: translationLanguageSelection(
+                  value.sourceLanguage,
+                  translationSourceLanguages,
+                ),
+                items: [
+                  for (final option in translationSourceLanguages)
+                    ComboBoxItem(
+                      value: option.value,
+                      child: Text(option.label),
+                    ),
+                ],
+                onChanged: (language) {
+                  if (language == null) return;
+                  _save(
+                    'sourceLanguage',
+                    (v) => v.copyWith(sourceLanguage: language),
+                    immediate: true,
+                  );
+                },
               ),
             ),
-            _FieldRow(
+            _FluentSettingRow(
               key: const ValueKey('translation-target-language'),
-              label: '目标语言 / 代码',
-              initialValue: value.targetLanguage,
-              onChanged: (text) => _save(
-                'targetLanguage',
-                (v) => v.copyWith(targetLanguage: text),
+              label: '目标语言',
+              control: ComboBox<String>(
+                value: translationLanguageSelection(
+                  value.targetLanguage,
+                  translationTargetLanguages,
+                ),
+                items: [
+                  for (final option in translationTargetLanguages)
+                    ComboBoxItem(
+                      value: option.value,
+                      child: Text(option.label),
+                    ),
+                ],
+                onChanged: (language) {
+                  if (language == null) return;
+                  _save(
+                    'targetLanguage',
+                    (v) => v.copyWith(targetLanguage: language),
+                    immediate: true,
+                  );
+                },
               ),
             ),
           ],
@@ -247,7 +279,11 @@ class _FluentSettingRow extends StatelessWidget {
   final String label;
   final Widget control;
 
-  const _FluentSettingRow({required this.label, required this.control});
+  const _FluentSettingRow({
+    super.key,
+    required this.label,
+    required this.control,
+  });
 
   @override
   Widget build(BuildContext context) {

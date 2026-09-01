@@ -232,22 +232,54 @@ class _MacosTranslationSettingsScreenState
         _Section(
           title: '语言',
           children: [
-            _FieldRow(
+            _SettingRow(
               key: const ValueKey('translation-source-language'),
-              label: '源语言 / 代码',
-              initialValue: value.sourceLanguage,
-              onChanged: (text) => _save(
-                'sourceLanguage',
-                (v) => v.copyWith(sourceLanguage: text),
+              label: '源语言',
+              control: MacosPopupButton<String>(
+                value: translationLanguageSelection(
+                  value.sourceLanguage,
+                  translationSourceLanguages,
+                ),
+                items: [
+                  for (final option in translationSourceLanguages)
+                    MacosPopupMenuItem(
+                      value: option.value,
+                      child: Text(option.label),
+                    ),
+                ],
+                onChanged: (language) {
+                  if (language == null) return;
+                  _save(
+                    'sourceLanguage',
+                    (v) => v.copyWith(sourceLanguage: language),
+                    immediate: true,
+                  );
+                },
               ),
             ),
-            _FieldRow(
+            _SettingRow(
               key: const ValueKey('translation-target-language'),
-              label: '目标语言 / 代码',
-              initialValue: value.targetLanguage,
-              onChanged: (text) => _save(
-                'targetLanguage',
-                (v) => v.copyWith(targetLanguage: text),
+              label: '目标语言',
+              control: MacosPopupButton<String>(
+                value: translationLanguageSelection(
+                  value.targetLanguage,
+                  translationTargetLanguages,
+                ),
+                items: [
+                  for (final option in translationTargetLanguages)
+                    MacosPopupMenuItem(
+                      value: option.value,
+                      child: Text(option.label),
+                    ),
+                ],
+                onChanged: (language) {
+                  if (language == null) return;
+                  _save(
+                    'targetLanguage',
+                    (v) => v.copyWith(targetLanguage: language),
+                    immediate: true,
+                  );
+                },
               ),
             ),
           ],
@@ -319,7 +351,7 @@ class _SettingRow extends StatelessWidget {
   final String label;
   final Widget control;
 
-  const _SettingRow({required this.label, required this.control});
+  const _SettingRow({super.key, required this.label, required this.control});
 
   @override
   Widget build(BuildContext context) {

@@ -26,6 +26,7 @@ class TextTranslationService {
   final Queue<_TranslationJob> _queue = Queue();
   final Map<String, _TranslationJob> _jobs = {};
   int _activeJobs = 0;
+  Timer? _queuePumpTimer;
   Timer? _cacheWriteTimer;
   bool _disposed = false;
 
@@ -88,6 +89,7 @@ class TextTranslationService {
       _scheduleCacheWrite();
       return translated;
     } catch (error, stackTrace) {
+      if (_disposed) return null;
       Log.error('[Translation:${settings.provider.label}] 在线翻译失败: $error');
       Log.debug(stackTrace.toString());
       return null;
@@ -132,30 +134,67 @@ class TextTranslationService {
     final job = _TranslationJob(key, source, ruby, onComplete);
     _jobs[key] = job;
     _queue.add(job);
-    scheduleMicrotask(_pumpQueue);
+    _scheduleQueuePump();
+  }
+
+  void _scheduleQueuePump() {
+    if (_disposed || _queuePumpTimer != null) return;
+    // 同一段剧情常被 ruby/rt/font 标签拆成多个紧邻的 ScenarioText。
+    // 稍等一个很短的窗口，把这些片段放进同一次 LLM 请求，既保留样式跨度，
+    // 又让模型看到完整上下文。
+    _queuePumpTimer = Timer(const Duration(milliseconds: 12), () {
+      _queuePumpTimer = null;
+      _pumpQueue();
+    });
   }
 
   void _pumpQueue() {
     if (_disposed) return;
     while (_activeJobs < _maxConcurrent && _queue.isNotEmpty) {
-      final job = _queue.removeFirst();
+      final jobs = <_TranslationJob>[];
+      final batchSize = settings.provider.usesLlmProtocol ? 12 : 1;
+      while (jobs.length < batchSize && _queue.isNotEmpty) {
+        jobs.add(_queue.removeFirst());
+      }
       _activeJobs++;
-      unawaited(_runJob(job));
+      unawaited(_runJobs(jobs));
     }
   }
 
-  Future<void> _runJob(_TranslationJob job) async {
-    String? translated;
+  Future<void> _runJobs(List<_TranslationJob> jobs) async {
+    var translated = List<String?>.filled(jobs.length, null);
     try {
-      translated = await translate(job.source, ruby: job.ruby);
+      final values = await _TranslationApiClient(settings, _client)
+          .translateBatch([
+            for (final job in jobs) _TranslationInput(job.source, job.ruby),
+          ]);
+      if (!_disposed) {
+        translated = values;
+        for (var i = 0; i < jobs.length; i++) {
+          final value = translated[i];
+          if (value == null || value.isEmpty) continue;
+          _cache[jobs[i].key] = value;
+        }
+        if (translated.any((value) => value != null)) {
+          _scheduleCacheWrite();
+        }
+      }
+    } catch (error, stackTrace) {
+      if (!_disposed) {
+        Log.error('[Translation:${settings.provider.label}] 在线翻译失败: $error');
+        Log.debug(stackTrace.toString());
+      }
     } finally {
       _activeJobs--;
-      if (identical(_jobs.remove(job.key), job)) {
-        for (final callback in job.callbacks) {
-          try {
-            callback(translated);
-          } catch (error) {
-            Log.warn('[Translation] 回填回调失败: $error');
+      for (var i = 0; i < jobs.length; i++) {
+        final job = jobs[i];
+        if (identical(_jobs.remove(job.key), job)) {
+          for (final callback in job.callbacks) {
+            try {
+              callback(translated[i]);
+            } catch (error) {
+              Log.warn('[Translation] 回填回调失败: $error');
+            }
           }
         }
       }
@@ -165,8 +204,10 @@ class TextTranslationService {
 
   String _cacheKey(String source, {String? ruby}) {
     return [
-      'v2',
+      'v3',
       settings.provider.name,
+      settings.endpoint.trim(),
+      settings.model.trim(),
       settings.sourceLanguage,
       settings.targetLanguage,
       ruby ?? '',
@@ -199,6 +240,7 @@ class TextTranslationService {
     if (_disposed) return;
     _disposed = true;
     _cacheWriteTimer?.cancel();
+    _queuePumpTimer?.cancel();
     _queue.clear();
     _jobs.clear();
     await _writeCache();
@@ -307,61 +349,97 @@ class _TranslationJob {
   final List<void Function(String? translation)> callbacks;
 }
 
+class _TranslationInput {
+  const _TranslationInput(this.source, this.ruby);
+
+  final String source;
+  final String? ruby;
+}
+
 class _TranslationApiClient {
   const _TranslationApiClient(this.settings, this.client);
 
   final TranslationSettings settings;
   final HttpClient client;
 
-  Future<String?> translate(String source, {String? ruby}) {
-    return switch (settings.provider) {
-      TranslationProvider.openAi => _translateOpenAi(source, ruby),
-      TranslationProvider.anthropic => _translateAnthropic(source, ruby),
-      TranslationProvider.deepL => _translateDeepL(source, ruby),
-      TranslationProvider.google => _translateGoogle(source),
-      TranslationProvider.baidu => _translateBaidu(source),
-      TranslationProvider.youdao => _translateYoudao(source),
-    };
+  Future<String?> translate(String source, {String? ruby}) async {
+    return (await translateBatch([_TranslationInput(source, ruby)])).first;
   }
 
-  Future<String?> _translateOpenAi(String source, String? ruby) async {
+  Future<List<String?>> translateBatch(List<_TranslationInput> inputs) async {
+    if (inputs.isEmpty) return const [];
+    if (settings.provider.usesLlmProtocol) {
+      return _withRetry(() {
+        return switch (settings.provider) {
+          TranslationProvider.openAi => _translateOpenAi(inputs),
+          TranslationProvider.anthropic => _translateAnthropic(inputs),
+          _ => throw StateError('unreachable LLM provider'),
+        };
+      });
+    }
+    return Future.wait([
+      for (final input in inputs)
+        switch (settings.provider) {
+          TranslationProvider.deepL => _translateDeepL(
+            input.source,
+            input.ruby,
+          ),
+          TranslationProvider.google => _translateGoogle(input.source),
+          TranslationProvider.baidu => _translateBaidu(input.source),
+          TranslationProvider.youdao => _translateYoudao(input.source),
+          _ => throw StateError('unreachable translation provider'),
+        },
+    ]);
+  }
+
+  Future<List<String?>> _translateOpenAi(List<_TranslationInput> inputs) async {
     final endpoint = _endpoint();
     final headers = <String, String>{};
     if (settings.apiKey.trim().isNotEmpty) {
       headers[HttpHeaders.authorizationHeader] =
           'Bearer ${settings.apiKey.trim()}';
     }
-    final prompt = _systemPrompt(ruby);
+    final prompt = _batchSystemPrompt(inputs.length);
+    final input = _batchInput(inputs);
     final useResponses = endpoint.path.endsWith('/responses');
+    final maxTokens = _maxOutputTokens(inputs);
     final body = useResponses
         ? <String, dynamic>{
             'model': _required(settings.model, 'Model'),
             'instructions': prompt,
-            'input': source,
-            'max_output_tokens': 1024,
+            'input': input,
+            'max_output_tokens': maxTokens,
           }
         : <String, dynamic>{
             'model': _required(settings.model, 'Model'),
             'temperature': 0,
+            'max_tokens': maxTokens,
             'messages': [
               {'role': 'system', 'content': prompt},
-              {'role': 'user', 'content': source},
+              {'role': 'user', 'content': input},
             ],
           };
+    if (_isDeepSeek(endpoint)) {
+      body['thinking'] = {'type': 'disabled'};
+      body['response_format'] = {'type': 'json_object'};
+    }
     final decoded = await _postJson(endpoint, body, headers: headers);
     _throwApiError(decoded);
-    return _extractOpenAi(decoded);
+    _ensureOpenAiCompleted(decoded, responses: useResponses);
+    return _parseBatchResponse(_extractOpenAi(decoded), inputs);
   }
 
-  Future<String?> _translateAnthropic(String source, String? ruby) async {
+  Future<List<String?>> _translateAnthropic(
+    List<_TranslationInput> inputs,
+  ) async {
     final decoded = await _postJson(
       _endpoint(),
       {
         'model': _required(settings.model, 'Model'),
-        'max_tokens': 1024,
-        'system': _systemPrompt(ruby),
+        'max_tokens': _maxOutputTokens(inputs),
+        'system': _batchSystemPrompt(inputs.length),
         'messages': [
-          {'role': 'user', 'content': source},
+          {'role': 'user', 'content': _batchInput(inputs)},
         ],
       },
       headers: {
@@ -370,17 +448,27 @@ class _TranslationApiClient {
       },
     );
     _throwApiError(decoded);
+    final stopReason = decoded is Map
+        ? decoded['stop_reason']?.toString()
+        : null;
+    if (stopReason != null &&
+        stopReason != 'end_turn' &&
+        stopReason != 'stop_sequence') {
+      throw _IncompleteTranslationException(
+        'Anthropic stop_reason=$stopReason',
+      );
+    }
     final content = decoded is Map ? decoded['content'] : null;
     if (content is List) {
       for (final block in content) {
         if (block is Map &&
             block['type'] == 'text' &&
             block['text'] is String) {
-          return (block['text'] as String).trim();
+          return _parseBatchResponse(block['text'] as String, inputs);
         }
       }
     }
-    return null;
+    throw const FormatException('Anthropic 响应缺少文本内容');
   }
 
   Future<String?> _translateDeepL(String source, String? ruby) async {
@@ -522,15 +610,142 @@ class _TranslationApiClient {
     return endpoint;
   }
 
-  String _systemPrompt(String? ruby) {
-    final rubyContext = ruby == null || ruby.isEmpty
-        ? ''
-        : ' The source span has ruby reading "$ruby"; translate only the base '
-              'text and do not repeat the ruby reading.';
-    return 'Translate visual novel dialogue from ${settings.sourceLanguage} '
-        'to ${settings.targetLanguage}. Preserve names, punctuation, line '
-        'breaks, formatting markers, and control-like tokens.$rubyContext '
-        'Return only the translated text.';
+  String _batchSystemPrompt(int count) {
+    return 'Translate $count ordered visual-novel text segment(s) from '
+        '${settings.sourceLanguage} to ${settings.targetLanguage}. Neighboring '
+        'segments belong to the same passage, so use all segments as context, '
+        'but return one translation for every input id without merging, '
+        'omitting, or reordering them. Preserve names, punctuation, line '
+        'breaks, formatting markers, and control-like tokens. Ruby is reading '
+        'context only; do not repeat it. Return JSON only in exactly this '
+        'shape: {"translations":[{"id":0,"translation":"..."}]}. '
+        'Do not add notes, alternatives, arrows, or markdown.';
+  }
+
+  String _batchInput(List<_TranslationInput> inputs) {
+    return jsonEncode({
+      'segments': [
+        for (var i = 0; i < inputs.length; i++)
+          {
+            'id': i,
+            'text': inputs[i].source,
+            if (inputs[i].ruby?.isNotEmpty == true) 'ruby': inputs[i].ruby,
+          },
+      ],
+    });
+  }
+
+  int _maxOutputTokens(List<_TranslationInput> inputs) {
+    final sourceCharacters = inputs.fold<int>(
+      0,
+      (total, input) => total + input.source.runes.length,
+    );
+    return (sourceCharacters * 4 + 512).clamp(1024, 8192).toInt();
+  }
+
+  bool _isDeepSeek(Uri endpoint) {
+    return endpoint.host.toLowerCase().endsWith('deepseek.com') ||
+        settings.model.toLowerCase().startsWith('deepseek-');
+  }
+
+  Future<T> _withRetry<T>(Future<T> Function() request) async {
+    Object? lastError;
+    StackTrace? lastStackTrace;
+    for (var attempt = 0; attempt < 3; attempt++) {
+      try {
+        return await request();
+      } catch (error, stackTrace) {
+        lastError = error;
+        lastStackTrace = stackTrace;
+        if (attempt == 2 || !_isRetryable(error)) rethrow;
+        await Future<void>.delayed(Duration(milliseconds: 250 * (attempt + 1)));
+      }
+    }
+    Error.throwWithStackTrace(lastError!, lastStackTrace!);
+  }
+
+  bool _isRetryable(Object error) {
+    if (error is SocketException ||
+        error is TimeoutException ||
+        error is _IncompleteTranslationException) {
+      return true;
+    }
+    if (error is _TranslationHttpException) {
+      return error.statusCode == 408 ||
+          error.statusCode == 409 ||
+          error.statusCode == 429 ||
+          error.statusCode >= 500;
+    }
+    // DeepSeek documents occasional empty JSON-mode responses. Retry malformed
+    // or empty model output, but do not broadly retry protocol errors elsewhere.
+    return error is FormatException &&
+        _isDeepSeek(_endpoint()) &&
+        !error.message.toString().contains('未填写');
+  }
+
+  List<String?> _parseBatchResponse(
+    String? raw,
+    List<_TranslationInput> inputs,
+  ) {
+    if (raw == null || raw.trim().isEmpty) {
+      throw const FormatException('翻译响应为空');
+    }
+    final cleaned = raw
+        .trim()
+        .replaceFirst(RegExp(r'^```(?:json)?\s*', caseSensitive: false), '')
+        .replaceFirst(RegExp(r'\s*```$'), '')
+        .trim();
+
+    dynamic decoded;
+    try {
+      decoded = jsonDecode(cleaned);
+    } on FormatException {
+      if (inputs.length == 1) {
+        return [_validateTranslation(inputs.first.source, cleaned)];
+      }
+      rethrow;
+    }
+
+    final values = List<String?>.filled(inputs.length, null);
+    if (decoded is Map &&
+        decoded['translation'] is String &&
+        inputs.length == 1) {
+      values[0] = _validateTranslation(
+        inputs[0].source,
+        decoded['translation'] as String,
+      );
+    } else {
+      final translations = decoded is Map ? decoded['translations'] : decoded;
+      if (translations is! List) {
+        throw const FormatException('翻译 JSON 缺少 translations 数组');
+      }
+      for (var index = 0; index < translations.length; index++) {
+        final item = translations[index];
+        final id = item is Map
+            ? int.tryParse(item['id']?.toString() ?? '') ?? index
+            : index;
+        final text = item is Map ? item['translation'] : item;
+        if (id < 0 || id >= values.length || text is! String) continue;
+        values[id] = _validateTranslation(inputs[id].source, text);
+      }
+    }
+    if (values.every((value) => value == null)) {
+      throw const FormatException('翻译响应没有可用译文');
+    }
+    return values;
+  }
+
+  String? _validateTranslation(String source, String translated) {
+    final value = translated.trim();
+    if (value.isEmpty) return null;
+    final target = _canonicalLanguage(settings.targetLanguage);
+    if (value == source.trim() &&
+        target.startsWith('zh') &&
+        RegExp(r'[\u3040-\u30ff]').hasMatch(source)) {
+      Log.warn('[Translation] 模型原样返回了含假名的原文，结果未写入缓存');
+      return null;
+    }
+    return value;
   }
 
   String _providerLanguage(String raw, {required bool target}) {
@@ -590,6 +805,7 @@ class _TranslationApiClient {
         .postUrl(endpoint)
         .timeout(const Duration(seconds: 15));
     request.headers.contentType = ContentType.json;
+    request.headers.set(HttpHeaders.acceptHeader, 'application/json');
     headers.forEach(request.headers.set);
     request.write(jsonEncode(body));
     return _readResponse(request, endpoint);
@@ -612,9 +828,10 @@ class _TranslationApiClient {
     final response = await request.close().timeout(const Duration(seconds: 60));
     final body = await utf8.decoder.bind(response).join();
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw HttpException(
-        'HTTP ${response.statusCode}: ${_shorten(body, 400)}',
-        uri: endpoint,
+      throw _TranslationHttpException(
+        response.statusCode,
+        _shorten(body, 400),
+        endpoint,
       );
     }
     try {
@@ -644,8 +861,18 @@ class _TranslationApiClient {
     final choices = decoded['choices'];
     if (choices is List && choices.isNotEmpty && choices.first is Map) {
       final message = (choices.first as Map)['message'];
-      if (message is Map && message['content'] is String) {
-        return (message['content'] as String).trim();
+      if (message is Map) {
+        final content = message['content'];
+        if (content is String) return content.trim();
+        if (content is List) {
+          final parts = <String>[];
+          for (final part in content) {
+            if (part is Map && part['text'] is String) {
+              parts.add(part['text'] as String);
+            }
+          }
+          if (parts.isNotEmpty) return parts.join().trim();
+        }
       }
       if ((choices.first as Map)['text'] is String) {
         return ((choices.first as Map)['text'] as String).trim();
@@ -654,16 +881,47 @@ class _TranslationApiClient {
 
     final output = decoded['output'];
     if (output is List) {
+      final parts = <String>[];
       for (final item in output) {
         if (item is! Map || item['content'] is! List) continue;
         for (final content in item['content'] as List) {
-          if (content is Map && content['text'] is String) {
-            return (content['text'] as String).trim();
+          if (content is Map &&
+              (content['type'] == null || content['type'] == 'output_text') &&
+              content['text'] is String) {
+            parts.add(content['text'] as String);
           }
         }
       }
+      if (parts.isNotEmpty) return parts.join().trim();
     }
     return null;
+  }
+
+  static void _ensureOpenAiCompleted(
+    dynamic decoded, {
+    required bool responses,
+  }) {
+    if (decoded is! Map) throw const FormatException('API 响应不是对象');
+    if (responses) {
+      final status = decoded['status']?.toString();
+      if (status == 'incomplete' || status == 'failed') {
+        final reason = decoded['incomplete_details'] is Map
+            ? (decoded['incomplete_details'] as Map)['reason']
+            : decoded['error'];
+        throw _IncompleteTranslationException(
+          'Responses status=$status reason=${reason ?? 'unknown'}',
+        );
+      }
+      return;
+    }
+    final choices = decoded['choices'];
+    if (choices is! List || choices.isEmpty || choices.first is! Map) return;
+    final finishReason = (choices.first as Map)['finish_reason']?.toString();
+    if (finishReason != null && finishReason != 'stop') {
+      throw _IncompleteTranslationException(
+        'Chat Completions finish_reason=$finishReason',
+      );
+    }
   }
 
   static String _required(String value, String field) {
@@ -696,4 +954,24 @@ class _TranslationApiClient {
         ? value
         : '${value.substring(0, maxLength)}...';
   }
+}
+
+class _IncompleteTranslationException implements Exception {
+  const _IncompleteTranslationException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
+class _TranslationHttpException implements Exception {
+  const _TranslationHttpException(this.statusCode, this.body, this.uri);
+
+  final int statusCode;
+  final String body;
+  final Uri uri;
+
+  @override
+  String toString() => 'HTTP $statusCode: $body, uri = $uri';
 }

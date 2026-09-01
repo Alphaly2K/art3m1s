@@ -194,27 +194,73 @@ class _MaterialTranslationSettingsScreenState
               ),
             const Divider(height: 32),
             const _SectionHeader('语言'),
-            _SettingField(
+            _LanguageDropdown(
               key: const ValueKey('translation-source-language'),
-              label: '源语言 / 代码',
-              initialValue: value.sourceLanguage,
-              onChanged: (text) => _save(
+              label: '源语言',
+              value: translationLanguageSelection(
+                value.sourceLanguage,
+                translationSourceLanguages,
+              ),
+              options: translationSourceLanguages,
+              onChanged: (language) => _save(
                 'sourceLanguage',
-                (value) => value.copyWith(sourceLanguage: text),
+                (value) => value.copyWith(sourceLanguage: language),
+                immediate: true,
               ),
             ),
-            _SettingField(
+            _LanguageDropdown(
               key: const ValueKey('translation-target-language'),
-              label: '目标语言 / 代码',
-              initialValue: value.targetLanguage,
-              onChanged: (text) => _save(
+              label: '目标语言',
+              value: translationLanguageSelection(
+                value.targetLanguage,
+                translationTargetLanguages,
+              ),
+              options: translationTargetLanguages,
+              onChanged: (language) => _save(
                 'targetLanguage',
-                (value) => value.copyWith(targetLanguage: text),
+                (value) => value.copyWith(targetLanguage: language),
+                immediate: true,
               ),
             ),
           ],
           const SizedBox(height: 24),
         ],
+      ),
+    );
+  }
+}
+
+class _LanguageDropdown extends StatelessWidget {
+  const _LanguageDropdown({
+    super.key,
+    required this.label,
+    required this.value,
+    required this.options,
+    required this.onChanged,
+  });
+
+  final String label;
+  final String value;
+  final List<TranslationLanguageOption> options;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 6, 16, 6),
+      child: DropdownButtonFormField<String>(
+        initialValue: value,
+        decoration: InputDecoration(
+          labelText: label,
+          border: const OutlineInputBorder(),
+        ),
+        items: [
+          for (final option in options)
+            DropdownMenuItem(value: option.value, child: Text(option.label)),
+        ],
+        onChanged: (value) {
+          if (value != null) onChanged(value);
+        },
       ),
     );
   }

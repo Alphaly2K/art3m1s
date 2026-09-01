@@ -110,7 +110,24 @@ void main() {
       expect(TranslationProvider.baidu.usesAppCredentials, isTrue);
       expect(TranslationProvider.youdao.usesAppCredentials, isTrue);
       expect(TranslationProvider.anthropic.usesModel, isTrue);
+      expect(TranslationProvider.openAi.usesLlmProtocol, isTrue);
+      expect(TranslationProvider.openAi.label, contains('OpenAI 兼容'));
       expect(TranslationProvider.google.usesModel, isFalse);
+    });
+
+    test('language selectors expose auto only for source language', () {
+      expect(
+        translationSourceLanguages.map((language) => language.value),
+        contains('自动检测'),
+      );
+      expect(
+        translationTargetLanguages.map((language) => language.value),
+        isNot(contains('自动检测')),
+      );
+      expect(
+        translationLanguageSelection('unknown', translationTargetLanguages),
+        translationTargetLanguages.first.value,
+      );
     });
 
     test('provider credentials round-trip independently', () {

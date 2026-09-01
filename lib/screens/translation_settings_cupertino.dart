@@ -200,23 +200,49 @@ class _CupertinoTranslationSettingsScreenState
         CupertinoListSection.insetGrouped(
           header: const Text('语言'),
           children: [
-            _FieldRow(
+            CupertinoListTile.notched(
               key: const ValueKey('translation-source-language'),
-              label: '源语言 / 代码',
-              initialValue: value.sourceLanguage,
-              onChanged: (text) => _save(
-                'sourceLanguage',
-                (v) => v.copyWith(sourceLanguage: text),
-              ),
+              title: const Text('源语言'),
+              additionalInfo: Text(value.sourceLanguage),
+              trailing: const CupertinoListTileChevron(),
+              onTap: () async {
+                final language = await _pickOption<String>(
+                  title: '源语言',
+                  options: [
+                    for (final option in translationSourceLanguages)
+                      (option.value, option.label),
+                  ],
+                );
+                if (language != null) {
+                  _save(
+                    'sourceLanguage',
+                    (v) => v.copyWith(sourceLanguage: language),
+                    immediate: true,
+                  );
+                }
+              },
             ),
-            _FieldRow(
+            CupertinoListTile.notched(
               key: const ValueKey('translation-target-language'),
-              label: '目标语言 / 代码',
-              initialValue: value.targetLanguage,
-              onChanged: (text) => _save(
-                'targetLanguage',
-                (v) => v.copyWith(targetLanguage: text),
-              ),
+              title: const Text('目标语言'),
+              additionalInfo: Text(value.targetLanguage),
+              trailing: const CupertinoListTileChevron(),
+              onTap: () async {
+                final language = await _pickOption<String>(
+                  title: '目标语言',
+                  options: [
+                    for (final option in translationTargetLanguages)
+                      (option.value, option.label),
+                  ],
+                );
+                if (language != null) {
+                  _save(
+                    'targetLanguage',
+                    (v) => v.copyWith(targetLanguage: language),
+                    immediate: true,
+                  );
+                }
+              },
             ),
           ],
         ),
