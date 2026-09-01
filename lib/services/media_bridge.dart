@@ -4,7 +4,6 @@ import 'dart:io';
 import 'dart:isolate';
 import 'dart:math' as math;
 
-import 'package:audioplayers/audioplayers.dart';
 import 'package:ffi/ffi.dart';
 import 'package:flutter/widgets.dart';
 import 'package:media_kit/media_kit.dart' as media_kit;
@@ -50,6 +49,7 @@ class MediaBridge {
     'voice': 1,
   };
   final Map<String, _AudioHandle> _sounds = {};
+  final MediaOperationGate _audioOperations = MediaOperationGate();
   final Map<String, File> _assetCache = {};
   final _MediaKitVideoPool _fullscreenVideoPool = _MediaKitVideoPool();
   final Directory _cacheDir = Directory.systemTemp.createTempSync(
@@ -80,13 +80,13 @@ class MediaBridge {
         case 'audio_bgm_play':
           await _playBgm(payload, fadeMs: _int(payload['fade_ms']));
         case 'audio_bgm_crossfade':
-          await _playBgm(payload, fadeMs: _int(payload['time_ms']));
+          await _crossfadeBgm(payload, durationMs: _int(payload['time_ms']));
         case 'audio_bgm_stop':
           await _stopBgm(fadeMs: _int(payload['fade_ms']));
         case 'audio_bgm_fade':
           await _fadeBgm(payload);
         case 'audio_bgm_pan':
-          break;
+          await _panBgm(payload);
         case 'audio_se_play':
           await _playSound(payload, channel: 'se');
         case 'audio_se_stop':
@@ -97,7 +97,7 @@ class MediaBridge {
         case 'audio_se_fade':
           await _fadeSound(_string(payload['id']), payload, channel: 'se');
         case 'audio_se_pan':
-          break;
+          await _panSound(_string(payload['id']), payload, channel: 'se');
         case 'audio_voice_play':
           await _playSound(payload, channel: 'voice');
         case 'audio_stop_all':
@@ -132,46 +132,152 @@ class MediaBridge {
     Map<String, dynamic> payload, {
     required int fadeMs,
   }) async {
-    final file = await _resolveAsset(payload);
-    if (file == null) {
-      _soundFinishedCallback(null);
-      return;
-    }
-    // Artemis 的 *_a / *_b BGM 是分段循环：A 为只播一次的引导段，
-    // A 结束后切到 B 无限循环。Core 已解析命名约定并传来这两个字段。
-    final loopFile = await _resolveAsset(
-      payload,
-      fileKey: 'loop_file',
-      resolvedFileKey: 'resolved_loop_file',
-    );
-    await _bgm?.dispose();
-    final gain = _gain(payload['gain']);
-    final handle = await _AudioHandle.create(
-      id: null,
-      file: file,
-      loopFile: loopFile,
-      channel: 'bgm',
-      gain: gain,
-      pan: _pan(payload['pan']),
-      loop: _bool(payload['loop']),
-      onCompleted: (_) {
-        final completed = _bgm;
-        _bgm = null;
-        if (completed != null) unawaited(completed.dispose());
+    final ticket = _audioOperations.begin(_bgmOperationKey);
+    try {
+      final file = await _resolveAsset(payload);
+      if (!_isCurrentAudioOperation(ticket)) return;
+      if (file == null) {
         _soundFinishedCallback(null);
-      },
-    );
-    _bgm = handle;
-    await handle.setEffectiveVolume(
-      fadeMs > 0 ? 0 : _effectiveVolume('bgm', gain),
-    );
-    await handle.play();
-    if (fadeMs > 0) {
-      await handle.fadeTo(_effectiveVolume('bgm', gain), fadeMs);
+        return;
+      }
+      // Artemis 的 *_a / *_b BGM 是分段循环：A 为只播一次的引导段，
+      // A 结束后切到 B 无限循环。Core 已解析命名约定并传来这两个字段。
+      final loopFile = await _resolveAsset(
+        payload,
+        fileKey: 'loop_file',
+        resolvedFileKey: 'resolved_loop_file',
+      );
+      if (!_isCurrentAudioOperation(ticket)) return;
+
+      final previous = _bgm;
+      _bgm = null;
+      if (previous != null) await previous.dispose();
+      if (!_isCurrentAudioOperation(ticket)) return;
+
+      final gain = _gain(payload['gain']);
+      _AudioHandle? handle;
+      final created = await _AudioHandle.create(
+        id: null,
+        file: file,
+        loopFile: loopFile,
+        channel: 'bgm',
+        gain: gain,
+        pan: _pan(payload['pan']),
+        loop: _bool(payload['loop']),
+        onCompleted: (_) {
+          final completed = handle;
+          if (completed == null) return;
+          if (!_isCurrentAudioOperation(ticket) ||
+              !identical(_bgm, completed)) {
+            unawaited(completed.dispose());
+            return;
+          }
+          _bgm = null;
+          unawaited(completed.dispose());
+          _soundFinishedCallback(null);
+        },
+      );
+      handle = created;
+      if (!_isCurrentAudioOperation(ticket)) {
+        await created.dispose();
+        return;
+      }
+
+      _bgm = created;
+      await created.setEffectiveVolume(
+        fadeMs > 0 ? 0 : _effectiveVolume('bgm', gain),
+      );
+      if (!_isCurrentAudioOperation(ticket) || !identical(_bgm, created)) {
+        return;
+      }
+      await created.play();
+      if (fadeMs > 0 && _isCurrentAudioOperation(ticket)) {
+        await created.fadeTo(_effectiveVolume('bgm', gain), fadeMs);
+      }
+    } catch (_) {
+      if (!_isCurrentAudioOperation(ticket)) return;
+      rethrow;
+    }
+  }
+
+  Future<void> _crossfadeBgm(
+    Map<String, dynamic> payload, {
+    required int durationMs,
+  }) async {
+    final ticket = _audioOperations.begin(_bgmOperationKey);
+    _AudioHandle? created;
+    try {
+      final file = await _resolveAsset(payload);
+      if (!_isCurrentAudioOperation(ticket)) return;
+      if (file == null) {
+        _soundFinishedCallback(null);
+        return;
+      }
+
+      final loopFile = await _resolveAsset(
+        payload,
+        fileKey: 'loop_file',
+        resolvedFileKey: 'resolved_loop_file',
+      );
+      if (!_isCurrentAudioOperation(ticket)) return;
+
+      final gain = _gain(payload['gain']);
+      _AudioHandle? callbackHandle;
+      created = await _AudioHandle.create(
+        id: null,
+        file: file,
+        loopFile: loopFile,
+        channel: 'bgm',
+        gain: gain,
+        pan: _pan(payload['pan']),
+        loop: _bool(payload['loop']),
+        onCompleted: (_) {
+          final completed = callbackHandle;
+          if (completed == null) return;
+          if (!_isCurrentAudioOperation(ticket) ||
+              !identical(_bgm, completed)) {
+            unawaited(completed.dispose());
+            return;
+          }
+          _bgm = null;
+          unawaited(completed.dispose());
+          _soundFinishedCallback(null);
+        },
+      );
+      callbackHandle = created;
+      if (!_isCurrentAudioOperation(ticket)) {
+        await created.dispose();
+        return;
+      }
+
+      final previous = _bgm;
+      _bgm = created;
+      await created.setEffectiveVolume(
+        durationMs > 0 ? 0 : _effectiveVolume('bgm', gain),
+      );
+      if (!_isCurrentAudioOperation(ticket) || !identical(_bgm, created)) {
+        return;
+      }
+      await created.play();
+
+      if (durationMs > 0) {
+        await Future.wait([
+          created.fadeTo(_effectiveVolume('bgm', gain), durationMs),
+          if (previous != null) previous.fadeTo(0, durationMs),
+        ]);
+      }
+      if (previous != null) await previous.dispose();
+    } catch (_) {
+      if (created != null && !identical(_bgm, created)) {
+        await created.dispose();
+      }
+      if (!_isCurrentAudioOperation(ticket)) return;
+      rethrow;
     }
   }
 
   Future<void> _stopBgm({required int fadeMs}) async {
+    _audioOperations.invalidate(_bgmOperationKey);
     final bgm = _bgm;
     _bgm = null;
     if (bgm == null) return;
@@ -189,50 +295,91 @@ class MediaBridge {
     );
   }
 
+  Future<void> _panBgm(Map<String, dynamic> payload) async {
+    final bgm = _bgm;
+    if (bgm == null) return;
+    await bgm.panTo(_pan(payload['pan']), _int(payload['time_ms']));
+  }
+
   Future<void> _playSound(
     Map<String, dynamic> payload, {
     required String channel,
   }) async {
-    final file = await _resolveAsset(payload);
-    if (file == null) {
-      _soundFinishedCallback(_string(payload['id']));
-      return;
-    }
     final id = _string(payload['id']) ?? '';
     final key = _soundKey(channel, id);
-    await _sounds.remove(key)?.dispose();
-    final gain = _gain(payload['gain']);
-    final handle = await _AudioHandle.create(
-      id: id,
-      file: file,
-      loopFile: null,
-      channel: channel,
-      gain: gain,
-      pan: _pan(payload['pan']),
-      loop: _bool(payload['loop']),
-      onCompleted: (finishedId) {
-        final completed = _sounds.remove(key);
-        if (completed != null) unawaited(completed.dispose());
-        _soundFinishedCallback(finishedId);
-      },
-    );
-    _sounds[key] = handle;
-    final fadeMs = _int(payload['fade_ms']);
-    await handle.setEffectiveVolume(
-      fadeMs > 0 ? 0 : _effectiveVolume(channel, gain),
-    );
-    await handle.play();
-    if (fadeMs > 0) {
-      await handle.fadeTo(_effectiveVolume(channel, gain), fadeMs);
+    final ticket = _audioOperations.begin(key);
+    try {
+      final file = await _resolveAsset(payload);
+      if (!_isCurrentAudioOperation(ticket)) return;
+      if (file == null) {
+        _soundFinishedCallback(id);
+        return;
+      }
+
+      final previous = _sounds.remove(key);
+      if (previous != null) await previous.dispose();
+      if (!_isCurrentAudioOperation(ticket)) return;
+
+      final gain = _gain(payload['gain']);
+      _AudioHandle? handle;
+      final created = await _AudioHandle.create(
+        id: id,
+        file: file,
+        loopFile: null,
+        channel: channel,
+        gain: gain,
+        pan: _pan(payload['pan']),
+        loop: _bool(payload['loop']),
+        onCompleted: (finishedId) {
+          final completed = handle;
+          if (completed == null) return;
+          if (!_isCurrentAudioOperation(ticket) ||
+              !identical(_sounds[key], completed)) {
+            unawaited(completed.dispose());
+            return;
+          }
+          _sounds.remove(key);
+          unawaited(completed.dispose());
+          _soundFinishedCallback(finishedId);
+        },
+      );
+      handle = created;
+      if (!_isCurrentAudioOperation(ticket)) {
+        await created.dispose();
+        return;
+      }
+
+      _sounds[key] = created;
+      final fadeMs = _int(payload['fade_ms']);
+      await created.setEffectiveVolume(
+        fadeMs > 0 ? 0 : _effectiveVolume(channel, gain),
+      );
+      if (!_isCurrentAudioOperation(ticket) ||
+          !identical(_sounds[key], created)) {
+        return;
+      }
+      await created.play();
+      if (fadeMs > 0 && _isCurrentAudioOperation(ticket)) {
+        await created.fadeTo(_effectiveVolume(channel, gain), fadeMs);
+      }
+    } catch (_) {
+      if (!_isCurrentAudioOperation(ticket)) return;
+      rethrow;
     }
   }
 
   Future<void> _stopSound(String? id, {required int fadeMs}) async {
     if (id == null) return;
-    final keys = _sounds.keys.where((key) => key.endsWith(':$id')).toList();
+    final keys = {_soundKey('se', id), _soundKey('voice', id)};
+    for (final key in keys) {
+      _audioOperations.invalidate(key);
+    }
+    final handles = <_AudioHandle>[];
     for (final key in keys) {
       final handle = _sounds.remove(key);
-      if (handle == null) continue;
+      if (handle != null) handles.add(handle);
+    }
+    for (final handle in handles) {
       if (fadeMs > 0) await handle.fadeTo(0, fadeMs);
       await handle.dispose();
     }
@@ -244,7 +391,7 @@ class MediaBridge {
     required String channel,
   }) async {
     if (id == null) return;
-    final handle = _sounds[_soundKey(channel, id)];
+    final handle = _controlledSound(id, preferredChannel: channel);
     if (handle == null) return;
     handle.gain = _gain(payload['gain'], fallback: handle.gain);
     await handle.fadeTo(
@@ -253,13 +400,40 @@ class MediaBridge {
     );
   }
 
+  Future<void> _panSound(
+    String? id,
+    Map<String, dynamic> payload, {
+    required String channel,
+  }) async {
+    if (id == null) return;
+    final handle = _controlledSound(id, preferredChannel: channel);
+    if (handle == null) return;
+    await handle.panTo(_pan(payload['pan']), _int(payload['time_ms']));
+  }
+
   Future<void> _stopAllAudio() async {
-    await _stopBgm(fadeMs: 0);
+    _audioOperations.invalidateAll();
+    final bgm = _bgm;
+    _bgm = null;
     final handles = _sounds.values.toList();
     _sounds.clear();
+    if (bgm != null) await bgm.dispose();
     for (final handle in handles) {
       await handle.dispose();
     }
+  }
+
+  bool _isCurrentAudioOperation(MediaOperationTicket ticket) {
+    return !_disposed && _audioOperations.isCurrent(ticket);
+  }
+
+  _AudioHandle? _controlledSound(
+    String id, {
+    required String preferredChannel,
+  }) {
+    final preferred = _sounds[_soundKey(preferredChannel, id)];
+    if (preferred != null) return preferred;
+    return _sounds[_soundKey(preferredChannel == 'voice' ? 'se' : 'voice', id)];
   }
 
   Future<void> _playVideo(Map<String, dynamic> payload) async {
@@ -566,7 +740,7 @@ class MediaBridge {
         unawaited(_stopLayerVideo(id, notify: false));
       }
       _videoFinishedCallback(id);
-    } else if (kind == 'audio_bgm_play') {
+    } else if (kind == 'audio_bgm_play' || kind == 'audio_bgm_crossfade') {
       _soundFinishedCallback(null);
     } else if (kind == 'audio_se_play') {
       _soundFinishedCallback(_string(payload['id']));
@@ -607,7 +781,6 @@ class _AudioHandle {
   _AudioHandle({
     required this.id,
     required this.player,
-    required this.gaplessPlayer,
     required this.channel,
     required this.gain,
     required this.pan,
@@ -617,14 +790,19 @@ class _AudioHandle {
   });
 
   final String? id;
-  final AudioPlayer? player;
-  final media_kit.Player? gaplessPlayer;
+  final media_kit.Player player;
   final String channel;
   final bool loop;
   final void Function(String? id) onCompleted;
   double gain;
   double pan;
   Timer? _fadeTimer;
+  Completer<void>? _fadeCompleter;
+  Timer? _panTimer;
+  Completer<void>? _panCompleter;
+  Timer? _loopSegmentPollTimer;
+  bool _loopSegmentPollInFlight = false;
+  int _loopSegmentPollFailures = 0;
   bool _completed = false;
   bool _loopSegmentStarted = false;
   bool _disposed = false;
@@ -652,23 +830,10 @@ class _AudioHandle {
         onCompleted: onCompleted,
       );
     }
-    // Windows Media Foundation does not reliably support Artemis OGG assets.
-    // On macOS, audioplayers_darwin routes AVPlayer through the time-domain
-    // mixer; long-running OGG playback on recent macOS releases leaves Caulk
-    // realtime allocator regions behind until the process exhausts memory.
-    // Both bundles already ship libmpv, so use the stable media_kit path.
-    if (Platform.isWindows || Platform.isMacOS) {
-      return _createMediaKitSingle(
-        id: id,
-        file: file,
-        channel: channel,
-        gain: gain,
-        pan: pan,
-        loop: loop,
-        onCompleted: onCompleted,
-      );
-    }
-    return _createSimple(
+    // Every native target already bundles libmpv for video. Keeping audio on
+    // the same decoder avoids target-specific codec support and completion
+    // semantics from leaking into Artemis' audio model.
+    return _createMediaKitSingle(
       id: id,
       file: file,
       channel: channel,
@@ -693,8 +858,7 @@ class _AudioHandle {
     late final _AudioHandle handle;
     handle = _AudioHandle(
       id: id,
-      player: null,
-      gaplessPlayer: player,
+      player: player,
       channel: channel,
       gain: gain,
       pan: pan,
@@ -711,7 +875,10 @@ class _AudioHandle {
     );
     subscriptions.add(
       player.stream.error.listen((error) {
-        Log.warn('[MediaBridge] libmpv 音频解码失败: ${file.path}: $error');
+        Log.warn(
+          '[MediaBridge] libmpv 音频解码失败: '
+          'channel=$channel id=${id ?? "bgm"} file=${file.path}: $error',
+        );
         if (handle._disposed || handle._completed) return;
         handle._completed = true;
         onCompleted(id);
@@ -722,55 +889,11 @@ class _AudioHandle {
         loop ? media_kit.PlaylistMode.single : media_kit.PlaylistMode.none,
       );
       await player.open(media_kit.Media(file.uri.toString()), play: false);
-      if (pan.abs() > 0.001) {
-        Log.debug(
-          '[MediaBridge] libmpv 音频暂不应用声像: '
-          '${file.path}, pan=$pan',
-        );
-      }
-      Log.debug('[MediaBridge] libmpv 音频已准备: ${file.path}');
-      return handle;
-    } catch (_) {
-      await Future.wait(subscriptions.map((sub) => sub.cancel()));
-      await player.dispose();
-      rethrow;
-    }
-  }
-
-  static Future<_AudioHandle> _createSimple({
-    required String? id,
-    required File file,
-    required String channel,
-    required double gain,
-    required double pan,
-    required bool loop,
-    required void Function(String? id) onCompleted,
-  }) async {
-    final player = AudioPlayer();
-    final subscriptions = <StreamSubscription<dynamic>>[];
-    late final _AudioHandle handle;
-    subscriptions.add(
-      player.onPlayerComplete.listen((_) {
-        handle._handleSimplePlayerComplete();
-      }),
-    );
-    try {
-      handle = _AudioHandle(
-        id: id,
-        player: player,
-        gaplessPlayer: null,
-        channel: channel,
-        gain: gain,
-        pan: pan,
-        loop: loop,
-        onCompleted: onCompleted,
-        subscriptions: subscriptions,
+      await handle.setPan(pan);
+      Log.debug(
+        '[MediaBridge] libmpv 音频已准备: '
+        'channel=$channel id=${id ?? "bgm"} file=${file.path}',
       );
-      await player.setReleaseMode(
-        loop ? ReleaseMode.loop : ReleaseMode.release,
-      );
-      await player.setBalance(pan);
-      await player.setSource(DeviceFileSource(file.path));
       return handle;
     } catch (_) {
       await Future.wait(subscriptions.map((sub) => sub.cancel()));
@@ -793,21 +916,13 @@ class _AudioHandle {
     late final _AudioHandle handle;
     handle = _AudioHandle(
       id: id,
-      player: null,
-      gaplessPlayer: player,
+      player: player,
       channel: channel,
       gain: gain,
       pan: pan,
       loop: true,
       onCompleted: onCompleted,
       subscriptions: subscriptions,
-    );
-    subscriptions.add(
-      player.stream.playlist.listen((playlist) {
-        if (playlist.index != 1 || handle._loopSegmentStarted) return;
-        handle._loopSegmentStarted = true;
-        unawaited(handle._lockGaplessLoop(loopFile));
-      }),
     );
     // media_kit 的 completed 表示“当前 Media 播放结束”，而不是整个
     // Playlist 播放结束。A 段结束时 completed 会先于 playlist.index=1
@@ -834,6 +949,8 @@ class _AudioHandle {
         ]),
         play: false,
       );
+      await handle.setPan(pan);
+      handle._monitorGaplessLoop(loopFile);
       Log.debug(
         '[MediaBridge] BGM A-B 无缝播放列表已准备: '
         '${file.path} -> ${loopFile.path}',
@@ -847,48 +964,98 @@ class _AudioHandle {
   }
 
   Future<void> play() {
-    final nativePlayer = gaplessPlayer;
-    if (nativePlayer != null) return nativePlayer.play();
-    return player!.resume();
+    return player.play();
   }
 
-  void _handleSimplePlayerComplete() {
-    if (_disposed || _completed) return;
-    if (loop) return;
-    _completed = true;
-    onCompleted(id);
+  void _monitorGaplessLoop(File loopFile) {
+    _loopSegmentPollTimer?.cancel();
+    _loopSegmentPollTimer = Timer.periodic(
+      const Duration(milliseconds: 50),
+      (_) => unawaited(_pollGaplessLoop(loopFile)),
+    );
   }
 
-  Future<void> _lockGaplessLoop(File loopFile) async {
-    final nativePlayer = gaplessPlayer;
-    if (_disposed || nativePlayer == null) return;
+  Future<void> _pollGaplessLoop(File loopFile) async {
+    if (_disposed || _loopSegmentStarted || _loopSegmentPollInFlight) return;
+    _loopSegmentPollInFlight = true;
     try {
-      await nativePlayer.setPlaylistMode(media_kit.PlaylistMode.single);
+      final platform = player.platform;
+      if (platform == null) return;
+      final index = await (platform as dynamic).getProperty(
+        'playlist-playing-pos',
+      );
+      if (index.toString().trim() != '1' || _loopSegmentStarted) return;
+      // media_kit 1.2.6 leaves playlist state notifications disabled after
+      // open(), so Player.stream.playlist never reports the A -> B edge. Set
+      // libmpv's property directly once B is active.
+      await (platform as dynamic).setProperty('loop-file', 'inf');
+      _loopSegmentStarted = true;
+      _loopSegmentPollTimer?.cancel();
+      _loopSegmentPollTimer = null;
       Log.debug('[MediaBridge] BGM 已无缝进入 B 段循环: ${loopFile.path}');
     } catch (error, stackTrace) {
-      Log.error(
-        '[MediaBridge] BGM B 段循环设置失败: ${loopFile.path}: '
-        '$error\n$stackTrace',
-      );
-      if (!_disposed && !_completed) {
-        _completed = true;
-        onCompleted(id);
+      _loopSegmentPollFailures += 1;
+      if (_loopSegmentPollFailures == 1 ||
+          _loopSegmentPollFailures % 50 == 0) {
+        Log.warn(
+          '[MediaBridge] BGM B 段检测暂时失败 '
+          '(attempt=$_loopSegmentPollFailures): ${loopFile.path}: '
+          '$error\n$stackTrace',
+        );
       }
+    } finally {
+      _loopSegmentPollInFlight = false;
     }
   }
 
   Future<void> setEffectiveVolume(double volume) async {
     _effectiveVolume = volume.clamp(0, 1);
-    final nativePlayer = gaplessPlayer;
-    if (nativePlayer != null) {
-      await nativePlayer.setVolume(_effectiveVolume * 100);
-    } else {
-      await player!.setVolume(_effectiveVolume);
+    await player.setVolume(_effectiveVolume * 100);
+  }
+
+  Future<void> setPan(double value) async {
+    pan = value.clamp(-1, 1);
+    final platform = player.platform;
+    if (platform == null) return;
+    if (pan.abs() <= 0.001) {
+      await (platform as dynamic).setProperty('af', '');
+      return;
     }
+    final left = pan > 0 ? 1 - pan : 1.0;
+    final right = pan < 0 ? 1 + pan : 1.0;
+    final filter =
+        'lavfi=[pan=stereo|c0=${left.toStringAsFixed(4)}*c0|'
+        'c1=${right.toStringAsFixed(4)}*c1]';
+    await (platform as dynamic).setProperty('af', filter);
+  }
+
+  Future<void> panTo(double target, int durationMs) async {
+    _cancelPan();
+    target = target.clamp(-1, 1);
+    if (durationMs <= 0) {
+      await setPan(target);
+      return;
+    }
+    final start = pan;
+    final steps = math.max(1, durationMs ~/ 33);
+    var step = 0;
+    final completer = _panCompleter = Completer<void>();
+    _panTimer = Timer.periodic(const Duration(milliseconds: 33), (timer) {
+      step += 1;
+      final t = (step / steps).clamp(0, 1).toDouble();
+      unawaited(setPan(start + (target - start) * t));
+      if (step >= steps) {
+        timer.cancel();
+        _panTimer = null;
+        if (!completer.isCompleted) completer.complete();
+        if (identical(_panCompleter, completer)) _panCompleter = null;
+      }
+    });
+    return completer.future;
   }
 
   Future<void> fadeTo(double target, int durationMs) async {
-    _fadeTimer?.cancel();
+    _cancelFade();
     if (durationMs <= 0) {
       await setEffectiveVolume(target);
       return;
@@ -896,30 +1063,46 @@ class _AudioHandle {
     final start = _effectiveVolume;
     final steps = math.max(1, durationMs ~/ 33);
     var step = 0;
-    final completer = Completer<void>();
+    final completer = _fadeCompleter = Completer<void>();
     _fadeTimer = Timer.periodic(const Duration(milliseconds: 33), (timer) {
       step += 1;
       final t = (step / steps).clamp(0, 1).toDouble();
       unawaited(setEffectiveVolume(start + (target - start) * t));
       if (step >= steps) {
         timer.cancel();
+        _fadeTimer = null;
         if (!completer.isCompleted) completer.complete();
+        if (identical(_fadeCompleter, completer)) _fadeCompleter = null;
       }
     });
     return completer.future;
   }
 
-  Future<void> dispose() async {
-    _disposed = true;
+  void _cancelFade() {
     _fadeTimer?.cancel();
+    _fadeTimer = null;
+    final completer = _fadeCompleter;
+    _fadeCompleter = null;
+    if (completer != null && !completer.isCompleted) completer.complete();
+  }
+
+  void _cancelPan() {
+    _panTimer?.cancel();
+    _panTimer = null;
+    final completer = _panCompleter;
+    _panCompleter = null;
+    if (completer != null && !completer.isCompleted) completer.complete();
+  }
+
+  Future<void> dispose() async {
+    if (_disposed) return;
+    _disposed = true;
+    _cancelFade();
+    _cancelPan();
+    _loopSegmentPollTimer?.cancel();
+    _loopSegmentPollTimer = null;
     await Future.wait(subscriptions.map((sub) => sub.cancel()));
-    final nativePlayer = gaplessPlayer;
-    if (nativePlayer != null) {
-      await nativePlayer.dispose();
-    } else {
-      await player!.stop();
-      await player!.dispose();
-    }
+    await player.dispose();
   }
 }
 
@@ -1962,6 +2145,44 @@ Future<T> _maybeTimeout<T>(Future<T> future, Duration? timeout) {
 }
 
 String _soundKey(String channel, String id) => '$channel:$id';
+
+const String _bgmOperationKey = 'bgm';
+
+final class MediaOperationTicket {
+  const MediaOperationTicket(this.key, this.epoch, this.generation);
+
+  final String key;
+  final int epoch;
+  final int generation;
+}
+
+/// 为异步媒体命令分配代次，只允许同一 key 的最新命令继续生效。
+///
+/// 不同 key（例如不同 SE id）仍可并行；[invalidateAll] 用于 stop-all 与销毁。
+final class MediaOperationGate {
+  int _epoch = 0;
+  final Map<String, int> _generations = {};
+
+  MediaOperationTicket begin(String key) {
+    final generation = (_generations[key] ?? 0) + 1;
+    _generations[key] = generation;
+    return MediaOperationTicket(key, _epoch, generation);
+  }
+
+  void invalidate(String key) {
+    _generations[key] = (_generations[key] ?? 0) + 1;
+  }
+
+  void invalidateAll() {
+    _epoch += 1;
+    _generations.clear();
+  }
+
+  bool isCurrent(MediaOperationTicket ticket) {
+    return ticket.epoch == _epoch &&
+        _generations[ticket.key] == ticket.generation;
+  }
+}
 
 String _stableId(String value) {
   var hash = 2166136261;
