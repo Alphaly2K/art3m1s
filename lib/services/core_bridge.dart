@@ -279,6 +279,8 @@ class AvoidOverlay {
 
 typedef RuntimeCreateNative =
     Pointer<Void> Function(Uint32 w, Uint32 h, Int32 backend);
+typedef RuntimeSetEmoteBackendNative =
+    Int32 Function(Pointer<Void> rt, Int32 backend);
 typedef RuntimeLoadProjectNative =
     Int32 Function(Pointer<Void> rt, Pointer<Utf8> ini, Pointer<Utf8> platform);
 typedef RuntimeLoadProjectBytesNative =
@@ -948,6 +950,24 @@ class CoreBridge {
           Pointer<Void> Function(int, int, int)
         >('art3m1s_runtime_create');
     _runtime = fn(stageW, stageH, backend);
+  }
+
+  /// Selects an optional E-Mote implementation before project loading.
+  /// Older cores do not export this symbol and keep the built-in path.
+  bool setEmoteBackend(int backend) {
+    if (_runtime == null || _lib == null) return false;
+    if (backend == 0) return true;
+    try {
+      final fn = _lib!
+          .lookupFunction<
+            RuntimeSetEmoteBackendNative,
+            int Function(Pointer<Void>, int)
+          >('art3m1s_runtime_set_emote_backend');
+      return fn(_runtime!, backend) != 0;
+    } catch (error) {
+      Log.warn('[CoreBridge] E-Mote 后端选择不可用: $error');
+      return false;
+    }
   }
 
   bool loadProject(String iniContent, {String platform = 'WINDOWS'}) {

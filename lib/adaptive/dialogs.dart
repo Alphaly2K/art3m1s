@@ -13,6 +13,7 @@ class GameEditData {
   final bool translationEnabled;
   final String translationPatchPath;
   final bool environmentPatchEnabled;
+  final bool experimentalElunaEnabled;
 
   const GameEditData({
     required this.name,
@@ -20,6 +21,7 @@ class GameEditData {
     required this.translationEnabled,
     required this.translationPatchPath,
     required this.environmentPatchEnabled,
+    required this.experimentalElunaEnabled,
   });
 }
 
@@ -154,6 +156,7 @@ Future<GameEditData?> showGameEditDialog(
   bool initialTranslationEnabled = false,
   String initialTranslationPatchPath = '',
   bool initialEnvironmentPatchEnabled = false,
+  bool initialExperimentalElunaEnabled = false,
 }) {
   if (Platform.isMacOS) {
     return showMacosAlertDialog<GameEditData>(
@@ -165,6 +168,7 @@ Future<GameEditData?> showGameEditDialog(
         initialTranslationEnabled: initialTranslationEnabled,
         initialTranslationPatchPath: initialTranslationPatchPath,
         initialEnvironmentPatchEnabled: initialEnvironmentPatchEnabled,
+        initialExperimentalElunaEnabled: initialExperimentalElunaEnabled,
       ),
     );
   }
@@ -178,6 +182,7 @@ Future<GameEditData?> showGameEditDialog(
         initialTranslationEnabled: initialTranslationEnabled,
         initialTranslationPatchPath: initialTranslationPatchPath,
         initialEnvironmentPatchEnabled: initialEnvironmentPatchEnabled,
+        initialExperimentalElunaEnabled: initialExperimentalElunaEnabled,
       ),
     );
   }
@@ -191,6 +196,7 @@ Future<GameEditData?> showGameEditDialog(
         initialTranslationEnabled: initialTranslationEnabled,
         initialTranslationPatchPath: initialTranslationPatchPath,
         initialEnvironmentPatchEnabled: initialEnvironmentPatchEnabled,
+        initialExperimentalElunaEnabled: initialExperimentalElunaEnabled,
       ),
     );
   }
@@ -203,6 +209,7 @@ Future<GameEditData?> showGameEditDialog(
       initialTranslationEnabled: initialTranslationEnabled,
       initialTranslationPatchPath: initialTranslationPatchPath,
       initialEnvironmentPatchEnabled: initialEnvironmentPatchEnabled,
+      initialExperimentalElunaEnabled: initialExperimentalElunaEnabled,
     ),
   );
 }
@@ -216,6 +223,7 @@ class _MacosEditDialog extends StatefulWidget {
   final bool initialTranslationEnabled;
   final String initialTranslationPatchPath;
   final bool initialEnvironmentPatchEnabled;
+  final bool initialExperimentalElunaEnabled;
 
   const _MacosEditDialog({
     required this.title,
@@ -224,6 +232,7 @@ class _MacosEditDialog extends StatefulWidget {
     required this.initialTranslationEnabled,
     required this.initialTranslationPatchPath,
     required this.initialEnvironmentPatchEnabled,
+    required this.initialExperimentalElunaEnabled,
   });
 
   @override
@@ -238,6 +247,7 @@ class _MacosEditDialogState extends State<_MacosEditDialog> {
   late bool _translationEnabled;
   late String _translationPatchPath;
   late bool _environmentPatchEnabled;
+  late bool _experimentalElunaEnabled;
 
   @override
   void initState() {
@@ -246,6 +256,7 @@ class _MacosEditDialogState extends State<_MacosEditDialog> {
     _translationEnabled = widget.initialTranslationEnabled;
     _translationPatchPath = widget.initialTranslationPatchPath;
     _environmentPatchEnabled = widget.initialEnvironmentPatchEnabled;
+    _experimentalElunaEnabled = widget.initialExperimentalElunaEnabled;
   }
 
   @override
@@ -356,6 +367,17 @@ class _MacosEditDialogState extends State<_MacosEditDialog> {
               ),
             ],
           ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              const Expanded(child: Text('实验性 Eluna E-Mote')),
+              MacosSwitch(
+                value: _experimentalElunaEnabled,
+                onChanged: (value) =>
+                    setState(() => _experimentalElunaEnabled = value),
+              ),
+            ],
+          ),
         ],
       ),
       primaryButton: PushButton(
@@ -367,6 +389,7 @@ class _MacosEditDialogState extends State<_MacosEditDialog> {
             translationEnabled: _translationEnabled,
             translationPatchPath: _translationPatchPath,
             environmentPatchEnabled: _environmentPatchEnabled,
+            experimentalElunaEnabled: _experimentalElunaEnabled,
           ),
         ),
         child: const Text('保存'),
@@ -390,6 +413,7 @@ class _CupertinoEditDialog extends StatefulWidget {
   final bool initialTranslationEnabled;
   final String initialTranslationPatchPath;
   final bool initialEnvironmentPatchEnabled;
+  final bool initialExperimentalElunaEnabled;
 
   const _CupertinoEditDialog({
     required this.title,
@@ -398,6 +422,7 @@ class _CupertinoEditDialog extends StatefulWidget {
     required this.initialTranslationEnabled,
     required this.initialTranslationPatchPath,
     required this.initialEnvironmentPatchEnabled,
+    required this.initialExperimentalElunaEnabled,
   });
 
   @override
@@ -412,6 +437,7 @@ class _CupertinoEditDialogState extends State<_CupertinoEditDialog> {
   late bool _translationEnabled;
   late String _translationPatchPath;
   late bool _environmentPatchEnabled;
+  late bool _experimentalElunaEnabled;
 
   @override
   void initState() {
@@ -420,6 +446,7 @@ class _CupertinoEditDialogState extends State<_CupertinoEditDialog> {
     _translationEnabled = widget.initialTranslationEnabled;
     _translationPatchPath = widget.initialTranslationPatchPath;
     _environmentPatchEnabled = widget.initialEnvironmentPatchEnabled;
+    _experimentalElunaEnabled = widget.initialExperimentalElunaEnabled;
   }
 
   @override
@@ -518,6 +545,17 @@ class _CupertinoEditDialogState extends State<_CupertinoEditDialog> {
               ),
             ],
           ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              const Expanded(child: Text('实验性 Eluna E-Mote')),
+              CupertinoSwitch(
+                value: _experimentalElunaEnabled,
+                onChanged: (value) =>
+                    setState(() => _experimentalElunaEnabled = value),
+              ),
+            ],
+          ),
         ],
       ),
       actions: [
@@ -534,6 +572,7 @@ class _CupertinoEditDialogState extends State<_CupertinoEditDialog> {
               translationEnabled: _translationEnabled,
               translationPatchPath: _translationPatchPath,
               environmentPatchEnabled: _environmentPatchEnabled,
+              experimentalElunaEnabled: _experimentalElunaEnabled,
             ),
           ),
           child: const Text('保存'),
@@ -552,6 +591,7 @@ class _MaterialEditDialog extends StatefulWidget {
   final bool initialTranslationEnabled;
   final String initialTranslationPatchPath;
   final bool initialEnvironmentPatchEnabled;
+  final bool initialExperimentalElunaEnabled;
 
   const _MaterialEditDialog({
     required this.title,
@@ -560,6 +600,7 @@ class _MaterialEditDialog extends StatefulWidget {
     required this.initialTranslationEnabled,
     required this.initialTranslationPatchPath,
     required this.initialEnvironmentPatchEnabled,
+    required this.initialExperimentalElunaEnabled,
   });
 
   @override
@@ -574,6 +615,7 @@ class _MaterialEditDialogState extends State<_MaterialEditDialog> {
   late bool _translationEnabled;
   late String _translationPatchPath;
   late bool _environmentPatchEnabled;
+  late bool _experimentalElunaEnabled;
 
   @override
   void initState() {
@@ -582,6 +624,7 @@ class _MaterialEditDialogState extends State<_MaterialEditDialog> {
     _translationEnabled = widget.initialTranslationEnabled;
     _translationPatchPath = widget.initialTranslationPatchPath;
     _environmentPatchEnabled = widget.initialEnvironmentPatchEnabled;
+    _experimentalElunaEnabled = widget.initialExperimentalElunaEnabled;
   }
 
   @override
@@ -671,6 +714,13 @@ class _MaterialEditDialogState extends State<_MaterialEditDialog> {
             onChanged: (value) =>
                 setState(() => _environmentPatchEnabled = value),
           ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('实验性 Eluna E-Mote'),
+            value: _experimentalElunaEnabled,
+            onChanged: (value) =>
+                setState(() => _experimentalElunaEnabled = value),
+          ),
         ],
       ),
       actions: [
@@ -686,6 +736,7 @@ class _MaterialEditDialogState extends State<_MaterialEditDialog> {
               translationEnabled: _translationEnabled,
               translationPatchPath: _translationPatchPath,
               environmentPatchEnabled: _environmentPatchEnabled,
+              experimentalElunaEnabled: _experimentalElunaEnabled,
             ),
           ),
           child: const Text('保存'),
@@ -740,6 +791,7 @@ class _FluentEditDialog extends StatefulWidget {
   final bool initialTranslationEnabled;
   final String initialTranslationPatchPath;
   final bool initialEnvironmentPatchEnabled;
+  final bool initialExperimentalElunaEnabled;
 
   const _FluentEditDialog({
     required this.title,
@@ -748,6 +800,7 @@ class _FluentEditDialog extends StatefulWidget {
     required this.initialTranslationEnabled,
     required this.initialTranslationPatchPath,
     required this.initialEnvironmentPatchEnabled,
+    required this.initialExperimentalElunaEnabled,
   });
 
   @override
@@ -762,6 +815,7 @@ class _FluentEditDialogState extends State<_FluentEditDialog> {
   late bool _translationEnabled;
   late String _translationPatchPath;
   late bool _environmentPatchEnabled;
+  late bool _experimentalElunaEnabled;
 
   @override
   void initState() {
@@ -770,6 +824,7 @@ class _FluentEditDialogState extends State<_FluentEditDialog> {
     _translationEnabled = widget.initialTranslationEnabled;
     _translationPatchPath = widget.initialTranslationPatchPath;
     _environmentPatchEnabled = widget.initialEnvironmentPatchEnabled;
+    _experimentalElunaEnabled = widget.initialExperimentalElunaEnabled;
   }
 
   @override
@@ -870,6 +925,17 @@ class _FluentEditDialogState extends State<_FluentEditDialog> {
               ),
             ],
           ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              const Expanded(child: Text('实验性 Eluna E-Mote')),
+              fluent.ToggleSwitch(
+                checked: _experimentalElunaEnabled,
+                onChanged: (value) =>
+                    setState(() => _experimentalElunaEnabled = value),
+              ),
+            ],
+          ),
         ],
       ),
       actions: [
@@ -885,6 +951,7 @@ class _FluentEditDialogState extends State<_FluentEditDialog> {
               translationEnabled: _translationEnabled,
               translationPatchPath: _translationPatchPath,
               environmentPatchEnabled: _environmentPatchEnabled,
+              experimentalElunaEnabled: _experimentalElunaEnabled,
             ),
           ),
           child: const Text('保存'),

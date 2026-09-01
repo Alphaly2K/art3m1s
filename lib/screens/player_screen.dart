@@ -30,6 +30,7 @@ class PlayerScreen extends ConsumerStatefulWidget {
   final bool translationEnabled;
   final String translationPatchPath;
   final bool environmentPatchEnabled;
+  final bool experimentalElunaEnabled;
 
   const PlayerScreen({
     super.key,
@@ -39,6 +40,7 @@ class PlayerScreen extends ConsumerStatefulWidget {
     required this.translationEnabled,
     required this.translationPatchPath,
     required this.environmentPatchEnabled,
+    required this.experimentalElunaEnabled,
   });
 
   @override
@@ -249,6 +251,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     _bridge.registerFileReader();
     final renderBackend = ref.read(settingsProvider).backend;
     _bridge.createRuntime(_stageW, _stageH, backend: renderBackend);
+    if (widget.experimentalElunaEnabled && !_bridge.setEmoteBackend(1)) {
+      Log.warn('[E-Mote] 当前 Core 未包含实验性 Eluna 后端，已保留内置实现');
+    }
     _setProfilerEnabled(settings.debugMode && settings.profilerOverlay);
     if (!_bridge.loadProjectBytes(iniContent, platform: runtimePlatform)) {
       if (mounted) {

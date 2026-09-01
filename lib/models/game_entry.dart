@@ -15,6 +15,7 @@ class GameEntry {
   final bool translationEnabled;
   final String translationPatchPath;
   final bool environmentPatchEnabled;
+  final bool experimentalElunaEnabled;
 
   GameEntry({
     String? id,
@@ -28,6 +29,7 @@ class GameEntry {
     this.translationEnabled = false,
     this.translationPatchPath = '',
     this.environmentPatchEnabled = false,
+    this.experimentalElunaEnabled = false,
   }) : id = _normalizeId(id, path);
 
   String get displayNameOrName => displayName ?? name;
@@ -44,6 +46,7 @@ class GameEntry {
     'translationEnabled': translationEnabled,
     'translationPatchPath': translationPatchPath,
     'environmentPatchEnabled': environmentPatchEnabled,
+    'experimentalElunaEnabled': experimentalElunaEnabled,
   };
 
   factory GameEntry.fromJson(Map<String, dynamic> json) => GameEntry(
@@ -60,6 +63,7 @@ class GameEntry {
     translationEnabled: json['translationEnabled'] == true,
     translationPatchPath: json['translationPatchPath']?.toString() ?? '',
     environmentPatchEnabled: json['environmentPatchEnabled'] == true,
+    experimentalElunaEnabled: json['experimentalElunaEnabled'] == true,
   );
 
   GameEntry copyWith({
@@ -69,6 +73,7 @@ class GameEntry {
     bool? translationEnabled,
     String? translationPatchPath,
     bool? environmentPatchEnabled,
+    bool? experimentalElunaEnabled,
   }) => GameEntry(
     id: id,
     name: name,
@@ -82,6 +87,8 @@ class GameEntry {
     translationPatchPath: translationPatchPath ?? this.translationPatchPath,
     environmentPatchEnabled:
         environmentPatchEnabled ?? this.environmentPatchEnabled,
+    experimentalElunaEnabled:
+        experimentalElunaEnabled ?? this.experimentalElunaEnabled,
   );
 
   static String _normalizeId(String? id, String path) {

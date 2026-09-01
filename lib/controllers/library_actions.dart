@@ -215,6 +215,7 @@ class LibraryActions {
             translationEnabled: result.translationEnabled,
             translationPatchPath: result.translationPatchPath,
             environmentPatchEnabled: result.environmentPatchEnabled,
+            experimentalElunaEnabled: result.experimentalElunaEnabled,
           ),
         );
     Log.info('已添加: ${result.name.isNotEmpty ? result.name : defaultName}');
@@ -282,6 +283,7 @@ class LibraryActions {
       initialTranslationEnabled: entry.translationEnabled,
       initialTranslationPatchPath: entry.translationPatchPath,
       initialEnvironmentPatchEnabled: entry.environmentPatchEnabled,
+      initialExperimentalElunaEnabled: entry.experimentalElunaEnabled,
     );
     if (result == null || !context.mounted) return;
     final coverPath = await AppDataPaths.importCover(
@@ -299,6 +301,7 @@ class LibraryActions {
           translationEnabled: result.translationEnabled,
           translationPatchPath: result.translationPatchPath,
           environmentPatchEnabled: result.environmentPatchEnabled,
+          experimentalElunaEnabled: result.experimentalElunaEnabled,
         );
   }
 
@@ -327,6 +330,7 @@ class LibraryActions {
             translationEnabled: entry.translationEnabled,
             translationPatchPath: entry.translationPatchPath,
             environmentPatchEnabled: entry.environmentPatchEnabled,
+            experimentalElunaEnabled: entry.experimentalElunaEnabled,
           ),
         ),
       ),
