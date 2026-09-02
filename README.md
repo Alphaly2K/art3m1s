@@ -135,11 +135,7 @@ Documents/Art3m1s/
 Fable 的本轮 macOS UI 更新还加入了原生应用菜单、更加清晰的明暗主题图标状态和紧凑
 的游戏控制面板。
 
-项目编辑页还可以为单个游戏启用实验性 Eluna E-Mote 后端。该选项默认关闭，并要求
-core 使用 `experimental-eluna` Cargo feature 构建；旧 core 或未包含该 feature 的
-构建会继续使用内置 E-Mote 实现。Eluna 上游未附许可证正文，因此该路径仅用于本地
-兼容性试验，不属于正式分发配置。
-
+项目编辑页还可以为单个游戏启用实验性 Eluna E-Mote 后端。
 ## 关键文件
 
 | 路径 | 职责 |
