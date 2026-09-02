@@ -9,7 +9,7 @@ Art3m1s 是使用 Flutter 编写的跨平台 Artemis 视觉小说运行时宿主
 [`art3m1s-core`](https://github.com/Alphaly2K/art3m1s-core) 负责脚本执行、游戏状态和
 离屏图层合成。
 
-当前应用版本为 **1.1.2-0.2.2c**，对应 `art3m1s-core 0.2.2` 兼容周期。
+当前应用版本为 **1.2.0**，对应 `art3m1s-core 0.3.0` 兼容周期。
 
 ## 功能
 
