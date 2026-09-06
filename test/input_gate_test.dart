@@ -25,10 +25,27 @@ void main() {
       expect(gate.mouseMove, isFalse);
       expect(gate.wheelToKeys, isFalse);
       expect(gate.twoFingerRightClick, isFalse);
+      // 双指拖动 → 滚轮是触屏移植的滚动手段，默认开启。
+      expect(gate.twoFingerScrollWheel, isTrue);
       // 触屏 tap 在 core 里就是鼠标左键，必须保留。
       expect(gate.mouseButtons, isTrue);
       expect(gate.touch, isTrue);
       expect(gate.knownProfile, InputGateProfile.touchOnly);
+    });
+
+    test('forwarded keys skip the keyboard master switch but keep rules', () {
+      const gate = InputGatePolicy(
+        keyboard: false,
+        blockedKeys: {137},
+        keyRemap: {136: 38},
+      );
+      // 键盘类别已关：物理键盘全丢弃……
+      expect(gate.filterKey(136), isNull);
+      // ……但合成转发键仍可通行（经黑名单与重映射）。
+      expect(gate.filterForwardedKey(136), 38);
+      expect(gate.filterForwardedKey(137), isNull);
+      // 默认策略下两者一致。
+      expect(InputGatePolicy.full.filterForwardedKey(13), 13);
     });
 
     test('blocked keys are dropped while other keys pass', () {

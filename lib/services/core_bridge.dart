@@ -1241,6 +1241,20 @@ class CoreBridge {
     fn(_runtime!, mapped, pressed ? 1 : 0);
   }
 
+  /// 宿主合成的转发按键（滚轮/手势 → 方向键等）。只受键级黑名单与重映射
+  /// 约束，不受键盘类别主开关约束——合成事件由各自的转发开关管。
+  void feedForwardedKey(int vk, bool pressed) {
+    if (_runtime == null || _lib == null) return;
+    final mapped = _inputGate.filterForwardedKey(vk);
+    if (mapped == null) return;
+    final fn = _lib!
+        .lookupFunction<
+          RuntimeFeedKeyNative,
+          void Function(Pointer<Void>, int, int)
+        >('art3m1s_runtime_feed_key');
+    fn(_runtime!, mapped, pressed ? 1 : 0);
+  }
+
   bool submitDialog(bool accepted, String text) {
     if (_runtime == null || _lib == null) return false;
     final fn = _lib!

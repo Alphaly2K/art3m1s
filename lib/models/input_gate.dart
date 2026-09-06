@@ -43,6 +43,11 @@ class InputGatePolicy {
   /// 双指触摸 → 鼠标右键的转发开关（在播放页判定，属转发而非类别）。
   final bool twoFingerRightClick;
 
+  /// 双指拖动 → 滚轮（VK 136/137）的转发开关（在播放页判定）。
+  /// 开启时双指手势优先作为滚轮：整段手势没有明显拖动才按点按转发右键
+  /// （仍受 [twoFingerRightClick] 约束），避免菜单/回想界面一滚就误触右键。
+  final bool twoFingerScrollWheel;
+
   /// 键盘开启时仍要拦截的 VK 黑名单。
   final Set<int> blockedKeys;
 
@@ -56,6 +61,7 @@ class InputGatePolicy {
     this.touch = true,
     this.wheelToKeys = true,
     this.twoFingerRightClick = true,
+    this.twoFingerScrollWheel = false,
     this.blockedKeys = const {},
     this.keyRemap = const {},
   });
@@ -65,16 +71,25 @@ class InputGatePolicy {
 
   /// 触屏移植环境：关键盘、滚轮转发与双指右键；hover 位置不上报
   /// （触屏没有悬停概念，持续的位置流只会让不处理它的脚本见到噪声）。
+  /// 双指拖动转发为滚轮，供菜单/回想界面滚动。
   static const touchOnly = InputGatePolicy(
     keyboard: false,
     mouseMove: false,
     wheelToKeys: false,
     twoFingerRightClick: false,
+    twoFingerScrollWheel: true,
   );
 
   /// 键盘事件过滤：返回 null 表示丢弃，否则返回（可能重映射后的）VK。
   int? filterKey(int vk) {
     if (!keyboard || blockedKeys.contains(vk)) return null;
+    return keyRemap[vk] ?? vk;
+  }
+
+  /// 宿主合成转发按键（滚轮/手势 → 方向键等）的过滤：只受黑名单与重映射
+  /// 约束，不受键盘类别主开关约束——合成事件由各自的转发开关管。
+  int? filterForwardedKey(int vk) {
+    if (blockedKeys.contains(vk)) return null;
     return keyRemap[vk] ?? vk;
   }
 
@@ -94,6 +109,7 @@ class InputGatePolicy {
         touch == other.touch &&
         wheelToKeys == other.wheelToKeys &&
         twoFingerRightClick == other.twoFingerRightClick &&
+        twoFingerScrollWheel == other.twoFingerScrollWheel &&
         _setEquals(blockedKeys, other.blockedKeys) &&
         _mapEquals(keyRemap, other.keyRemap);
   }
@@ -105,6 +121,7 @@ class InputGatePolicy {
     bool? touch,
     bool? wheelToKeys,
     bool? twoFingerRightClick,
+    bool? twoFingerScrollWheel,
     Set<int>? blockedKeys,
     Map<int, int>? keyRemap,
   }) {
@@ -115,6 +132,7 @@ class InputGatePolicy {
       touch: touch ?? this.touch,
       wheelToKeys: wheelToKeys ?? this.wheelToKeys,
       twoFingerRightClick: twoFingerRightClick ?? this.twoFingerRightClick,
+      twoFingerScrollWheel: twoFingerScrollWheel ?? this.twoFingerScrollWheel,
       blockedKeys: blockedKeys ?? this.blockedKeys,
       keyRemap: keyRemap ?? this.keyRemap,
     );
@@ -127,6 +145,7 @@ class InputGatePolicy {
     'touch': touch,
     'wheelToKeys': wheelToKeys,
     'twoFingerRightClick': twoFingerRightClick,
+    'twoFingerScrollWheel': twoFingerScrollWheel,
     'blockedKeys': blockedKeys.toList()..sort(),
     'keyRemap': {
       for (final entry in keyRemap.entries) entry.key.toString(): entry.value,
@@ -143,6 +162,7 @@ class InputGatePolicy {
       touch: json['touch'] != false,
       wheelToKeys: json['wheelToKeys'] != false,
       twoFingerRightClick: json['twoFingerRightClick'] != false,
+      twoFingerScrollWheel: json['twoFingerScrollWheel'] == true,
       blockedKeys: {
         for (final vk in (json['blockedKeys'] as List? ?? const []))
           if (vk is num) vk.toInt(),
