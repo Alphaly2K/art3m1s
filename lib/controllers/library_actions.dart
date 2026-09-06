@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../adaptive/dialogs.dart';
 import '../adaptive/feedback.dart';
 import '../models/game_entry.dart';
+import '../models/input_gate.dart';
 import '../navigation/player_page_route.dart';
 import '../providers/library_provider.dart';
 import '../providers/settings_provider.dart';
@@ -16,6 +17,7 @@ import '../screens/player_screen.dart';
 import '../services/app_data_paths.dart';
 import '../services/game_importer.dart';
 import '../services/logger.dart';
+import '../services/game_manifest.dart';
 import '../services/vndb_service.dart';
 
 /// 资料库的全部业务流程，三个壳共用；壳只负责入口控件的平台样式。
@@ -151,11 +153,13 @@ class LibraryActions {
         ? GameSource.pfsArchive
         : GameSource.directory;
     final gameId = _gameIdForPath(game.path);
+    final manifest = await GameManifest.discover(game.path, source);
     final metadata = await _resolveGameMetadata(
       game.name,
       game.path,
       source,
       gameId,
+      manifest,
     );
     if (metadata == null || !context.mounted) return false;
 
@@ -170,6 +174,15 @@ class LibraryActions {
             addedAt: DateTime.now(),
             displayName: metadata.name == game.name ? null : metadata.name,
             coverPath: metadata.coverPath,
+            translationEnabled: manifest?.translationEnabled ?? false,
+            translationPatchPath: manifest?.translationPatchPath ?? '',
+            environmentPatchEnabled:
+                manifest?.environmentPatchEnabled ?? false,
+            experimentalElunaEnabled:
+                manifest?.experimentalElunaEnabled ?? false,
+            inputGate: manifest?.inputGate ?? InputGatePolicy.full,
+            vndbId: metadata.vndbId ?? '',
+            fontOverridePath: manifest?.fontOverride ?? '',
           ),
         );
     Log.info('已自动添加: ${metadata.name}');
@@ -183,11 +196,13 @@ class LibraryActions {
   ) async {
     final gameId = _gameIdForPath(path);
     notify(context, '正在获取游戏信息…');
+    final manifest = await GameManifest.discover(path, source);
     final metadata = await _resolveGameMetadata(
       defaultName,
       path,
       source,
       gameId,
+      manifest,
     );
     if (metadata == null || !context.mounted) return;
 
@@ -196,6 +211,13 @@ class LibraryActions {
       title: '添加项目',
       initialName: metadata.name,
       initialCoverPath: metadata.coverPath,
+      initialTranslationEnabled: manifest?.translationEnabled ?? false,
+      initialTranslationPatchPath: manifest?.translationPatchPath ?? '',
+      initialEnvironmentPatchEnabled:
+          manifest?.environmentPatchEnabled ?? false,
+      initialExperimentalElunaEnabled:
+          manifest?.experimentalElunaEnabled ?? false,
+      initialInputGate: manifest?.inputGate ?? InputGatePolicy.full,
     );
     if (result == null || !context.mounted) return;
     final coverPath = await AppDataPaths.importCover(result.coverPath, gameId);
@@ -217,6 +239,8 @@ class LibraryActions {
             environmentPatchEnabled: result.environmentPatchEnabled,
             experimentalElunaEnabled: result.experimentalElunaEnabled,
             inputGate: result.inputGate,
+            vndbId: metadata.vndbId ?? '',
+            fontOverridePath: manifest?.fontOverride ?? '',
           ),
         );
     Log.info('已添加: ${result.name.isNotEmpty ? result.name : defaultName}');
@@ -227,29 +251,44 @@ class LibraryActions {
     String path,
     GameSource source,
     String gameId,
+    GameManifest? manifest,
   ) async {
-    // 优先从语言表提取 gametitle，找不到时再 headless 运行到 caption。
-    // 目录名常是罗马音缩写，会命中错误 VN；整个过程均为 best-effort。
-    final caption = await CoreBridge().probeCaption(
-      projectPath: path,
-      isPfsArchive: source == GameSource.pfsArchive,
-      platform: ref.read(settingsProvider).runtimePlatform,
-    );
-    if (!context.mounted) return null;
-    // caption 常是「脏」的（含汉化译名/版本号/补丁公告），lookupGame 会切段滤垃圾。
-    final rawTitle = (caption != null && caption.trim().isNotEmpty)
-        ? caption
-        : defaultName;
-    final info = await VndbService.lookupGame(rawTitle);
-    if (!context.mounted) return null;
-    if (info == null) return _ResolvedGameMetadata(defaultName, null);
+    // 清单携带 vndbId 时精确查询；否则从语言表提取 gametitle，找不到时再
+    // headless 运行到 caption。目录名常是罗马音缩写，会命中错误 VN；
+    // 整个过程均为 best-effort。
+    VndbGameInfo? info;
+    if (manifest?.vndbId case final vndbId?) {
+      info = await VndbService.lookupById(vndbId);
+      if (!context.mounted) return null;
+    }
+    if (info == null) {
+      final caption = await CoreBridge().probeCaption(
+        projectPath: path,
+        isPfsArchive: source == GameSource.pfsArchive,
+        platform: ref.read(settingsProvider).runtimePlatform,
+      );
+      if (!context.mounted) return null;
+      // caption 常是「脏」的（含汉化译名/版本号/补丁公告），lookupGame 会切段滤垃圾。
+      final rawTitle = (caption != null && caption.trim().isNotEmpty)
+          ? caption
+          : defaultName;
+      info = await VndbService.lookupGame(rawTitle);
+      if (!context.mounted) return null;
+    }
+    if (info == null) {
+      return _ResolvedGameMetadata(
+        manifest?.name ?? defaultName,
+        null,
+        manifest?.vndbId,
+      );
+    }
 
     String? coverPath;
     if (info.imageUrl case final imageUrl?) {
       coverPath = await VndbService.downloadCover(imageUrl, gameId);
       if (!context.mounted) return null;
     }
-    return _ResolvedGameMetadata(info.title, coverPath);
+    return _ResolvedGameMetadata(info.title, coverPath, manifest?.vndbId);
   }
 
   String _pfsDisplayName(String path) => path
@@ -335,6 +374,7 @@ class LibraryActions {
             environmentPatchEnabled: entry.environmentPatchEnabled,
             experimentalElunaEnabled: entry.experimentalElunaEnabled,
             inputGate: entry.inputGate,
+            fontOverridePath: entry.fontOverridePath,
           ),
         ),
       ),
@@ -343,10 +383,11 @@ class LibraryActions {
 }
 
 class _ResolvedGameMetadata {
-  const _ResolvedGameMetadata(this.name, this.coverPath);
+  const _ResolvedGameMetadata(this.name, this.coverPath, [this.vndbId]);
 
   final String name;
   final String? coverPath;
+  final String? vndbId;
 }
 
 /// 玩家页面是 Material 组件树（Scaffold/SnackBar/对话框）。

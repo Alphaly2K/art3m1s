@@ -23,6 +23,12 @@ class GameEntry {
   /// 项目补丁可经 JSON 携带自定义规则。
   final InputGatePolicy inputGate;
 
+  /// VNDB ID（如 `v23658`），由项目清单提供；空串表示未知。
+  final String vndbId;
+
+  /// 项目清单指定的覆盖字体（游戏内相对路径）；空串表示无。
+  final String fontOverridePath;
+
   GameEntry({
     String? id,
     required this.name,
@@ -37,6 +43,8 @@ class GameEntry {
     this.environmentPatchEnabled = false,
     this.experimentalElunaEnabled = false,
     this.inputGate = InputGatePolicy.full,
+    this.vndbId = '',
+    this.fontOverridePath = '',
   }) : id = _normalizeId(id, path);
 
   String get displayNameOrName => displayName ?? name;
@@ -56,6 +64,8 @@ class GameEntry {
     'experimentalElunaEnabled': experimentalElunaEnabled,
     // 全放行默认不落盘，保持旧资料库 JSON 干净；fromJson 缺字段即回默认。
     if (!inputGate.isFull) 'inputGate': inputGate.toJson(),
+    if (vndbId.isNotEmpty) 'vndbId': vndbId,
+    if (fontOverridePath.isNotEmpty) 'fontOverridePath': fontOverridePath,
   };
 
   factory GameEntry.fromJson(Map<String, dynamic> json) => GameEntry(
@@ -76,6 +86,8 @@ class GameEntry {
     inputGate: InputGatePolicy.fromJson(
       (json['inputGate'] as Map?)?.cast<String, dynamic>(),
     ),
+    vndbId: json['vndbId']?.toString() ?? '',
+    fontOverridePath: json['fontOverridePath']?.toString() ?? '',
   );
 
   GameEntry copyWith({
@@ -87,6 +99,8 @@ class GameEntry {
     bool? environmentPatchEnabled,
     bool? experimentalElunaEnabled,
     InputGatePolicy? inputGate,
+    String? vndbId,
+    String? fontOverridePath,
   }) => GameEntry(
     id: id,
     name: name,
@@ -103,6 +117,8 @@ class GameEntry {
     experimentalElunaEnabled:
         experimentalElunaEnabled ?? this.experimentalElunaEnabled,
     inputGate: inputGate ?? this.inputGate,
+    vndbId: vndbId ?? this.vndbId,
+    fontOverridePath: fontOverridePath ?? this.fontOverridePath,
   );
 
   static String _normalizeId(String? id, String path) {

@@ -90,10 +90,22 @@ class VndbService {
     return junkWords.any((w) => lower.contains(w.toLowerCase()));
   }
 
+  /// 用 VNDB ID（如 `v23658`）精确查询标题 + 封面；无匹配或失败返回 null。
+  /// 项目清单携带 vndbId 时优先走这里，避免按名搜索命中错误作品。
+  static Future<VndbGameInfo?> lookupById(String vndbId) async {
+    final id = vndbId.trim();
+    if (id.isEmpty) return null;
+    return _query(['id', '=', id]);
+  }
+
   /// 用 [query] 查 VNDB，返回首个匹配的标题 + 封面 URL；无匹配或失败返回 null。
   static Future<VndbGameInfo?> lookup(String query) async {
     final trimmed = query.trim();
     if (trimmed.isEmpty) return null;
+    return _query(['search', '=', trimmed]);
+  }
+
+  static Future<VndbGameInfo?> _query(List<Object> filters) async {
     try {
       final request = await _client
           .postUrl(Uri.parse(_vnEndpoint))
@@ -101,14 +113,14 @@ class VndbService {
       request.headers.contentType = ContentType.json;
       request.write(
         jsonEncode({
-          'filters': ['search', '=', trimmed],
+          'filters': filters,
           'fields': 'title, image.url',
           'results': 1,
         }),
       );
       final response = await request.close().timeout(_timeout);
       if (response.statusCode != 200) {
-        Log.warn('[VNDB] 查询返回 ${response.statusCode}: $trimmed');
+        Log.warn('[VNDB] 查询返回 ${response.statusCode}: $filters');
         await response.drain<void>();
         return null;
       }

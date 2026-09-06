@@ -15,6 +15,7 @@ import '../providers/settings_provider.dart';
 import '../services/app_data_paths.dart';
 import '../services/core_bridge.dart';
 import '../services/file_provider.dart';
+import '../services/game_manifest.dart';
 import '../services/logger.dart';
 import '../services/profiler_snapshot.dart';
 import '../services/project_charset.dart';
@@ -36,6 +37,9 @@ class PlayerScreen extends ConsumerStatefulWidget {
   /// 输入门控策略（来自资料库条目/项目补丁），默认全放行。
   final InputGatePolicy inputGate;
 
+  /// 项目清单指定的覆盖字体（游戏内相对路径）；空串表示无。
+  final String fontOverridePath;
+
   const PlayerScreen({
     super.key,
     required this.gameId,
@@ -46,6 +50,7 @@ class PlayerScreen extends ConsumerStatefulWidget {
     required this.environmentPatchEnabled,
     required this.experimentalElunaEnabled,
     this.inputGate = InputGatePolicy.full,
+    this.fontOverridePath = '',
   });
 
   @override
@@ -256,12 +261,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         return;
       }
       _bridge.configureTranslation(translation);
-      // 覆盖字体是 core 的进程级全局设置：每次启动显式安装或清除，
-      // 避免上一局游戏的覆盖泄漏到本局。
-      await _applyFontOverride(ref.read(settingsProvider).translation.fontPath);
-    } else {
-      _bridge.clearFontOverride();
     }
+    // 覆盖字体是 core 的进程级全局设置：每次启动显式安装或清除，
+    // 避免上一局游戏的覆盖泄漏到本局。清单字体不依赖翻译开关。
+    await _applyFontOverride();
 
     // 输入门控：项目补丁/资料库条目的环境特化过滤，在 bridge 出口统一生效。
     _bridge.configureInputGate(widget.inputGate);
@@ -304,24 +307,50 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     _startGameLoop();
   }
 
-  /// 安装设置里的覆盖字体（译文缺字用）；路径为空或读取失败时清除覆盖，
-  /// 让 core 回到游戏脚本字体。
-  Future<void> _applyFontOverride(String fontPath) async {
-    if (fontPath.isEmpty) {
+  /// 安装本局覆盖字体；无可用来源或安装失败时清除（覆盖是 core 进程级全局
+  /// 设置，不能残留到下一局）。
+  Future<void> _applyFontOverride() async {
+    final resolved = await _resolveFontOverrideBytes();
+    if (resolved == null) {
       _bridge.clearFontOverride();
       return;
     }
-    try {
-      final bytes = await File(fontPath).readAsBytes();
-      if (_bridge.setFontOverride(bytes)) {
-        Log.info('[字体] 已安装覆盖字体: $fontPath');
-      } else {
-        Log.warn('[字体] 覆盖字体安装失败（core 过旧或字体非法）: $fontPath');
-      }
-    } catch (error) {
-      Log.warn('[字体] 覆盖字体读取失败: $fontPath: $error');
+    final (bytes, source) = resolved;
+    if (_bridge.setFontOverride(bytes)) {
+      Log.info('[字体] 已安装覆盖字体: $source');
+    } else {
+      Log.warn('[字体] 覆盖字体安装失败（core 过旧或字体非法）: $source');
       _bridge.clearFontOverride();
     }
+  }
+
+  /// 覆盖字体字节来源：翻译设置里用户显式选择的字体（仅翻译开启时）优先，
+  /// 其次是项目清单自带的游戏内字体；都没有返回 null。
+  Future<(Uint8List, String)?> _resolveFontOverrideBytes() async {
+    final globalPath = widget.translationEnabled
+        ? ref.read(settingsProvider).translation.fontPath
+        : '';
+    if (globalPath.isNotEmpty) {
+      try {
+        return (await File(globalPath).readAsBytes(), globalPath);
+      } catch (error) {
+        Log.warn('[字体] 覆盖字体读取失败: $globalPath: $error');
+        return null;
+      }
+    }
+    if (widget.fontOverridePath.isNotEmpty) {
+      final bytes = await GameManifest.readGameFile(
+        widget.projectPath,
+        widget.source,
+        widget.fontOverridePath,
+      );
+      if (bytes == null) {
+        Log.warn('[字体] 清单覆盖字体读取失败: ${widget.fontOverridePath}');
+        return null;
+      }
+      return (bytes, widget.fontOverridePath);
+    }
+    return null;
   }
 
   void _parseStageSize(Uint8List ini) {
