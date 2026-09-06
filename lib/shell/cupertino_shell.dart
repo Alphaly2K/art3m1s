@@ -351,7 +351,7 @@ class _CupertinoAboutScreen extends StatelessWidget {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'Artemis 视觉小说引擎前端\n版本 ${AppInfo.displayVersion} · AGPL-3.0',
+                          'Artemis 视觉小说引擎前端\n版本 ${AppInfo.displayVersion} · MPL-2.0',
                           style: const TextStyle(
                             fontSize: 13,
                             color: CupertinoColors.secondaryLabel,

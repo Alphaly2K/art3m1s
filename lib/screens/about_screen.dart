@@ -21,7 +21,7 @@ class AboutScreen extends StatelessWidget {
           const ListTile(
             leading: Icon(Icons.gavel_outlined),
             title: Text('Art3m1s'),
-            subtitle: Text('GNU Affero General Public License v3.0'),
+            subtitle: Text('Mozilla Public License 2.0'),
           ),
           ListTile(
             leading: const Icon(Icons.article_outlined),
@@ -33,7 +33,7 @@ class AboutScreen extends StatelessWidget {
                 context: context,
                 applicationName: 'Art3m1s',
                 applicationVersion: AppInfo.displayVersion,
-                applicationLegalese: 'AGPL-3.0',
+                applicationLegalese: 'MPL-2.0',
               );
             },
           ),

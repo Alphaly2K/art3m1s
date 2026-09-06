@@ -385,7 +385,7 @@ class _FluentAboutPage extends StatelessWidget {
               children: [
                 Text('Art3m1s', style: theme.typography.subtitle),
                 Text(
-                  'Artemis 视觉小说引擎前端 · 版本 ${AppInfo.displayVersion} · AGPL-3.0',
+                  'Artemis 视觉小说引擎前端 · 版本 ${AppInfo.displayVersion} · MPL-2.0',
                   style: theme.typography.caption?.copyWith(
                     color: theme.resources.textFillColorSecondary,
                   ),

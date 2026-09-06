@@ -271,4 +271,6 @@ flutter test
 
 ## 许可证
 
-[AGPLv3](LICENSE)
+[MPL-2.0](LICENSE)（Mozilla Public License 2.0，与引擎 core 一致）：文件级
+copyleft——修改本仓库已覆盖的文件需以 MPL-2.0 提供对应源码；应用打包与
+闭源分发不受影响。
