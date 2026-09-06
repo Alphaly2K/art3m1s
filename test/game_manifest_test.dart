@@ -19,7 +19,9 @@ void main() {
             'environmentPatchEnabled': true,
             'experimentalElunaEnabled': false,
             'fontOverride': 'font/cjk.ttf',
+            'reportedOs': 'ps4',
             'inputGate': {'keyboard': false, 'blockedKeys': [27]},
+
           }),
         ),
       )!;
@@ -30,6 +32,7 @@ void main() {
       expect(manifest.environmentPatchEnabled, isTrue);
       expect(manifest.experimentalElunaEnabled, isFalse);
       expect(manifest.fontOverride, 'font/cjk.ttf');
+      expect(manifest.reportedOs, 'ps4');
       expect(manifest.inputGate!.keyboard, isFalse);
       expect(manifest.inputGate!.blockedKeys, {27});
       // 清单里的门控 JSON 缺省字段保持全放行默认。
@@ -208,11 +211,13 @@ void main() {
         addedAt: DateTime(2026),
         vndbId: 'v23658',
         fontOverridePath: 'font/cjk.ttf',
+        reportedOs: 'switch',
         inputGate: InputGatePolicy.touchOnly,
       );
       final restored = GameEntry.fromJson(entry.toJson());
       expect(restored.vndbId, 'v23658');
       expect(restored.fontOverridePath, 'font/cjk.ttf');
+      expect(restored.reportedOs, 'switch');
       expect(restored.inputGate.knownProfile, InputGateProfile.touchOnly);
     });
 

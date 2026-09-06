@@ -20,6 +20,9 @@ class GameEditData {
   /// 输入门控策略（环境/平台特化的输入过滤），默认全放行。
   final InputGatePolicy inputGate;
 
+  /// 上报机种串覆盖（空串 = 跟随项目平台）。
+  final String reportedOs;
+
   const GameEditData({
     required this.name,
     this.coverPath,
@@ -28,8 +31,20 @@ class GameEditData {
     required this.environmentPatchEnabled,
     required this.experimentalElunaEnabled,
     this.inputGate = InputGatePolicy.full,
+    this.reportedOs = '',
   });
 }
+
+/// 「机种上报」可选项：键为上报串（空串 = 跟随平台），值为显示名。
+const Map<String, String> reportedOsOptions = {
+  '': '默认（跟随平台）',
+  'windows': 'Windows',
+  'iphone': 'iOS',
+  'android': 'Android',
+  'webassembly': 'WebAssembly',
+  'switch': 'Switch',
+  'ps4': 'PS4',
+};
 
 /// 平台自适应的确认框。返回 true 表示用户确认。
 Future<bool> showAdaptiveConfirm(
@@ -164,6 +179,7 @@ Future<GameEditData?> showGameEditDialog(
   bool initialEnvironmentPatchEnabled = false,
   bool initialExperimentalElunaEnabled = false,
   InputGatePolicy initialInputGate = InputGatePolicy.full,
+  String initialReportedOs = '',
 }) {
   if (Platform.isMacOS) {
     return showMacosAlertDialog<GameEditData>(
@@ -177,6 +193,7 @@ Future<GameEditData?> showGameEditDialog(
         initialEnvironmentPatchEnabled: initialEnvironmentPatchEnabled,
         initialExperimentalElunaEnabled: initialExperimentalElunaEnabled,
         initialInputGate: initialInputGate,
+        initialReportedOs: initialReportedOs,
       ),
     );
   }
@@ -192,6 +209,7 @@ Future<GameEditData?> showGameEditDialog(
         initialEnvironmentPatchEnabled: initialEnvironmentPatchEnabled,
         initialExperimentalElunaEnabled: initialExperimentalElunaEnabled,
         initialInputGate: initialInputGate,
+        initialReportedOs: initialReportedOs,
       ),
     );
   }
@@ -207,6 +225,7 @@ Future<GameEditData?> showGameEditDialog(
         initialEnvironmentPatchEnabled: initialEnvironmentPatchEnabled,
         initialExperimentalElunaEnabled: initialExperimentalElunaEnabled,
         initialInputGate: initialInputGate,
+        initialReportedOs: initialReportedOs,
       ),
     );
   }
@@ -221,6 +240,7 @@ Future<GameEditData?> showGameEditDialog(
       initialEnvironmentPatchEnabled: initialEnvironmentPatchEnabled,
       initialExperimentalElunaEnabled: initialExperimentalElunaEnabled,
       initialInputGate: initialInputGate,
+      initialReportedOs: initialReportedOs,
     ),
   );
 }
@@ -236,6 +256,7 @@ class _MacosEditDialog extends StatefulWidget {
   final bool initialEnvironmentPatchEnabled;
   final bool initialExperimentalElunaEnabled;
   final InputGatePolicy initialInputGate;
+  final String initialReportedOs;
 
   const _MacosEditDialog({
     required this.title,
@@ -246,6 +267,7 @@ class _MacosEditDialog extends StatefulWidget {
     required this.initialEnvironmentPatchEnabled,
     required this.initialExperimentalElunaEnabled,
     this.initialInputGate = InputGatePolicy.full,
+    this.initialReportedOs = '',
   });
 
   @override
@@ -262,6 +284,7 @@ class _MacosEditDialogState extends State<_MacosEditDialog> {
   late bool _environmentPatchEnabled;
   late bool _experimentalElunaEnabled;
   late InputGatePolicy _inputGate;
+  late String _reportedOs;
 
   @override
   void initState() {
@@ -272,6 +295,7 @@ class _MacosEditDialogState extends State<_MacosEditDialog> {
     _environmentPatchEnabled = widget.initialEnvironmentPatchEnabled;
     _experimentalElunaEnabled = widget.initialExperimentalElunaEnabled;
     _inputGate = widget.initialInputGate;
+    _reportedOs = widget.initialReportedOs;
   }
 
   /// 输入方式 profile 选择：只认预置 profile；补丁带来的自定义规则（knownProfile
@@ -422,6 +446,26 @@ class _MacosEditDialogState extends State<_MacosEditDialog> {
               ),
             ],
           ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              const Expanded(child: Text('机种上报')),
+              MacosPopupButton<String>(
+                value: _reportedOs,
+                items: [
+                  for (final entry in reportedOsOptions.entries)
+                    MacosPopupMenuItem(
+                      value: entry.key,
+                      child: Text(entry.value),
+                    ),
+                ],
+                onChanged: (os) {
+                  if (os == null) return;
+                  setState(() => _reportedOs = os);
+                },
+              ),
+            ],
+          ),
         ],
       ),
       primaryButton: PushButton(
@@ -460,6 +504,7 @@ class _CupertinoEditDialog extends StatefulWidget {
   final bool initialEnvironmentPatchEnabled;
   final bool initialExperimentalElunaEnabled;
   final InputGatePolicy initialInputGate;
+  final String initialReportedOs;
 
   const _CupertinoEditDialog({
     required this.title,
@@ -470,6 +515,7 @@ class _CupertinoEditDialog extends StatefulWidget {
     required this.initialEnvironmentPatchEnabled,
     required this.initialExperimentalElunaEnabled,
     this.initialInputGate = InputGatePolicy.full,
+    this.initialReportedOs = '',
   });
 
   @override
@@ -486,6 +532,7 @@ class _CupertinoEditDialogState extends State<_CupertinoEditDialog> {
   late bool _environmentPatchEnabled;
   late bool _experimentalElunaEnabled;
   late InputGatePolicy _inputGate;
+  late String _reportedOs;
 
   @override
   void initState() {
@@ -496,6 +543,7 @@ class _CupertinoEditDialogState extends State<_CupertinoEditDialog> {
     _environmentPatchEnabled = widget.initialEnvironmentPatchEnabled;
     _experimentalElunaEnabled = widget.initialExperimentalElunaEnabled;
     _inputGate = widget.initialInputGate;
+    _reportedOs = widget.initialReportedOs;
   }
 
   /// 输入方式 profile 选择：只认预置 profile；补丁带来的自定义规则（knownProfile
@@ -507,6 +555,26 @@ class _CupertinoEditDialogState extends State<_CupertinoEditDialog> {
         InputGateProfile.full => InputGatePolicy.full,
         InputGateProfile.touchOnly => InputGatePolicy.touchOnly,
       },
+    );
+  }
+
+  Future<String?> _pickReportedOs() {
+    return showCupertinoModalPopup<String>(
+      context: context,
+      builder: (ctx) => CupertinoActionSheet(
+        title: const Text('机种上报'),
+        actions: [
+          for (final entry in reportedOsOptions.entries)
+            CupertinoActionSheetAction(
+              onPressed: () => Navigator.of(ctx).pop(entry.key),
+              child: Text(entry.value),
+            ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.of(ctx).pop(),
+          child: const Text('取消'),
+        ),
+      ),
     );
   }
 
@@ -634,6 +702,21 @@ class _CupertinoEditDialogState extends State<_CupertinoEditDialog> {
               ),
             ],
           ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              const Expanded(child: Text('机种上报')),
+              CupertinoButton(
+                sizeStyle: CupertinoButtonSize.small,
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                onPressed: () async {
+                  final os = await _pickReportedOs();
+                  if (os != null) setState(() => _reportedOs = os);
+                },
+                child: Text(reportedOsOptions[_reportedOs] ?? _reportedOs),
+              ),
+            ],
+          ),
         ],
       ),
       actions: [
@@ -652,6 +735,7 @@ class _CupertinoEditDialogState extends State<_CupertinoEditDialog> {
               environmentPatchEnabled: _environmentPatchEnabled,
               experimentalElunaEnabled: _experimentalElunaEnabled,
               inputGate: _inputGate,
+              reportedOs: _reportedOs,
             ),
           ),
           child: const Text('保存'),
@@ -672,6 +756,7 @@ class _MaterialEditDialog extends StatefulWidget {
   final bool initialEnvironmentPatchEnabled;
   final bool initialExperimentalElunaEnabled;
   final InputGatePolicy initialInputGate;
+  final String initialReportedOs;
 
   const _MaterialEditDialog({
     required this.title,
@@ -682,6 +767,7 @@ class _MaterialEditDialog extends StatefulWidget {
     required this.initialEnvironmentPatchEnabled,
     required this.initialExperimentalElunaEnabled,
     this.initialInputGate = InputGatePolicy.full,
+    this.initialReportedOs = '',
   });
 
   @override
@@ -698,6 +784,7 @@ class _MaterialEditDialogState extends State<_MaterialEditDialog> {
   late bool _environmentPatchEnabled;
   late bool _experimentalElunaEnabled;
   late InputGatePolicy _inputGate;
+  late String _reportedOs;
 
   @override
   void initState() {
@@ -708,6 +795,7 @@ class _MaterialEditDialogState extends State<_MaterialEditDialog> {
     _environmentPatchEnabled = widget.initialEnvironmentPatchEnabled;
     _experimentalElunaEnabled = widget.initialExperimentalElunaEnabled;
     _inputGate = widget.initialInputGate;
+    _reportedOs = widget.initialReportedOs;
   }
 
   /// 输入方式 profile 选择：只认预置 profile；补丁带来的自定义规则（knownProfile
@@ -832,6 +920,20 @@ class _MaterialEditDialogState extends State<_MaterialEditDialog> {
               onChanged: _selectInputGateProfile,
             ),
           ),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('机种上报'),
+            trailing: DropdownButton<String>(
+              value: _reportedOs,
+              items: [
+                for (final entry in reportedOsOptions.entries)
+                  DropdownMenuItem(value: entry.key, child: Text(entry.value)),
+              ],
+              onChanged: (os) {
+                if (os != null) setState(() => _reportedOs = os);
+              },
+            ),
+          ),
         ],
       ),
       actions: [
@@ -849,6 +951,7 @@ class _MaterialEditDialogState extends State<_MaterialEditDialog> {
               environmentPatchEnabled: _environmentPatchEnabled,
               experimentalElunaEnabled: _experimentalElunaEnabled,
               inputGate: _inputGate,
+              reportedOs: _reportedOs,
             ),
           ),
           child: const Text('保存'),
@@ -905,6 +1008,7 @@ class _FluentEditDialog extends StatefulWidget {
   final bool initialEnvironmentPatchEnabled;
   final bool initialExperimentalElunaEnabled;
   final InputGatePolicy initialInputGate;
+  final String initialReportedOs;
 
   const _FluentEditDialog({
     required this.title,
@@ -915,6 +1019,7 @@ class _FluentEditDialog extends StatefulWidget {
     required this.initialEnvironmentPatchEnabled,
     required this.initialExperimentalElunaEnabled,
     this.initialInputGate = InputGatePolicy.full,
+    this.initialReportedOs = '',
   });
 
   @override
@@ -931,6 +1036,7 @@ class _FluentEditDialogState extends State<_FluentEditDialog> {
   late bool _environmentPatchEnabled;
   late bool _experimentalElunaEnabled;
   late InputGatePolicy _inputGate;
+  late String _reportedOs;
 
   @override
   void initState() {
@@ -941,6 +1047,7 @@ class _FluentEditDialogState extends State<_FluentEditDialog> {
     _environmentPatchEnabled = widget.initialEnvironmentPatchEnabled;
     _experimentalElunaEnabled = widget.initialExperimentalElunaEnabled;
     _inputGate = widget.initialInputGate;
+    _reportedOs = widget.initialReportedOs;
   }
 
   /// 输入方式 profile 选择：只认预置 profile；补丁带来的自定义规则（knownProfile
@@ -1082,6 +1189,25 @@ class _FluentEditDialogState extends State<_FluentEditDialog> {
               ),
             ],
           ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              const Expanded(child: Text('机种上报')),
+              fluent.ComboBox<String>(
+                value: _reportedOs,
+                items: [
+                  for (final entry in reportedOsOptions.entries)
+                    fluent.ComboBoxItem(
+                      value: entry.key,
+                      child: Text(entry.value),
+                    ),
+                ],
+                onChanged: (os) {
+                  if (os != null) setState(() => _reportedOs = os);
+                },
+              ),
+            ],
+          ),
         ],
       ),
       actions: [
@@ -1099,6 +1225,7 @@ class _FluentEditDialogState extends State<_FluentEditDialog> {
               environmentPatchEnabled: _environmentPatchEnabled,
               experimentalElunaEnabled: _experimentalElunaEnabled,
               inputGate: _inputGate,
+              reportedOs: _reportedOs,
             ),
           ),
           child: const Text('保存'),

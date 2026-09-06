@@ -79,6 +79,7 @@ class LibraryNotifier extends StateNotifier<List<GameEntry>> {
     bool? environmentPatchEnabled,
     bool? experimentalElunaEnabled,
     InputGatePolicy? inputGate,
+    String? reportedOs,
   }) async {
     final lib = _storage.getLibrary();
     final i = lib.indexWhere((g) => g.path == path);
@@ -91,6 +92,7 @@ class LibraryNotifier extends StateNotifier<List<GameEntry>> {
       environmentPatchEnabled: environmentPatchEnabled,
       experimentalElunaEnabled: experimentalElunaEnabled,
       inputGate: inputGate,
+      reportedOs: reportedOs,
     );
     lib[i] = updated;
     await _storage.saveLibrary(lib);

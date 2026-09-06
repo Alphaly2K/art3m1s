@@ -892,6 +892,30 @@ class CoreBridge {
     }
   }
 
+  /// 设置上报给脚本的机种串覆盖（如 'switch'/'ps4'）；null/空串清除。
+  /// 移植版游戏把存档等功能开关在机种判断上时用它伪装。
+  void setReportedOs(String? os) {
+    final lib = _lib;
+    final runtime = _runtime;
+    if (lib == null || runtime == null) return;
+    try {
+      final fn = lib.lookupFunction<
+        Void Function(Pointer<Void>, Pointer<Utf8>),
+        void Function(Pointer<Void>, Pointer<Utf8>)
+      >('art3m1s_runtime_set_reported_os');
+      final ptr = (os == null || os.isEmpty)
+          ? nullptr
+          : os.toNativeUtf8().cast<Utf8>();
+      try {
+        fn(runtime, ptr);
+      } finally {
+        if (ptr != nullptr) malloc.free(ptr);
+      }
+    } catch (error) {
+      Log.warn('[CoreBridge] 当前 core 不支持机种上报覆盖: $error');
+    }
+  }
+
   bool setProfilerEnabled(bool enabled) {
     final runtime = _runtime;
     final lib = _lib;

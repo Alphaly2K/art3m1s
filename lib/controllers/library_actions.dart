@@ -183,6 +183,7 @@ class LibraryActions {
             inputGate: manifest?.inputGate ?? InputGatePolicy.full,
             vndbId: metadata.vndbId ?? '',
             fontOverridePath: manifest?.fontOverride ?? '',
+            reportedOs: manifest?.reportedOs ?? '',
           ),
         );
     Log.info('已自动添加: ${metadata.name}');
@@ -241,6 +242,9 @@ class LibraryActions {
             inputGate: result.inputGate,
             vndbId: metadata.vndbId ?? '',
             fontOverridePath: manifest?.fontOverride ?? '',
+            reportedOs: result.reportedOs.isNotEmpty
+                ? result.reportedOs
+                : manifest?.reportedOs ?? '',
           ),
         );
     Log.info('已添加: ${result.name.isNotEmpty ? result.name : defaultName}');
@@ -325,6 +329,7 @@ class LibraryActions {
       initialEnvironmentPatchEnabled: entry.environmentPatchEnabled,
       initialExperimentalElunaEnabled: entry.experimentalElunaEnabled,
       initialInputGate: entry.inputGate,
+      initialReportedOs: entry.reportedOs,
     );
     if (result == null || !context.mounted) return;
     final coverPath = await AppDataPaths.importCover(
@@ -344,6 +349,7 @@ class LibraryActions {
           environmentPatchEnabled: result.environmentPatchEnabled,
           experimentalElunaEnabled: result.experimentalElunaEnabled,
           inputGate: result.inputGate,
+          reportedOs: result.reportedOs,
         );
   }
 
@@ -375,6 +381,7 @@ class LibraryActions {
             experimentalElunaEnabled: entry.experimentalElunaEnabled,
             inputGate: entry.inputGate,
             fontOverridePath: entry.fontOverridePath,
+            reportedOs: entry.reportedOs,
           ),
         ),
       ),

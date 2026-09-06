@@ -40,6 +40,9 @@ class PlayerScreen extends ConsumerStatefulWidget {
   /// 项目清单指定的覆盖字体（游戏内相对路径）；空串表示无。
   final String fontOverridePath;
 
+  /// 上报给脚本的机种串覆盖（来自资料库条目/项目补丁）；空串跟随项目平台。
+  final String reportedOs;
+
   const PlayerScreen({
     super.key,
     required this.gameId,
@@ -51,6 +54,7 @@ class PlayerScreen extends ConsumerStatefulWidget {
     required this.experimentalElunaEnabled,
     this.inputGate = InputGatePolicy.full,
     this.fontOverridePath = '',
+    this.reportedOs = '',
   });
 
   @override
@@ -272,6 +276,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     _bridge.registerFileReader();
     final renderBackend = ref.read(settingsProvider).backend;
     _bridge.createRuntime(_stageW, _stageH, backend: renderBackend);
+    // 机种上报覆盖（runtime 已建、项目未加载；空串=跟随平台）。
+    _bridge.setReportedOs(widget.reportedOs);
     if (widget.experimentalElunaEnabled && !_bridge.setEmoteBackend(1)) {
       Log.warn('[E-Mote] 当前 Core 未包含实验性 Eluna 后端，已保留内置实现');
     }

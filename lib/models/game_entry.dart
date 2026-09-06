@@ -29,6 +29,10 @@ class GameEntry {
   /// 项目清单指定的覆盖字体（游戏内相对路径）；空串表示无。
   final String fontOverridePath;
 
+  /// 上报给脚本的机种串覆盖（如 `switch`/`ps4`）；空串表示跟随项目平台。
+  /// 移植版游戏把存档等功能开关在机种判断上时用它伪装。
+  final String reportedOs;
+
   GameEntry({
     String? id,
     required this.name,
@@ -45,6 +49,7 @@ class GameEntry {
     this.inputGate = InputGatePolicy.full,
     this.vndbId = '',
     this.fontOverridePath = '',
+    this.reportedOs = '',
   }) : id = _normalizeId(id, path);
 
   String get displayNameOrName => displayName ?? name;
@@ -66,6 +71,7 @@ class GameEntry {
     if (!inputGate.isFull) 'inputGate': inputGate.toJson(),
     if (vndbId.isNotEmpty) 'vndbId': vndbId,
     if (fontOverridePath.isNotEmpty) 'fontOverridePath': fontOverridePath,
+    if (reportedOs.isNotEmpty) 'reportedOs': reportedOs,
   };
 
   factory GameEntry.fromJson(Map<String, dynamic> json) => GameEntry(
@@ -88,6 +94,7 @@ class GameEntry {
     ),
     vndbId: json['vndbId']?.toString() ?? '',
     fontOverridePath: json['fontOverridePath']?.toString() ?? '',
+    reportedOs: json['reportedOs']?.toString() ?? '',
   );
 
   GameEntry copyWith({
@@ -101,6 +108,7 @@ class GameEntry {
     InputGatePolicy? inputGate,
     String? vndbId,
     String? fontOverridePath,
+    String? reportedOs,
   }) => GameEntry(
     id: id,
     name: name,
@@ -119,6 +127,7 @@ class GameEntry {
     inputGate: inputGate ?? this.inputGate,
     vndbId: vndbId ?? this.vndbId,
     fontOverridePath: fontOverridePath ?? this.fontOverridePath,
+    reportedOs: reportedOs ?? this.reportedOs,
   );
 
   static String _normalizeId(String? id, String path) {

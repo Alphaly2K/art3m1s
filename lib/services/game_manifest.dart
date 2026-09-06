@@ -40,6 +40,7 @@ class GameManifest {
     this.experimentalElunaEnabled,
     this.fontOverride,
     this.inputGate,
+    this.reportedOs,
   });
 
   /// 游戏名（导入时预填显示名）。
@@ -61,6 +62,10 @@ class GameManifest {
 
   /// 默认输入门控策略（结构见 InputGatePolicy.toJson）。
   final InputGatePolicy? inputGate;
+
+  /// 上报给脚本的机种串覆盖（如 `switch`/`ps4`）。部分移植版游戏把关键
+  /// 功能（存档、额外内容）开关在机种判断上，桌面运行时按此伪装。
+  final String? reportedOs;
 
   static const String fileName = 'art3m1s.json';
 
@@ -98,6 +103,7 @@ class GameManifest {
               (json['inputGate'] as Map).cast<String, dynamic>(),
             )
           : null,
+      reportedOs: optionalString('reportedOs'),
     );
   }
 
