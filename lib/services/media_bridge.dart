@@ -119,7 +119,13 @@ class MediaBridge {
     final channel = _string(payload['channel']);
     if (channel == null) return;
     _channelVolumes[channel] = _double(payload['value'], 1).clamp(0, 1);
-    await _bgm?.setEffectiveVolume(_effectiveVolume('bgm', _bgm!.gain));
+    // 设置页可能在没有 BGM 的状态下修改 SE/Voice 音量。不能在
+    // null-aware 调用内部强制解引用 `_bgm!`，否则整个音量命令会在
+    // 更新其他通道之前抛异常。
+    final bgm = _bgm;
+    if (bgm != null) {
+      await bgm.setEffectiveVolume(_effectiveVolume('bgm', bgm.gain));
+    }
     for (final sound in _sounds.values.toList()) {
       await sound.setEffectiveVolume(
         _effectiveVolume(sound.channel, sound.gain),
@@ -995,8 +1001,7 @@ class _AudioHandle {
       Log.debug('[MediaBridge] BGM 已无缝进入 B 段循环: ${loopFile.path}');
     } catch (error, stackTrace) {
       _loopSegmentPollFailures += 1;
-      if (_loopSegmentPollFailures == 1 ||
-          _loopSegmentPollFailures % 50 == 0) {
+      if (_loopSegmentPollFailures == 1 || _loopSegmentPollFailures % 50 == 0) {
         Log.warn(
           '[MediaBridge] BGM B 段检测暂时失败 '
           '(attempt=$_loopSegmentPollFailures): ${loopFile.path}: '
