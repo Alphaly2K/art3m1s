@@ -6,6 +6,8 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:macos_ui/macos_ui.dart';
 
+import '../models/input_gate.dart';
+
 /// 编辑对话框的结果。
 class GameEditData {
   final String name;
@@ -15,6 +17,9 @@ class GameEditData {
   final bool environmentPatchEnabled;
   final bool experimentalElunaEnabled;
 
+  /// 输入门控策略（环境/平台特化的输入过滤），默认全放行。
+  final InputGatePolicy inputGate;
+
   const GameEditData({
     required this.name,
     this.coverPath,
@@ -22,6 +27,7 @@ class GameEditData {
     required this.translationPatchPath,
     required this.environmentPatchEnabled,
     required this.experimentalElunaEnabled,
+    this.inputGate = InputGatePolicy.full,
   });
 }
 
@@ -157,6 +163,7 @@ Future<GameEditData?> showGameEditDialog(
   String initialTranslationPatchPath = '',
   bool initialEnvironmentPatchEnabled = false,
   bool initialExperimentalElunaEnabled = false,
+  InputGatePolicy initialInputGate = InputGatePolicy.full,
 }) {
   if (Platform.isMacOS) {
     return showMacosAlertDialog<GameEditData>(
@@ -169,6 +176,7 @@ Future<GameEditData?> showGameEditDialog(
         initialTranslationPatchPath: initialTranslationPatchPath,
         initialEnvironmentPatchEnabled: initialEnvironmentPatchEnabled,
         initialExperimentalElunaEnabled: initialExperimentalElunaEnabled,
+        initialInputGate: initialInputGate,
       ),
     );
   }
@@ -183,6 +191,7 @@ Future<GameEditData?> showGameEditDialog(
         initialTranslationPatchPath: initialTranslationPatchPath,
         initialEnvironmentPatchEnabled: initialEnvironmentPatchEnabled,
         initialExperimentalElunaEnabled: initialExperimentalElunaEnabled,
+        initialInputGate: initialInputGate,
       ),
     );
   }
@@ -197,6 +206,7 @@ Future<GameEditData?> showGameEditDialog(
         initialTranslationPatchPath: initialTranslationPatchPath,
         initialEnvironmentPatchEnabled: initialEnvironmentPatchEnabled,
         initialExperimentalElunaEnabled: initialExperimentalElunaEnabled,
+        initialInputGate: initialInputGate,
       ),
     );
   }
@@ -210,6 +220,7 @@ Future<GameEditData?> showGameEditDialog(
       initialTranslationPatchPath: initialTranslationPatchPath,
       initialEnvironmentPatchEnabled: initialEnvironmentPatchEnabled,
       initialExperimentalElunaEnabled: initialExperimentalElunaEnabled,
+      initialInputGate: initialInputGate,
     ),
   );
 }
@@ -224,6 +235,7 @@ class _MacosEditDialog extends StatefulWidget {
   final String initialTranslationPatchPath;
   final bool initialEnvironmentPatchEnabled;
   final bool initialExperimentalElunaEnabled;
+  final InputGatePolicy initialInputGate;
 
   const _MacosEditDialog({
     required this.title,
@@ -233,6 +245,7 @@ class _MacosEditDialog extends StatefulWidget {
     required this.initialTranslationPatchPath,
     required this.initialEnvironmentPatchEnabled,
     required this.initialExperimentalElunaEnabled,
+    this.initialInputGate = InputGatePolicy.full,
   });
 
   @override
@@ -248,6 +261,7 @@ class _MacosEditDialogState extends State<_MacosEditDialog> {
   late String _translationPatchPath;
   late bool _environmentPatchEnabled;
   late bool _experimentalElunaEnabled;
+  late InputGatePolicy _inputGate;
 
   @override
   void initState() {
@@ -257,6 +271,19 @@ class _MacosEditDialogState extends State<_MacosEditDialog> {
     _translationPatchPath = widget.initialTranslationPatchPath;
     _environmentPatchEnabled = widget.initialEnvironmentPatchEnabled;
     _experimentalElunaEnabled = widget.initialExperimentalElunaEnabled;
+    _inputGate = widget.initialInputGate;
+  }
+
+  /// 输入方式 profile 选择：只认预置 profile；补丁带来的自定义规则（knownProfile
+  /// 为 null）在用户显式改选前保持不变。
+  void _selectInputGateProfile(InputGateProfile? profile) {
+    if (profile == null) return;
+    setState(
+      () => _inputGate = switch (profile) {
+        InputGateProfile.full => InputGatePolicy.full,
+        InputGateProfile.touchOnly => InputGatePolicy.touchOnly,
+      },
+    );
   }
 
   @override
@@ -378,6 +405,23 @@ class _MacosEditDialogState extends State<_MacosEditDialog> {
               ),
             ],
           ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              const Expanded(child: Text('输入方式')),
+              MacosPopupButton<InputGateProfile>(
+                value: _inputGate.knownProfile ?? InputGateProfile.full,
+                items: [
+                  for (final profile in InputGateProfile.values)
+                    MacosPopupMenuItem(
+                      value: profile,
+                      child: Text(profile.label),
+                    ),
+                ],
+                onChanged: _selectInputGateProfile,
+              ),
+            ],
+          ),
         ],
       ),
       primaryButton: PushButton(
@@ -390,6 +434,7 @@ class _MacosEditDialogState extends State<_MacosEditDialog> {
             translationPatchPath: _translationPatchPath,
             environmentPatchEnabled: _environmentPatchEnabled,
             experimentalElunaEnabled: _experimentalElunaEnabled,
+            inputGate: _inputGate,
           ),
         ),
         child: const Text('保存'),
@@ -414,6 +459,7 @@ class _CupertinoEditDialog extends StatefulWidget {
   final String initialTranslationPatchPath;
   final bool initialEnvironmentPatchEnabled;
   final bool initialExperimentalElunaEnabled;
+  final InputGatePolicy initialInputGate;
 
   const _CupertinoEditDialog({
     required this.title,
@@ -423,6 +469,7 @@ class _CupertinoEditDialog extends StatefulWidget {
     required this.initialTranslationPatchPath,
     required this.initialEnvironmentPatchEnabled,
     required this.initialExperimentalElunaEnabled,
+    this.initialInputGate = InputGatePolicy.full,
   });
 
   @override
@@ -438,6 +485,7 @@ class _CupertinoEditDialogState extends State<_CupertinoEditDialog> {
   late String _translationPatchPath;
   late bool _environmentPatchEnabled;
   late bool _experimentalElunaEnabled;
+  late InputGatePolicy _inputGate;
 
   @override
   void initState() {
@@ -447,6 +495,19 @@ class _CupertinoEditDialogState extends State<_CupertinoEditDialog> {
     _translationPatchPath = widget.initialTranslationPatchPath;
     _environmentPatchEnabled = widget.initialEnvironmentPatchEnabled;
     _experimentalElunaEnabled = widget.initialExperimentalElunaEnabled;
+    _inputGate = widget.initialInputGate;
+  }
+
+  /// 输入方式 profile 选择：只认预置 profile；补丁带来的自定义规则（knownProfile
+  /// 为 null）在用户显式改选前保持不变。
+  void _selectInputGateProfile(InputGateProfile? profile) {
+    if (profile == null) return;
+    setState(
+      () => _inputGate = switch (profile) {
+        InputGateProfile.full => InputGatePolicy.full,
+        InputGateProfile.touchOnly => InputGatePolicy.touchOnly,
+      },
+    );
   }
 
   @override
@@ -556,6 +617,23 @@ class _CupertinoEditDialogState extends State<_CupertinoEditDialog> {
               ),
             ],
           ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              const Expanded(child: Text('输入方式')),
+              CupertinoSlidingSegmentedControl<InputGateProfile>(
+                groupValue: _inputGate.knownProfile,
+                children: {
+                  for (final profile in InputGateProfile.values)
+                    profile: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      child: Text(profile.label),
+                    ),
+                },
+                onValueChanged: _selectInputGateProfile,
+              ),
+            ],
+          ),
         ],
       ),
       actions: [
@@ -573,6 +651,7 @@ class _CupertinoEditDialogState extends State<_CupertinoEditDialog> {
               translationPatchPath: _translationPatchPath,
               environmentPatchEnabled: _environmentPatchEnabled,
               experimentalElunaEnabled: _experimentalElunaEnabled,
+              inputGate: _inputGate,
             ),
           ),
           child: const Text('保存'),
@@ -592,6 +671,7 @@ class _MaterialEditDialog extends StatefulWidget {
   final String initialTranslationPatchPath;
   final bool initialEnvironmentPatchEnabled;
   final bool initialExperimentalElunaEnabled;
+  final InputGatePolicy initialInputGate;
 
   const _MaterialEditDialog({
     required this.title,
@@ -601,6 +681,7 @@ class _MaterialEditDialog extends StatefulWidget {
     required this.initialTranslationPatchPath,
     required this.initialEnvironmentPatchEnabled,
     required this.initialExperimentalElunaEnabled,
+    this.initialInputGate = InputGatePolicy.full,
   });
 
   @override
@@ -616,6 +697,7 @@ class _MaterialEditDialogState extends State<_MaterialEditDialog> {
   late String _translationPatchPath;
   late bool _environmentPatchEnabled;
   late bool _experimentalElunaEnabled;
+  late InputGatePolicy _inputGate;
 
   @override
   void initState() {
@@ -625,6 +707,19 @@ class _MaterialEditDialogState extends State<_MaterialEditDialog> {
     _translationPatchPath = widget.initialTranslationPatchPath;
     _environmentPatchEnabled = widget.initialEnvironmentPatchEnabled;
     _experimentalElunaEnabled = widget.initialExperimentalElunaEnabled;
+    _inputGate = widget.initialInputGate;
+  }
+
+  /// 输入方式 profile 选择：只认预置 profile；补丁带来的自定义规则（knownProfile
+  /// 为 null）在用户显式改选前保持不变。
+  void _selectInputGateProfile(InputGateProfile? profile) {
+    if (profile == null) return;
+    setState(
+      () => _inputGate = switch (profile) {
+        InputGateProfile.full => InputGatePolicy.full,
+        InputGateProfile.touchOnly => InputGatePolicy.touchOnly,
+      },
+    );
   }
 
   @override
@@ -721,6 +816,22 @@ class _MaterialEditDialogState extends State<_MaterialEditDialog> {
             onChanged: (value) =>
                 setState(() => _experimentalElunaEnabled = value),
           ),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('输入方式'),
+            subtitle: _inputGate.knownProfile == null
+                ? const Text('自定义规则（来自补丁）')
+                : null,
+            trailing: DropdownButton<InputGateProfile>(
+              value: _inputGate.knownProfile,
+              hint: const Text('自定义'),
+              items: [
+                for (final profile in InputGateProfile.values)
+                  DropdownMenuItem(value: profile, child: Text(profile.label)),
+              ],
+              onChanged: _selectInputGateProfile,
+            ),
+          ),
         ],
       ),
       actions: [
@@ -737,6 +848,7 @@ class _MaterialEditDialogState extends State<_MaterialEditDialog> {
               translationPatchPath: _translationPatchPath,
               environmentPatchEnabled: _environmentPatchEnabled,
               experimentalElunaEnabled: _experimentalElunaEnabled,
+              inputGate: _inputGate,
             ),
           ),
           child: const Text('保存'),
@@ -792,6 +904,7 @@ class _FluentEditDialog extends StatefulWidget {
   final String initialTranslationPatchPath;
   final bool initialEnvironmentPatchEnabled;
   final bool initialExperimentalElunaEnabled;
+  final InputGatePolicy initialInputGate;
 
   const _FluentEditDialog({
     required this.title,
@@ -801,6 +914,7 @@ class _FluentEditDialog extends StatefulWidget {
     required this.initialTranslationPatchPath,
     required this.initialEnvironmentPatchEnabled,
     required this.initialExperimentalElunaEnabled,
+    this.initialInputGate = InputGatePolicy.full,
   });
 
   @override
@@ -816,6 +930,7 @@ class _FluentEditDialogState extends State<_FluentEditDialog> {
   late String _translationPatchPath;
   late bool _environmentPatchEnabled;
   late bool _experimentalElunaEnabled;
+  late InputGatePolicy _inputGate;
 
   @override
   void initState() {
@@ -825,6 +940,19 @@ class _FluentEditDialogState extends State<_FluentEditDialog> {
     _translationPatchPath = widget.initialTranslationPatchPath;
     _environmentPatchEnabled = widget.initialEnvironmentPatchEnabled;
     _experimentalElunaEnabled = widget.initialExperimentalElunaEnabled;
+    _inputGate = widget.initialInputGate;
+  }
+
+  /// 输入方式 profile 选择：只认预置 profile；补丁带来的自定义规则（knownProfile
+  /// 为 null）在用户显式改选前保持不变。
+  void _selectInputGateProfile(InputGateProfile? profile) {
+    if (profile == null) return;
+    setState(
+      () => _inputGate = switch (profile) {
+        InputGateProfile.full => InputGatePolicy.full,
+        InputGateProfile.touchOnly => InputGatePolicy.touchOnly,
+      },
+    );
   }
 
   @override
@@ -936,6 +1064,24 @@ class _FluentEditDialogState extends State<_FluentEditDialog> {
               ),
             ],
           ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              const Expanded(child: Text('输入方式')),
+              fluent.ComboBox<InputGateProfile>(
+                value: _inputGate.knownProfile,
+                placeholder: const Text('自定义（补丁）'),
+                items: [
+                  for (final profile in InputGateProfile.values)
+                    fluent.ComboBoxItem(
+                      value: profile,
+                      child: Text(profile.label),
+                    ),
+                ],
+                onChanged: _selectInputGateProfile,
+              ),
+            ],
+          ),
         ],
       ),
       actions: [
@@ -952,6 +1098,7 @@ class _FluentEditDialogState extends State<_FluentEditDialog> {
               translationPatchPath: _translationPatchPath,
               environmentPatchEnabled: _environmentPatchEnabled,
               experimentalElunaEnabled: _experimentalElunaEnabled,
+              inputGate: _inputGate,
             ),
           ),
           child: const Text('保存'),

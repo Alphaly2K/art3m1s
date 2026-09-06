@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../services/logger.dart';
+import '../models/input_gate.dart';
 import 'caption_table_probe.dart';
 import 'file_provider.dart';
 import 'media_bridge.dart';
@@ -405,6 +406,8 @@ class CoreBridge {
   bool _profilerSymbolsUnavailable = false;
   bool _fontOverrideSymbolsUnavailable = false;
   bool _sharedTextureSymbolsUnavailable = false;
+  /// 输入门控：喂给 core 前的统一过滤/重映射，默认全放行。
+  InputGatePolicy _inputGate = InputGatePolicy.full;
   int? _sharedTextureId;
   int? _sharedTextureKind;
   bool _sharedTextureAttached = false;
@@ -804,6 +807,13 @@ class CoreBridge {
     }
   }
 
+  /// 配置输入门控（每个游戏启动时按资料库条目/补丁设置一次）。
+  /// 默认全放行；门控在该 bridge 的 feed 出口统一生效，覆盖播放页、
+  /// 触控板模拟与软键盘等全部输入来源。
+  void configureInputGate(InputGatePolicy gate) {
+    _inputGate = gate;
+  }
+
   void _queueTranslation(int serial, String source, {String? ruby}) {
     final service = translation;
     if (service == null) {
@@ -1174,6 +1184,8 @@ class CoreBridge {
 
   void feedMouse(int x, int y) {
     if (_runtime == null || _lib == null) return;
+    // 门控：指针位置流（hover/移动）。
+    if (!_inputGate.mouseMove) return;
     final fn = _lib!
         .lookupFunction<
           RuntimeFeedMouseNative,
@@ -1184,6 +1196,7 @@ class CoreBridge {
 
   void feedClick() {
     if (_runtime == null || _lib == null) return;
+    if (!_inputGate.mouseButtons) return;
     final fn = _lib!
         .lookupFunction<RuntimeFeedClickNative, void Function(Pointer<Void>)>(
           'art3m1s_runtime_feed_click',
@@ -1193,6 +1206,7 @@ class CoreBridge {
 
   void feedMouseButton(int button, bool pressed) {
     if (_runtime == null || _lib == null) return;
+    if (!_inputGate.mouseButtons) return;
     final fn = _lib!
         .lookupFunction<
           RuntimeFeedMouseButtonNative,
@@ -1205,6 +1219,7 @@ class CoreBridge {
   /// phase：0=down / 1=move / 2=up；id 用 Flutter 的 pointer 唯一标识。
   void feedTouch(int id, int phase, int x, int y) {
     if (_runtime == null || _lib == null) return;
+    if (!_inputGate.touch) return;
     final fn = _lib!
         .lookupFunction<
           RuntimeFeedTouchNative,
@@ -1215,12 +1230,15 @@ class CoreBridge {
 
   void feedKey(int vk, bool pressed) {
     if (_runtime == null || _lib == null) return;
+    // 门控：类别开关 → 黑名单 → 重映射；按下/抬起经同一映射保持一致。
+    final mapped = _inputGate.filterKey(vk);
+    if (mapped == null) return;
     final fn = _lib!
         .lookupFunction<
           RuntimeFeedKeyNative,
           void Function(Pointer<Void>, int, int)
         >('art3m1s_runtime_feed_key');
-    fn(_runtime!, vk, pressed ? 1 : 0);
+    fn(_runtime!, mapped, pressed ? 1 : 0);
   }
 
   bool submitDialog(bool accepted, String text) {

@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/game_entry.dart';
+import '../models/input_gate.dart';
 import '../services/game_importer.dart';
 import '../services/logger.dart';
 import '../services/storage_service.dart';
@@ -77,6 +78,7 @@ class LibraryNotifier extends StateNotifier<List<GameEntry>> {
     String? translationPatchPath,
     bool? environmentPatchEnabled,
     bool? experimentalElunaEnabled,
+    InputGatePolicy? inputGate,
   }) async {
     final lib = _storage.getLibrary();
     final i = lib.indexWhere((g) => g.path == path);
@@ -88,6 +90,7 @@ class LibraryNotifier extends StateNotifier<List<GameEntry>> {
       translationPatchPath: translationPatchPath,
       environmentPatchEnabled: environmentPatchEnabled,
       experimentalElunaEnabled: experimentalElunaEnabled,
+      inputGate: inputGate,
     );
     lib[i] = updated;
     await _storage.saveLibrary(lib);

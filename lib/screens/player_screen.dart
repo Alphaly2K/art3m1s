@@ -10,6 +10,7 @@ import 'package:flutter/services.dart';
 
 import '../controllers/mobile_touchpad.dart';
 import '../models/game_entry.dart';
+import '../models/input_gate.dart';
 import '../providers/settings_provider.dart';
 import '../services/app_data_paths.dart';
 import '../services/core_bridge.dart';
@@ -32,6 +33,9 @@ class PlayerScreen extends ConsumerStatefulWidget {
   final bool environmentPatchEnabled;
   final bool experimentalElunaEnabled;
 
+  /// 输入门控策略（来自资料库条目/项目补丁），默认全放行。
+  final InputGatePolicy inputGate;
+
   const PlayerScreen({
     super.key,
     required this.gameId,
@@ -41,6 +45,7 @@ class PlayerScreen extends ConsumerStatefulWidget {
     required this.translationPatchPath,
     required this.environmentPatchEnabled,
     required this.experimentalElunaEnabled,
+    this.inputGate = InputGatePolicy.full,
   });
 
   @override
@@ -252,6 +257,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     } else {
       _bridge.clearFontOverride();
     }
+
+    // 输入门控：项目补丁/资料库条目的环境特化过滤，在 bridge 出口统一生效。
+    _bridge.configureInputGate(widget.inputGate);
 
     _bridge.registerFileReader();
     final renderBackend = ref.read(settingsProvider).backend;
@@ -949,9 +957,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                 return;
               }
               _activePointers.add(event.pointer);
-              if (_activePointers.length >= 2) {
-                _bridge.feedMouseButton(2, true);
-              }
+              _forwardTwoFingerRightClick(true);
               _gameFocusNode.requestFocus();
               _feedPointerPosition(event, ox, oy, scale);
               _feedTouch(event, 0, ox, oy, scale);
@@ -961,9 +967,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
               if (touchpadEnabled && event.kind == PointerDeviceKind.touch) {
                 return;
               }
-              if (_activePointers.length >= 2) {
-                _bridge.feedMouseButton(2, false);
-              }
+              _forwardTwoFingerRightClick(false);
               _activePointers.remove(event.pointer);
               _feedPointerPosition(event, ox, oy, scale);
               _feedTouch(event, 2, ox, oy, scale);
@@ -973,9 +977,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
               if (touchpadEnabled && event.kind == PointerDeviceKind.touch) {
                 return;
               }
-              if (_activePointers.length >= 2) {
-                _bridge.feedMouseButton(2, false);
-              }
+              _forwardTwoFingerRightClick(false);
               _activePointers.remove(event.pointer);
               _feedTouch(event, 2, ox, oy, scale);
               _releasePointerButtons();
@@ -1142,6 +1144,13 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     return Offset(mx, my);
   }
 
+  /// 双指触摸 → 鼠标右键的宿主侧转发（受门控 twoFingerRightClick 开关约束）。
+  void _forwardTwoFingerRightClick(bool pressed) {
+    if (!widget.inputGate.twoFingerRightClick) return;
+    if (_activePointers.length < 2) return;
+    _bridge.feedMouseButton(2, pressed);
+  }
+
   void _syncPointerButtons(int buttons) {
     final pressed = <int>{
       if ((buttons & kPrimaryMouseButton) != 0) 1,
@@ -1167,6 +1176,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   }
 
   void _handlePointerSignal(PointerSignalEvent event) {
+    // 滚轮 → 方向键（VK 136/137）是宿主侧转发，受门控的转发开关约束。
+    if (!widget.inputGate.wheelToKeys) return;
     if (event is! PointerScrollEvent) return;
     final key = event.scrollDelta.dy < 0 ? 136 : 137;
     _bridge.feedKey(key, true);
