@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -14,6 +15,12 @@ class Log {
   static bool _hasRuntimeSession = false;
   static bool overlayVisible = false;
   static VoidCallback? _onOverlayToggle;
+
+  /// 待落盘的日志缓冲。脚本文本回显、资源探测 MISS 等场景一秒可产生上千条，
+  /// 逐条 append 会把事件队列和 platform channel 打满（UI 假死），故 500ms
+  /// 批量落盘一次。
+  static final List<LogEntry> _pendingFileWrites = [];
+  static Timer? _fileFlushTimer;
 
   static bool get debugEnabled => _debugEnabled;
   static void setDebugEnabled(bool v) => _debugEnabled = v;
@@ -33,11 +40,16 @@ class Log {
     _runtimeSessionLogs.clear();
     _runtimeSessionActive = true;
     _hasRuntimeSession = true;
-    _fileWriteQueue = _fileWriteQueue.then((_) => _truncateCurrentLog());
+    // 先把缓冲里的条目落盘，再截断，保证新会话的日志文件不含上一局内容。
+    _enqueueFileWork(() async {
+      await _flushPendingFileWrites();
+      await _truncateCurrentLog();
+    });
   }
 
   static void endRuntimeSession() {
     _runtimeSessionActive = false;
+    _scheduleFileFlush();
   }
 
   static void _add(String level, String msg) {
@@ -46,9 +58,43 @@ class Log {
     if (_runtimeSessionActive) {
       _runtimeSessionLogs.add(entry);
     }
-    if (_logs.length > 5000) _logs.removeRange(0, _logs.length - 5000);
+    // 分块裁剪：每次移除 1000 条，摊销掉逐条 removeRange 的 O(n) 搬移。
+    if (_logs.length > 6000) _logs.removeRange(0, 1000);
     _notifier.value = _logs.length;
-    _fileWriteQueue = _fileWriteQueue.then((_) => _writeFile(entry));
+    _pendingFileWrites.add(entry);
+    _scheduleFileFlush();
+  }
+
+  static void _scheduleFileFlush() {
+    _fileFlushTimer ??= Timer(const Duration(milliseconds: 500), () {
+      _fileFlushTimer = null;
+      _enqueueFileWork(_flushPendingFileWrites);
+    });
+  }
+
+  static void _enqueueFileWork(Future<void> Function() work) {
+    _fileWriteQueue = _fileWriteQueue.then((_) => work());
+  }
+
+  static Future<void> _flushPendingFileWrites() async {
+    if (_pendingFileWrites.isEmpty) return;
+    final batch = _pendingFileWrites.toList();
+    _pendingFileWrites.clear();
+    try {
+      final dir = await getApplicationDocumentsDirectory();
+      final file = File('${dir.path}/art3m1s.log');
+      final sink = file.openWrite(mode: FileMode.append);
+      try {
+        for (final entry in batch) {
+          sink.writeln(
+            '[${entry.timestamp.toIso8601String()}] [${entry.level}] ${entry.message}',
+          );
+        }
+        await sink.flush();
+      } finally {
+        await sink.close();
+      }
+    } catch (_) {}
   }
 
   static void debug(String msg) {
@@ -85,17 +131,6 @@ class Log {
       final dir = await getApplicationDocumentsDirectory();
       final file = File('${dir.path}/art3m1s.log');
       await file.writeAsString('');
-    } catch (_) {}
-  }
-
-  static Future<void> _writeFile(LogEntry entry) async {
-    try {
-      final dir = await getApplicationDocumentsDirectory();
-      final file = File('${dir.path}/art3m1s.log');
-      await file.writeAsString(
-        '[${entry.timestamp.toIso8601String()}] [${entry.level}] ${entry.message}\n',
-        mode: FileMode.append,
-      );
     } catch (_) {}
   }
 }

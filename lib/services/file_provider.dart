@@ -28,10 +28,21 @@ typedef RegisterFileDeleteNative =
     Void Function(Pointer<NativeFunction<FileDeleteNative>>);
 
 final class _PfsResource {
-  const _PfsResource(this.archive, this.size);
+  const _PfsResource(this.archive, this.entryPath, this.size);
 
   final Pointer<Void> archive;
+
+  /// 归档内的原始条目路径（读取时用它，而不是查询串）。
+  final String entryPath;
   final int size;
+}
+
+/// 资源索引条目：PFS 条目或目录文件，二选一。
+final class _IndexedResource {
+  const _IndexedResource({this.pfs, this.file});
+
+  final _PfsResource? pfs;
+  final File? file;
 }
 
 class FileProvider {
@@ -43,13 +54,21 @@ class FileProvider {
   static String? _directory;
   static bool _environmentPatchEnabled = false;
   static final Map<String, Uint8List> _environmentPatchCache = {};
-  static final Map<String, _PfsResource> _pfsResourceCache = {};
-  static final Set<String> _missingPfsResources = {};
+  // 启动时一次性建立的资源索引：脚本会成批探测多种后缀/路径变体（每个候选
+  // 一次 FFI 回调），有索引后存在性与大小查询都是纯内存查表，不再产生
+  // 逐路径的系统调用。键为规范化相对路径；目录模式（文件系统大小写不敏感）
+  // 键为小写，PFS 模式保持条目原始大小写。
+  static final Map<String, _IndexedResource> _resourceIndex = {};
+  static bool _resourceIndexCaseInsensitive = false;
 
   /// 存档读写基准目录（应用沙箱内）。core 通过回调传相对路径（如
   /// `savedata/save0001.dat`），一律拼到此目录下落盘/读取（方案 A1 +
   /// 存档统一放沙箱目录）。
   static String? _saveDir;
+
+  /// 目录模式的活路径回退：仅当资源索引为空（建立失败）时逐路径探测。
+  static bool get _directoryFallbackActive =>
+      _directory != null && _resourceIndex.isEmpty;
 
   static void setSaveDir(String dir) {
     _saveDir = dir;
@@ -89,6 +108,8 @@ class FileProvider {
       final h = _pfs.openWithEncoding(path, archiveEncoding);
       if (h != nullptr) _archives.add(h);
     }
+    _resourceIndexCaseInsensitive = false;
+    _buildPfsResourceIndex();
   }
 
   static void openDirectory(
@@ -98,6 +119,55 @@ class FileProvider {
     close();
     _directory = root;
     _environmentPatchEnabled = environmentPatchEnabled;
+    _resourceIndexCaseInsensitive = true;
+    _buildDirectoryResourceIndex(root);
+  }
+
+  /// PFS 模式：枚举所有已开归档的条目建索引。后打开的归档（补丁卷）覆盖
+  /// 先打开的，与查询时 `_archives.reversed` 的优先序一致。
+  static void _buildPfsResourceIndex() {
+    for (final archive in _archives) {
+      final count = _pfs.entryCount(archive);
+      for (var index = 0; index < count; index++) {
+        final entryPath = _pfs.entryPath(archive, index);
+        if (entryPath == null) continue;
+        final size = _pfs.fileSize(archive, entryPath);
+        // 0 字节/读不到大小的条目按历史行为视为缺失。
+        if (size <= 0) continue;
+        final key = entryPath.replaceAll('\\', '/');
+        _resourceIndex[key] = _IndexedResource(
+          pfs: _PfsResource(archive, entryPath, size),
+        );
+      }
+    }
+  }
+
+  /// 目录模式：递归遍历一次建索引。文件系统大小写不敏感，键统一小写。
+  static void _buildDirectoryResourceIndex(String root) {
+    final prefix = root.endsWith(Platform.pathSeparator)
+        ? root
+        : '$root${Platform.pathSeparator}';
+    try {
+      for (final entity in Directory(
+        root,
+      ).listSync(recursive: true, followLinks: false)) {
+        if (entity is! File || !entity.path.startsWith(prefix)) continue;
+        final relative = entity.path
+            .substring(prefix.length)
+            .replaceAll(Platform.pathSeparator, '/');
+        _resourceIndex[relative.toLowerCase()] = _IndexedResource(
+          file: File(entity.path),
+        );
+      }
+    } catch (e) {
+      Log.warn('[FileProvider] 目录索引建立失败，回退逐路径探测: $e');
+      _resourceIndex.clear();
+    }
+  }
+
+  static String _indexKey(String path) {
+    final normalized = path.replaceAll('\\', '/');
+    return _resourceIndexCaseInsensitive ? normalized.toLowerCase() : normalized;
   }
 
   static void close() {
@@ -109,8 +179,8 @@ class FileProvider {
     _saveDir = null;
     _environmentPatchEnabled = false;
     _environmentPatchCache.clear();
-    _pfsResourceCache.clear();
-    _missingPfsResources.clear();
+    _resourceIndex.clear();
+    _resourceIndexCaseInsensitive = false;
   }
 
   static Uint8List? readFile(String path) => _lookup(path);
@@ -118,35 +188,9 @@ class FileProvider {
   static List<String> listFiles({String? extension}) {
     final suffix = extension?.toLowerCase();
     final paths = <String, String>{};
-    for (final archive in _archives) {
-      final count = _pfs.entryCount(archive);
-      for (var index = 0; index < count; index++) {
-        final path = _pfs.entryPath(archive, index);
-        if (path == null) continue;
-        final normalized = path.replaceAll('\\', '/');
-        if (suffix != null && !normalized.toLowerCase().endsWith(suffix)) {
-          continue;
-        }
-        paths[normalized.toLowerCase()] = normalized;
-      }
-    }
-    final root = _directory;
-    if (root != null) {
-      final prefix = root.endsWith(Platform.pathSeparator)
-          ? root
-          : '$root${Platform.pathSeparator}';
-      for (final entity in Directory(
-        root,
-      ).listSync(recursive: true, followLinks: false)) {
-        if (entity is! File || !entity.path.startsWith(prefix)) continue;
-        final relative = entity.path
-            .substring(prefix.length)
-            .replaceAll(Platform.pathSeparator, '/');
-        if (suffix != null && !relative.toLowerCase().endsWith(suffix)) {
-          continue;
-        }
-        paths[relative.toLowerCase()] = relative;
-      }
+    for (final key in _resourceIndex.keys) {
+      if (suffix != null && !key.toLowerCase().endsWith(suffix)) continue;
+      paths[key.toLowerCase()] = key;
     }
     return paths.values.toList();
   }
@@ -162,21 +206,34 @@ class FileProvider {
   }
 
   static Uint8List? _lookupResource(String path) {
-    final resource = _findPfsResource(path);
-    if (resource != null) {
+    final indexed = _resourceIndex[_indexKey(path)];
+    if (indexed == null) return _readDirectoryFileLive(path);
+    if (indexed.pfs case final resource?) {
       final buf = malloc.allocate<Uint8>(resource.size);
       try {
-        final read = _pfs.read(resource.archive, path, 0, buf, resource.size);
+        final read = _pfs.read(
+          resource.archive,
+          resource.entryPath,
+          0,
+          buf,
+          resource.size,
+        );
         if (read > 0) return Uint8List.fromList(buf.asTypedList(read));
       } finally {
         malloc.free(buf);
       }
+      return null;
     }
-    if (_directory != null) {
-      final file = File('$_directory${Platform.pathSeparator}$path');
-      if (file.existsSync()) return file.readAsBytesSync();
-    }
-    return null;
+    final file = indexed.file!;
+    return file.existsSync() ? file.readAsBytesSync() : null;
+  }
+
+  /// 索引未建成时的目录活读回退。
+  static Uint8List? _readDirectoryFileLive(String path) {
+    final root = _directory;
+    if (root == null || !_directoryFallbackActive) return null;
+    final file = File('$root${Platform.pathSeparator}$path');
+    return file.existsSync() ? file.readAsBytesSync() : null;
   }
 
   static int _callback(
@@ -203,9 +260,13 @@ class FileProvider {
     }
     final patched = _patchedResource(path);
     if (patched != null) return patched.length;
-    final resource = _findPfsResource(path);
-    if (resource != null) return resource.size;
-    if (_directory != null) {
+    final indexed = _resourceIndex[_indexKey(path)];
+    if (indexed != null) {
+      if (indexed.pfs != null) return indexed.pfs!.size;
+      final file = indexed.file!;
+      return file.existsSync() ? file.lengthSync() : -1;
+    }
+    if (_directoryFallbackActive) {
       final file = File('$_directory${Platform.pathSeparator}$path');
       if (file.existsSync()) return file.lengthSync();
     }
@@ -227,37 +288,22 @@ class FileProvider {
     if (patched != null) {
       return _readFromBytes(patched, buf, bufSize, offset);
     }
-    final resource = _findPfsResource(path);
-    if (resource != null) {
-      return _pfs.read(resource.archive, path, offset, buf, bufSize);
+    final indexed = _resourceIndex[_indexKey(path)];
+    if (indexed != null) {
+      if (indexed.pfs case final resource?) {
+        return _pfs.read(resource.archive, resource.entryPath, offset, buf, bufSize);
+      }
+      return _readFromFile(indexed.file!, buf, bufSize, offset);
     }
-    if (_directory != null) {
-      final r = _readFromFile(
+    if (_directoryFallbackActive) {
+      return _readFromFile(
         File('$_directory${Platform.pathSeparator}$path'),
         buf,
         bufSize,
         offset,
       );
-      if (r >= 0) return r;
     }
     return -1;
-  }
-
-  static _PfsResource? _findPfsResource(String path) {
-    final key = path.replaceAll('\\', '/');
-    final cached = _pfsResourceCache[key];
-    if (cached != null) return cached;
-    if (_missingPfsResources.contains(key)) return null;
-
-    for (final archive in _archives.reversed) {
-      final size = _pfs.fileSize(archive, path);
-      if (size <= 0) continue;
-      final resource = _PfsResource(archive, size);
-      _pfsResourceCache[key] = resource;
-      return resource;
-    }
-    _missingPfsResources.add(key);
-    return null;
   }
 
   static Uint8List? _patchedResource(String path) {
