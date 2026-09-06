@@ -56,10 +56,9 @@ class FileProvider {
   static final Map<String, Uint8List> _environmentPatchCache = {};
   // 启动时一次性建立的资源索引：脚本会成批探测多种后缀/路径变体（每个候选
   // 一次 FFI 回调），有索引后存在性与大小查询都是纯内存查表，不再产生
-  // 逐路径的系统调用。键为规范化相对路径；目录模式（文件系统大小写不敏感）
-  // 键为小写，PFS 模式保持条目原始大小写。
+  // 逐路径的系统调用。键为统一小写的 `/` 分隔相对路径（两侧的归档/文件系统
+  // 查找历史上都是大小写不敏感的）。
   static final Map<String, _IndexedResource> _resourceIndex = {};
-  static bool _resourceIndexCaseInsensitive = false;
 
   /// 存档读写基准目录（应用沙箱内）。core 通过回调传相对路径（如
   /// `savedata/save0001.dat`），一律拼到此目录下落盘/读取（方案 A1 +
@@ -108,7 +107,6 @@ class FileProvider {
       final h = _pfs.openWithEncoding(path, archiveEncoding);
       if (h != nullptr) _archives.add(h);
     }
-    _resourceIndexCaseInsensitive = false;
     _buildPfsResourceIndex();
   }
 
@@ -119,24 +117,27 @@ class FileProvider {
     close();
     _directory = root;
     _environmentPatchEnabled = environmentPatchEnabled;
-    _resourceIndexCaseInsensitive = true;
     _buildDirectoryResourceIndex(root);
   }
 
-  /// PFS 模式：枚举所有已开归档的条目建索引。后打开的归档（补丁卷）覆盖
-  /// 先打开的，与查询时 `_archives.reversed` 的优先序一致。
+  /// PFS 模式：枚举所有已开归档的条目建索引。反向遍历 + `putIfAbsent`，
+  /// 与查询时"后开归档（补丁卷）优先、同归档内同名取先"的历史语义一致。
+  /// 条目大小优先用 O(1) 的 `entrySize` 直读；旧库未导出该符号时回退到
+  /// 按路径的 `fileSize` 查询（旧库上较慢，仅作兼容）。
   static void _buildPfsResourceIndex() {
-    for (final archive in _archives) {
+    for (final archive in _archives.reversed) {
       final count = _pfs.entryCount(archive);
       for (var index = 0; index < count; index++) {
         final entryPath = _pfs.entryPath(archive, index);
         if (entryPath == null) continue;
-        final size = _pfs.fileSize(archive, entryPath);
+        final size =
+            _pfs.entrySize(archive, index) ?? _pfs.fileSize(archive, entryPath);
         // 0 字节/读不到大小的条目按历史行为视为缺失。
         if (size <= 0) continue;
-        final key = entryPath.replaceAll('\\', '/');
-        _resourceIndex[key] = _IndexedResource(
-          pfs: _PfsResource(archive, entryPath, size),
+        final key = entryPath.replaceAll('\\', '/').toLowerCase();
+        _resourceIndex.putIfAbsent(
+          key,
+          () => _IndexedResource(pfs: _PfsResource(archive, entryPath, size)),
         );
       }
     }
@@ -165,9 +166,10 @@ class FileProvider {
     }
   }
 
+  /// 索引键：统一 `/` 分隔 + 小写。PFS 与目录两侧的历史查找行为都是
+  /// 大小写不敏感的（pf8/引擎归档查找、大小写不敏感文件系统）。
   static String _indexKey(String path) {
-    final normalized = path.replaceAll('\\', '/');
-    return _resourceIndexCaseInsensitive ? normalized.toLowerCase() : normalized;
+    return path.replaceAll('\\', '/').toLowerCase();
   }
 
   static void close() {
@@ -180,7 +182,6 @@ class FileProvider {
     _environmentPatchEnabled = false;
     _environmentPatchCache.clear();
     _resourceIndex.clear();
-    _resourceIndexCaseInsensitive = false;
   }
 
   static Uint8List? readFile(String path) => _lookup(path);

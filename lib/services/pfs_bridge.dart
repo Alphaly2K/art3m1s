@@ -16,6 +16,7 @@ typedef PfsEntryPathNative =
       Pointer<Utf8> buf,
       Int32 bufSize,
     );
+typedef PfsEntrySizeNative = Int64 Function(Pointer<Void> archive, Int32 index);
 typedef PfsReadNative =
     Int32 Function(
       Pointer<Void> archive,
@@ -140,6 +141,21 @@ class PfsBridge {
       return buf.toDartString();
     } finally {
       malloc.free(buf);
+    }
+  }
+
+  /// O(1) 按条目下标取大小（core ≥ 本功能引入时导出）。旧库未导出时返回 null，
+  /// 调用方回退到按路径的 fileSize 查询。
+  int? entrySize(Pointer<Void> archive, int index) {
+    try {
+      final fn = lib
+          .lookupFunction<PfsEntrySizeNative, int Function(Pointer<Void>, int)>(
+            'pfs_entry_size',
+          );
+      final size = fn(archive, index);
+      return size < 0 ? null : size;
+    } catch (_) {
+      return null;
     }
   }
 
