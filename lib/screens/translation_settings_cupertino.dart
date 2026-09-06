@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/translation_settings.dart';
 import '../providers/settings_provider.dart';
+import 'translation_font_picker.dart';
 
 /// 翻译设置页的 iOS Cupertino 实现。照 cupertino_shell 的
 /// `CupertinoListSection.insetGrouped` + `CupertinoListTile.notched` 分组结构；
@@ -123,6 +124,40 @@ class _CupertinoTranslationSettingsScreenState
           ),
         ],
       ),
+      if (value.mode != TranslationMode.off)
+        CupertinoListSection.insetGrouped(
+          header: const Text('字体'),
+          children: [
+            CupertinoListTile.notched(
+              title: const Text('覆盖字体'),
+              additionalInfo: Text(
+                value.fontPath.isEmpty
+                    ? '游戏脚本字体'
+                    : overrideFontDisplayName(value.fontPath),
+              ),
+              trailing: const CupertinoListTileChevron(),
+              onTap: () async {
+                final path = await pickOverrideFont();
+                if (path != null) {
+                  _save(
+                    'fontPath',
+                    (v) => v.copyWith(fontPath: path),
+                    immediate: true,
+                  );
+                }
+              },
+            ),
+            if (value.fontPath.isNotEmpty)
+              CupertinoListTile.notched(
+                title: const Text('清除覆盖字体'),
+                onTap: () => _save(
+                  'fontPath',
+                  (v) => v.copyWith(fontPath: ''),
+                  immediate: true,
+                ),
+              ),
+          ],
+        ),
       if (value.mode == TranslationMode.online) ...[
         CupertinoListSection.insetGrouped(
           header: const Text('在线服务'),

@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/translation_settings.dart';
 import '../providers/settings_provider.dart';
+import 'translation_font_picker.dart';
 import 'translation_settings_cupertino.dart';
 import 'translation_settings_fluent.dart';
 import 'translation_settings_macos.dart';
@@ -220,6 +221,54 @@ class _MaterialTranslationSettingsScreenState
                 'targetLanguage',
                 (value) => value.copyWith(targetLanguage: language),
                 immediate: true,
+              ),
+            ),
+          ],
+          if (value.mode != TranslationMode.off) ...[
+            const Divider(height: 32),
+            const _SectionHeader('字体'),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      value.fontPath.isEmpty
+                          ? '使用游戏脚本字体'
+                          : overrideFontDisplayName(value.fontPath),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () async {
+                      final path = await pickOverrideFont();
+                      if (path != null) {
+                        _save(
+                          'fontPath',
+                          (v) => v.copyWith(fontPath: path),
+                          immediate: true,
+                        );
+                      }
+                    },
+                    child: const Text('选择字体'),
+                  ),
+                  if (value.fontPath.isNotEmpty)
+                    TextButton(
+                      onPressed: () => _save(
+                        'fontPath',
+                        (v) => v.copyWith(fontPath: ''),
+                        immediate: true,
+                      ),
+                      child: const Text('清除'),
+                    ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+              child: Text(
+                '译文缺字时，选择一个包含目标语言文字的 TTF/OTF 字体覆盖游戏字体。',
+                style: Theme.of(context).textTheme.bodySmall,
               ),
             ),
           ],

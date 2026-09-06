@@ -246,6 +246,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         return;
       }
       _bridge.configureTranslation(translation);
+      // 覆盖字体是 core 的进程级全局设置：每次启动显式安装或清除，
+      // 避免上一局游戏的覆盖泄漏到本局。
+      await _applyFontOverride(ref.read(settingsProvider).translation.fontPath);
+    } else {
+      _bridge.clearFontOverride();
     }
 
     _bridge.registerFileReader();
@@ -284,6 +289,26 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     }
     setState(() {});
     _startGameLoop();
+  }
+
+  /// 安装设置里的覆盖字体（译文缺字用）；路径为空或读取失败时清除覆盖，
+  /// 让 core 回到游戏脚本字体。
+  Future<void> _applyFontOverride(String fontPath) async {
+    if (fontPath.isEmpty) {
+      _bridge.clearFontOverride();
+      return;
+    }
+    try {
+      final bytes = await File(fontPath).readAsBytes();
+      if (_bridge.setFontOverride(bytes)) {
+        Log.info('[字体] 已安装覆盖字体: $fontPath');
+      } else {
+        Log.warn('[字体] 覆盖字体安装失败（core 过旧或字体非法）: $fontPath');
+      }
+    } catch (error) {
+      Log.warn('[字体] 覆盖字体读取失败: $fontPath: $error');
+      _bridge.clearFontOverride();
+    }
   }
 
   void _parseStageSize(Uint8List ini) {

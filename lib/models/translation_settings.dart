@@ -174,6 +174,7 @@ class TranslationSettings {
     this.model = defaultModel,
     this.sourceLanguage = '日语',
     this.targetLanguage = '简体中文',
+    this.fontPath = '',
   });
 
   final TranslationMode mode;
@@ -186,6 +187,10 @@ class TranslationSettings {
   final String sourceLanguage;
   final String targetLanguage;
 
+  /// 覆盖字体文件路径（沙箱托管副本），空字符串表示使用游戏脚本字体。
+  /// 译文缺字时选择一个包含目标语言文字的 TTF/OTF 即可。
+  final String fontPath;
+
   TranslationSettings copyWith({
     TranslationMode? mode,
     TranslationProvider? provider,
@@ -196,6 +201,7 @@ class TranslationSettings {
     String? model,
     String? sourceLanguage,
     String? targetLanguage,
+    String? fontPath,
   }) {
     return TranslationSettings(
       mode: mode ?? this.mode,
@@ -207,6 +213,7 @@ class TranslationSettings {
       model: model ?? this.model,
       sourceLanguage: sourceLanguage ?? this.sourceLanguage,
       targetLanguage: targetLanguage ?? this.targetLanguage,
+      fontPath: fontPath ?? this.fontPath,
     );
   }
 }

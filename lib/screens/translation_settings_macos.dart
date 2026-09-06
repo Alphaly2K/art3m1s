@@ -9,6 +9,7 @@ import '../models/translation_settings.dart';
 import '../providers/settings_provider.dart';
 import '../widgets/inset_scrollbar.dart';
 import '../widgets/macos_circle_button.dart';
+import 'translation_font_picker.dart';
 
 /// 翻译设置页的 macOS 原生实现（macos_ui）。与其它设置页一致：
 /// 被 push 出来的无侧栏页面 → 页头照 `_LicensePageHeader` 让开红绿灯（84px 左内边距
@@ -153,6 +154,48 @@ class _MacosTranslationSettingsScreenState
           ),
         ],
       ),
+      if (value.mode != TranslationMode.off)
+        _Section(
+          title: '字体',
+          children: [
+            _SettingRow(
+              label: value.fontPath.isEmpty
+                  ? '覆盖字体'
+                  : '覆盖：${overrideFontDisplayName(value.fontPath)}',
+              control: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  PushButton(
+                    controlSize: ControlSize.regular,
+                    onPressed: () async {
+                      final path = await pickOverrideFont();
+                      if (path != null) {
+                        _save(
+                          'fontPath',
+                          (v) => v.copyWith(fontPath: path),
+                          immediate: true,
+                        );
+                      }
+                    },
+                    child: const Text('选择…'),
+                  ),
+                  if (value.fontPath.isNotEmpty) ...[
+                    const SizedBox(width: 8),
+                    PushButton(
+                      controlSize: ControlSize.regular,
+                      onPressed: () => _save(
+                        'fontPath',
+                        (v) => v.copyWith(fontPath: ''),
+                        immediate: true,
+                      ),
+                      child: const Text('清除'),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
       if (value.mode == TranslationMode.online) ...[
         _Section(
           title: '在线服务',

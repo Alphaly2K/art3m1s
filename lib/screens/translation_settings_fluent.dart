@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/translation_settings.dart';
 import '../providers/settings_provider.dart';
+import 'translation_font_picker.dart';
 
 /// 翻译设置页的 Windows Fluent 实现（fluent_ui）。照 fluent_shell 的 `_FluentSection`
 /// 分组卡片 + `_FluentSettingRow` 单行结构；被 push 出来的子页照 `_FluentLicensesPage`
@@ -105,6 +106,46 @@ class _FluentTranslationSettingsScreenState
           ),
         ],
       ),
+      if (value.mode != TranslationMode.off)
+        _FluentSection(
+          title: '字体',
+          children: [
+            _FluentSettingRow(
+              label: value.fontPath.isEmpty
+                  ? '覆盖字体（缺省使用游戏脚本字体）'
+                  : '覆盖：${overrideFontDisplayName(value.fontPath)}',
+              control: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Button(
+                    onPressed: () async {
+                      final path = await pickOverrideFont();
+                      if (path != null) {
+                        _save(
+                          'fontPath',
+                          (v) => v.copyWith(fontPath: path),
+                          immediate: true,
+                        );
+                      }
+                    },
+                    child: const Text('选择…'),
+                  ),
+                  if (value.fontPath.isNotEmpty) ...[
+                    const SizedBox(width: 8),
+                    Button(
+                      onPressed: () => _save(
+                        'fontPath',
+                        (v) => v.copyWith(fontPath: ''),
+                        immediate: true,
+                      ),
+                      child: const Text('清除'),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
       if (value.mode == TranslationMode.online) ...[
         _FluentSection(
           title: '在线服务',

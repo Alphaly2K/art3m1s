@@ -163,6 +163,7 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
               prefs.getString('translation_source_language') ?? '日语',
           targetLanguage:
               prefs.getString('translation_target_language') ?? '简体中文',
+          fontPath: prefs.getString('translation_font_path') ?? '',
         ),
       );
     } finally {
@@ -246,6 +247,7 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
       prefs.setString('translation_model', value.model),
       prefs.setString('translation_source_language', value.sourceLanguage),
       prefs.setString('translation_target_language', value.targetLanguage),
+      prefs.setString('translation_font_path', value.fontPath),
       prefs.setString(_translationApiKey, value.apiKey),
       prefs.setString('translation_app_id', value.appId),
       prefs.setString('translation_app_secret', value.appSecret),

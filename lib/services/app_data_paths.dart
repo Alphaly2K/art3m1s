@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:path_provider/path_provider.dart';
 
@@ -26,6 +27,36 @@ class AppDataPaths {
 
   static Future<Directory> coversDirectory() async {
     return _ensureChild(await ensureInitialized(), 'covers');
+  }
+
+  static Future<Directory> fontsDirectory() async {
+    return _ensureChild(await ensureInitialized(), 'fonts');
+  }
+
+  /// 把用户选择的覆盖字体字节写入统一目录，返回托管路径。
+  ///
+  /// 覆盖字体是全局单例设置：写入前清掉旧的 `override-font.*`，避免残留多份。
+  /// 选择器返回的源路径在 iOS 上是安全作用域临时授权，跨启动不可直接再读，
+  /// 因此按字节落盘而不是按路径复制。
+  static Future<String> importFontBytes(
+    String sourceName,
+    Uint8List bytes,
+  ) async {
+    final fonts = await fontsDirectory();
+    final dot = sourceName.lastIndexOf('.');
+    final extension = dot < 0 ? '.ttf' : sourceName.substring(dot).toLowerCase();
+    final destination = File(
+      '${fonts.path}${Platform.pathSeparator}override-font$extension',
+    );
+    await for (final entity in fonts.list(followLinks: false)) {
+      if (entity is File && _basename(entity.path).startsWith('override-font')) {
+        try {
+          await entity.delete();
+        } catch (_) {}
+      }
+    }
+    await destination.writeAsBytes(bytes, flush: true);
+    return destination.path;
   }
 
   /// 把用户选择的封面复制进统一目录；复制失败时保留原路径。

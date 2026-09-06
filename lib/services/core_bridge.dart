@@ -403,6 +403,7 @@ class CoreBridge {
   RuntimeSetProfilerEnabled? _setProfilerEnabled;
   RuntimeProfilerSnapshot? _profilerSnapshot;
   bool _profilerSymbolsUnavailable = false;
+  bool _fontOverrideSymbolsUnavailable = false;
   bool _sharedTextureSymbolsUnavailable = false;
   int? _sharedTextureId;
   int? _sharedTextureKind;
@@ -837,6 +838,47 @@ class CoreBridge {
       fn(enabled ? 1 : 0);
     } catch (_) {
       // Older cores do not expose this optional debug visualization control.
+    }
+  }
+
+  /// 安装运行时覆盖字体（译文缺字时使用，TTF/OTF 字节）。
+  /// 返回 false 表示 core 过旧（未导出符号）或字体非法。
+  bool setFontOverride(Uint8List bytes) {
+    final lib = _lib;
+    if (lib == null || _fontOverrideSymbolsUnavailable || bytes.isEmpty) {
+      return false;
+    }
+    try {
+      final fn = lib.lookupFunction<
+        Int32 Function(Pointer<Uint8>, Int32),
+        int Function(Pointer<Uint8>, int)
+      >('art3m1s_set_font_override');
+      final ptr = malloc.allocate<Uint8>(bytes.length);
+      try {
+        ptr.asTypedList(bytes.length).setAll(0, bytes);
+        return fn(ptr, bytes.length) == 1;
+      } finally {
+        malloc.free(ptr);
+      }
+    } catch (error) {
+      _fontOverrideSymbolsUnavailable = true;
+      Log.info('[CoreBridge] 当前 core 不支持运行时字体覆盖: $error');
+      return false;
+    }
+  }
+
+  /// 清除运行时覆盖字体，恢复游戏脚本字体。
+  void clearFontOverride() {
+    final lib = _lib;
+    if (lib == null || _fontOverrideSymbolsUnavailable) return;
+    try {
+      final fn = lib.lookupFunction<Void Function(), void Function()>(
+        'art3m1s_clear_font_override',
+      );
+      fn();
+    } catch (error) {
+      _fontOverrideSymbolsUnavailable = true;
+      Log.info('[CoreBridge] 当前 core 不支持运行时字体覆盖: $error');
     }
   }
 
@@ -1359,6 +1401,7 @@ class CoreBridge {
     _setProfilerEnabled = null;
     _profilerSnapshot = null;
     _profilerSymbolsUnavailable = false;
+    _fontOverrideSymbolsUnavailable = false;
     _sharedTextureSymbolsUnavailable = false;
     for (final id in _videoLayerIds.values) {
       malloc.free(id);
