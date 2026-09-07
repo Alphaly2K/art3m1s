@@ -8,6 +8,7 @@ import 'package:macos_ui/macos_ui.dart';
 
 import '../models/input_gate.dart';
 import '../models/render_backend.dart';
+import '../widgets/inset_scrollbar.dart';
 
 /// 编辑对话框的结果。
 class GameEditData {
@@ -188,20 +189,43 @@ Future<GameEditData?> showGameEditDialog(
   String initialRuntimePlatform = 'WINDOWS',
 }) {
   if (Platform.isMacOS) {
-    return showMacosAlertDialog<GameEditData>(
+    return showMacosSheet<GameEditData>(
       context: context,
-      builder: (ctx) => _MacosEditDialog(
-        title: title,
-        initialName: initialName,
-        initialCover: initialCoverPath,
-        initialTranslationEnabled: initialTranslationEnabled,
-        initialTranslationPatchPath: initialTranslationPatchPath,
-        initialEnvironmentPatchEnabled: initialEnvironmentPatchEnabled,
-        initialExperimentalElunaEnabled: initialExperimentalElunaEnabled,
-        initialInputGate: initialInputGate,
-        initialReportedOs: initialReportedOs,
-        initialRuntimePlatform: initialRuntimePlatform,
-      ),
+      barrierDismissible: true,
+      builder: (ctx) {
+        final size = MediaQuery.sizeOf(ctx);
+        final width = size.width < 640
+            ? (size.width - 48).clamp(360.0, 520.0)
+            : 520.0;
+        final height = (size.height - 80).clamp(420.0, 640.0);
+        return Align(
+          alignment: Alignment.topCenter,
+          child: Padding(
+            padding: const EdgeInsets.only(top: 28),
+            child: SizedBox(
+              width: width,
+              height: height,
+              child: MacosSheet(
+                insetPadding: EdgeInsets.zero,
+                child: _MacosEditDialog(
+                  title: title,
+                  initialName: initialName,
+                  initialCover: initialCoverPath,
+                  initialTranslationEnabled: initialTranslationEnabled,
+                  initialTranslationPatchPath: initialTranslationPatchPath,
+                  initialEnvironmentPatchEnabled:
+                      initialEnvironmentPatchEnabled,
+                  initialExperimentalElunaEnabled:
+                      initialExperimentalElunaEnabled,
+                  initialInputGate: initialInputGate,
+                  initialReportedOs: initialReportedOs,
+                  initialRuntimePlatform: initialRuntimePlatform,
+                ),
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
   if (Platform.isWindows) {
@@ -290,6 +314,7 @@ class _MacosEditDialogState extends State<_MacosEditDialog> {
   late final TextEditingController _name = TextEditingController(
     text: widget.initialName,
   );
+  final ScrollController _scroll = ScrollController();
   String? _cover;
   late bool _translationEnabled;
   late String _translationPatchPath;
@@ -324,207 +349,384 @@ class _MacosEditDialogState extends State<_MacosEditDialog> {
     );
   }
 
+  GameEditData _result() {
+    return GameEditData(
+      name: _name.text.trim(),
+      coverPath: _cover,
+      translationEnabled: _translationEnabled,
+      translationPatchPath: _translationPatchPath,
+      environmentPatchEnabled: _environmentPatchEnabled,
+      experimentalElunaEnabled: _experimentalElunaEnabled,
+      inputGate: _inputGate,
+      reportedOs: _reportedOs,
+      runtimePlatform: _runtimePlatform,
+    );
+  }
+
   @override
   void dispose() {
     _name.dispose();
+    _scroll.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return MacosAlertDialog(
-      appIcon: const MacosIcon(
-        CupertinoIcons.game_controller,
-        size: 56,
-        color: MacosColors.systemPurpleColor,
-      ),
-      title: Text(widget.title),
-      message: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          MacosTextField(
-            controller: _name,
-            placeholder: '游戏名称',
-            autofocus: true,
+    final theme = MacosTheme.of(context);
+    final dark = theme.brightness == Brightness.dark;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
+          child: Text(
+            widget.title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.typography.title2.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
           ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              _CoverThumb(path: _cover, size: 44),
-              const SizedBox(width: 8),
-              PushButton(
-                controlSize: ControlSize.regular,
-                secondary: true,
-                onPressed: () async {
-                  final path = await _pickCoverFile();
-                  if (path != null) setState(() => _cover = path);
-                },
-                child: Text(_cover != null ? '更换封面' : '选择封面'),
-              ),
-              if (_cover != null) ...[
-                const SizedBox(width: 6),
-                PushButton(
-                  controlSize: ControlSize.regular,
-                  secondary: true,
-                  onPressed: () => setState(() => _cover = null),
-                  child: const Text('清除'),
-                ),
-              ],
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              const Expanded(child: Text('启用文本翻译')),
-              MacosSwitch(
-                value: _translationEnabled,
-                onChanged: (value) =>
-                    setState(() => _translationEnabled = value),
-              ),
-            ],
-          ),
-          if (_translationEnabled) ...[
-            const SizedBox(height: 8),
-            Row(
+        ),
+        Expanded(
+          child: InsetScrollbar(
+            controller: _scroll,
+            child: ListView(
+              controller: _scroll,
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
               children: [
-                Expanded(
-                  child: Text(
-                    _translationPatchPath.isEmpty
-                        ? '未选择对照文件'
-                        : _translationPatchPath,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
+                _MacosFormSection(
+                  title: '基本',
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+                      child: MacosTextField(
+                        controller: _name,
+                        placeholder: '游戏名称',
+                        autofocus: true,
+                      ),
+                    ),
+                    _MacosFormRow(
+                      label: '封面',
+                      caption: _cover == null || _cover!.isEmpty
+                          ? '未选择'
+                          : _cover!.split(RegExp(r'[/\\]')).last,
+                      control: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _CoverThumb(path: _cover, size: 36),
+                          const SizedBox(width: 8),
+                          PushButton(
+                            controlSize: ControlSize.small,
+                            secondary: true,
+                            onPressed: () async {
+                              final path = await _pickCoverFile();
+                              if (path != null) setState(() => _cover = path);
+                            },
+                            child: Text(_cover != null ? '更换' : '选择'),
+                          ),
+                          if (_cover != null) ...[
+                            const SizedBox(width: 6),
+                            PushButton(
+                              controlSize: ControlSize.small,
+                              secondary: true,
+                              onPressed: () => setState(() => _cover = null),
+                              child: const Text('清除'),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-                if (_translationPatchPath.isNotEmpty) ...[
-                  const SizedBox(width: 6),
-                  PushButton(
-                    controlSize: ControlSize.regular,
-                    secondary: true,
-                    onPressed: () => setState(() => _translationPatchPath = ''),
-                    child: const Text('清除'),
-                  ),
-                ],
-                const SizedBox(width: 6),
-                PushButton(
-                  controlSize: ControlSize.regular,
-                  secondary: true,
-                  onPressed: () async {
-                    final path = await _pickTranslationPatchFile();
-                    if (path != null) {
-                      setState(() => _translationPatchPath = path);
-                    }
-                  },
-                  child: const Text('选择对照文件'),
+                _MacosFormSection(
+                  title: '翻译',
+                  children: [
+                    _MacosFormRow(
+                      label: '启用文本翻译',
+                      control: MacosSwitch(
+                        value: _translationEnabled,
+                        onChanged: (value) =>
+                            setState(() => _translationEnabled = value),
+                      ),
+                    ),
+                    if (_translationEnabled)
+                      _MacosFormRow(
+                        label: '对照文件',
+                        caption: _translationPatchPath.isEmpty
+                            ? '未选择对照文件'
+                            : _translationPatchPath,
+                        control: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (_translationPatchPath.isNotEmpty) ...[
+                              PushButton(
+                                controlSize: ControlSize.small,
+                                secondary: true,
+                                onPressed: () =>
+                                    setState(() => _translationPatchPath = ''),
+                                child: const Text('清除'),
+                              ),
+                              const SizedBox(width: 6),
+                            ],
+                            PushButton(
+                              controlSize: ControlSize.small,
+                              secondary: true,
+                              onPressed: () async {
+                                final path = await _pickTranslationPatchFile();
+                                if (path != null) {
+                                  setState(() => _translationPatchPath = path);
+                                }
+                              },
+                              child: const Text('选择'),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+                _MacosFormSection(
+                  title: '兼容',
+                  children: [
+                    _MacosFormRow(
+                      label: '环境兼容补丁',
+                      caption: '按项目补丁调整运行环境',
+                      control: MacosSwitch(
+                        value: _environmentPatchEnabled,
+                        onChanged: (value) =>
+                            setState(() => _environmentPatchEnabled = value),
+                      ),
+                    ),
+                    _MacosFormRow(
+                      label: '启动 OS',
+                      caption: '写入 system.ini 的启动段',
+                      control: _MacosPopupWrap(
+                        child: MacosPopupButton<String>(
+                          value: runtimePlatforms.contains(_runtimePlatform)
+                              ? _runtimePlatform
+                              : 'WINDOWS',
+                          items: [
+                            for (final platform in runtimePlatforms)
+                              MacosPopupMenuItem(
+                                value: platform,
+                                child: Text(platform),
+                              ),
+                          ],
+                          onChanged: (platform) {
+                            if (platform != null) {
+                              setState(() => _runtimePlatform = platform);
+                            }
+                          },
+                        ),
+                      ),
+                    ),
+                    _MacosFormRow(
+                      label: '输入方式',
+                      caption: _inputGate.knownProfile == null
+                          ? '自定义规则（来自补丁）'
+                          : '触屏移植会关掉键盘默认键',
+                      control: _MacosPopupWrap(
+                        child: MacosPopupButton<InputGateProfile>(
+                          value: _inputGate.knownProfile,
+                          hint: const Text('自定义'),
+                          items: [
+                            for (final profile in InputGateProfile.values)
+                              MacosPopupMenuItem(
+                                value: profile,
+                                child: Text(profile.label),
+                              ),
+                          ],
+                          onChanged: _selectInputGateProfile,
+                        ),
+                      ),
+                    ),
+                    _MacosFormRow(
+                      label: '机种上报',
+                      caption: '脚本读取到的平台标识',
+                      control: _MacosPopupWrap(
+                        child: MacosPopupButton<String>(
+                          value: _reportedOs,
+                          items: [
+                            for (final entry in reportedOsOptions.entries)
+                              MacosPopupMenuItem(
+                                value: entry.key,
+                                child: Text(entry.value),
+                              ),
+                          ],
+                          onChanged: (os) {
+                            if (os == null) return;
+                            setState(() => _reportedOs = os);
+                          },
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                _MacosFormSection(
+                  title: '实验',
+                  children: [
+                    _MacosFormRow(
+                      label: 'Eluna E-Mote',
+                      caption: '实验性立绘后端，可能不稳定',
+                      control: MacosSwitch(
+                        value: _experimentalElunaEnabled,
+                        onChanged: (value) =>
+                            setState(() => _experimentalElunaEnabled = value),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
-          ],
-          const SizedBox(height: 8),
-          Row(
+          ),
+        ),
+        Container(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+          decoration: BoxDecoration(
+            border: Border(
+              top: BorderSide(
+                color: dark ? const Color(0x26FFFFFF) : const Color(0x1A000000),
+                width: 0.5,
+              ),
+            ),
+          ),
+          child: Row(
             children: [
-              const Expanded(child: Text('环境兼容补丁')),
-              MacosSwitch(
-                value: _environmentPatchEnabled,
-                onChanged: (value) =>
-                    setState(() => _environmentPatchEnabled = value),
+              const Spacer(),
+              PushButton(
+                controlSize: ControlSize.large,
+                secondary: true,
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('取消'),
+              ),
+              const SizedBox(width: 10),
+              PushButton(
+                controlSize: ControlSize.large,
+                onPressed: () => Navigator.of(context).pop(_result()),
+                child: const Text('保存'),
               ),
             ],
           ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              const Expanded(child: Text('启动 OS')),
-              MacosPopupButton<String>(
-                value: runtimePlatforms.contains(_runtimePlatform)
-                    ? _runtimePlatform
-                    : 'WINDOWS',
-                items: [
-                  for (final platform in runtimePlatforms)
-                    MacosPopupMenuItem(value: platform, child: Text(platform)),
-                ],
-                onChanged: (platform) {
-                  if (platform != null) {
-                    setState(() => _runtimePlatform = platform);
-                  }
-                },
+        ),
+      ],
+    );
+  }
+}
+
+class _MacosFormSection extends StatelessWidget {
+  final String title;
+  final List<Widget> children;
+
+  const _MacosFormSection({required this.title, required this.children});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = MacosTheme.of(context);
+    final dark = theme.brightness == Brightness.dark;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(left: 2, bottom: 6),
+            child: Text(
+              title,
+              style: theme.typography.subheadline.copyWith(
+                fontWeight: FontWeight.w600,
+                color: MacosColors.systemGrayColor,
               ),
-            ],
+            ),
           ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              const Expanded(child: Text('实验性 Eluna E-Mote')),
-              MacosSwitch(
-                value: _experimentalElunaEnabled,
-                onChanged: (value) =>
-                    setState(() => _experimentalElunaEnabled = value),
+          Container(
+            decoration: BoxDecoration(
+              color: dark ? const Color(0x1AFFFFFF) : const Color(0xFFFFFFFF),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: dark ? const Color(0x26FFFFFF) : const Color(0x1A000000),
+                width: 0.5,
               ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              const Expanded(child: Text('输入方式')),
-              MacosPopupButton<InputGateProfile>(
-                value: _inputGate.knownProfile ?? InputGateProfile.full,
-                items: [
-                  for (final profile in InputGateProfile.values)
-                    MacosPopupMenuItem(
-                      value: profile,
-                      child: Text(profile.label),
+            ),
+            child: Column(
+              children: [
+                for (var i = 0; i < children.length; i++) ...[
+                  if (i > 0)
+                    Container(
+                      height: 0.5,
+                      margin: const EdgeInsets.only(left: 14),
+                      color: dark
+                          ? const Color(0x26FFFFFF)
+                          : const Color(0x1A000000),
                     ),
+                  children[i],
                 ],
-                onChanged: _selectInputGateProfile,
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              const Expanded(child: Text('机种上报')),
-              MacosPopupButton<String>(
-                value: _reportedOs,
-                items: [
-                  for (final entry in reportedOsOptions.entries)
-                    MacosPopupMenuItem(
-                      value: entry.key,
-                      child: Text(entry.value),
-                    ),
-                ],
-                onChanged: (os) {
-                  if (os == null) return;
-                  setState(() => _reportedOs = os);
-                },
-              ),
-            ],
+              ],
+            ),
           ),
         ],
       ),
-      primaryButton: PushButton(
-        controlSize: ControlSize.large,
-        onPressed: () => Navigator.of(context).pop(
-          GameEditData(
-            name: _name.text.trim(),
-            coverPath: _cover,
-            translationEnabled: _translationEnabled,
-            translationPatchPath: _translationPatchPath,
-            environmentPatchEnabled: _environmentPatchEnabled,
-            experimentalElunaEnabled: _experimentalElunaEnabled,
-            inputGate: _inputGate,
-            reportedOs: _reportedOs,
-            runtimePlatform: _runtimePlatform,
+    );
+  }
+}
+
+class _MacosFormRow extends StatelessWidget {
+  final String label;
+  final String? caption;
+  final Widget control;
+
+  const _MacosFormRow({
+    required this.label,
+    this.caption,
+    required this.control,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = MacosTheme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: theme.typography.body),
+                if (caption != null) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    caption!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.typography.caption1.copyWith(
+                      color: MacosColors.systemGrayColor,
+                    ),
+                  ),
+                ],
+              ],
+            ),
           ),
-        ),
-        child: const Text('保存'),
+          const SizedBox(width: 12),
+          Flexible(
+            fit: FlexFit.loose,
+            child: Align(alignment: Alignment.centerRight, child: control),
+          ),
+        ],
       ),
-      secondaryButton: PushButton(
-        controlSize: ControlSize.large,
-        secondary: true,
-        onPressed: () => Navigator.of(context).pop(),
-        child: const Text('取消'),
-      ),
+    );
+  }
+}
+
+class _MacosPopupWrap extends StatelessWidget {
+  final Widget child;
+
+  const _MacosPopupWrap({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 188),
+      child: child,
     );
   }
 }
