@@ -1,5 +1,5 @@
-/// 输入门控策略：所有喂给 core 的输入（键盘/鼠标键/指针位置/触摸与各类转发）
-/// 在 CoreBridge 的出口统一过这层过滤与重映射。
+/// 输入门控策略。[keyboard] 只控制真实键盘输入，不影响鼠标、
+/// 触摸或宿主合成的手势输入；其他类别仍可由自定义补丁独立限制。
 ///
 /// 默认 [InputGatePolicy.full] 全放行，等价于没有门控、不改变任何现有行为；
 /// 项目补丁按环境/平台选择收窄的 profile 或自定义规则。典型场景：移动端移植
@@ -15,8 +15,7 @@ enum InputGateProfile {
   /// 全放行（桌面/默认）。
   full('默认'),
 
-  /// 触屏移植：脚本只轮询触摸/点击。关闭键盘与滚轮转发，避免引擎默认按键
-  /// 行为覆盖脚本；鼠标键保留（触屏 tap 在 core 里就是左键），触摸保留。
+  /// 触屏移植：仅关闭真实键盘，鼠标、触摸与手势转发保留。
   touchOnly('触屏移植');
 
   const InputGateProfile(this.label);
@@ -69,14 +68,10 @@ class InputGatePolicy {
   /// 默认策略：全部放行。
   static const full = InputGatePolicy();
 
-  /// 触屏移植环境：关键盘、滚轮转发与双指右键；hover 位置不上报
-  /// （触屏没有悬停概念，持续的位置流只会让不处理它的脚本见到噪声）。
-  /// 双指拖动转发为滚轮，供菜单/回想界面滚动。
+  /// 触屏移植环境：仅关闭真实键盘。双指拖动转发为滚轮，
+  /// 但不会关闭双指点按右键。
   static const touchOnly = InputGatePolicy(
     keyboard: false,
-    mouseMove: false,
-    wheelToKeys: false,
-    twoFingerRightClick: false,
     twoFingerScrollWheel: true,
   );
 
@@ -168,8 +163,7 @@ class InputGatePolicy {
           if (vk is num) vk.toInt(),
       },
       keyRemap: {
-        for (final entry
-            in (json['keyRemap'] as Map? ?? const {}).entries)
+        for (final entry in (json['keyRemap'] as Map? ?? const {}).entries)
           if (int.tryParse(entry.key.toString()) case int from?
               when entry.value is num)
             from: (entry.value as num).toInt(),

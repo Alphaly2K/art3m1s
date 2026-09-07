@@ -17,14 +17,14 @@ void main() {
       expect(gate.isFull, isTrue);
     });
 
-    test('touchOnly drops keyboard and forwarding, keeps touch and buttons', () {
+    test('touchOnly gates only physical keyboard input', () {
       const gate = InputGatePolicy.touchOnly;
       expect(gate.filterKey(13), isNull);
       expect(gate.filterKey(65), isNull);
       expect(gate.keyboard, isFalse);
-      expect(gate.mouseMove, isFalse);
-      expect(gate.wheelToKeys, isFalse);
-      expect(gate.twoFingerRightClick, isFalse);
+      expect(gate.mouseMove, isTrue);
+      expect(gate.wheelToKeys, isTrue);
+      expect(gate.twoFingerRightClick, isTrue);
       // 双指拖动 → 滚轮是触屏移植的滚动手段，默认开启。
       expect(gate.twoFingerScrollWheel, isTrue);
       // 触屏 tap 在 core 里就是鼠标左键，必须保留。
@@ -55,18 +55,21 @@ void main() {
       expect(gate.filterKey(32), 32);
     });
 
-    test('key remap applies after the blocklist and keeps press/release pairs', () {
-      const gate = InputGatePolicy(
-        blockedKeys: {27},
-        keyRemap: {13: 32, 65: 66},
-      );
-      // Esc 被拦，不进入重映射。
-      expect(gate.filterKey(27), isNull);
-      expect(gate.filterKey(13), 32);
-      expect(gate.filterKey(65), 66);
-      // 未映射的键原样通过。
-      expect(gate.filterKey(37), 37);
-    });
+    test(
+      'key remap applies after the blocklist and keeps press/release pairs',
+      () {
+        const gate = InputGatePolicy(
+          blockedKeys: {27},
+          keyRemap: {13: 32, 65: 66},
+        );
+        // Esc 被拦，不进入重映射。
+        expect(gate.filterKey(27), isNull);
+        expect(gate.filterKey(13), 32);
+        expect(gate.filterKey(65), 66);
+        // 未映射的键原样通过。
+        expect(gate.filterKey(37), 37);
+      },
+    );
 
     test('json round trip preserves custom rules', () {
       const gate = InputGatePolicy(
