@@ -667,6 +667,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
             keyboardShown: _keyboardShown,
             touchpadEnabled: touchpadEnabled,
             showTouchpadToggle: Platform.isAndroid || Platform.isIOS,
+            showKeyboardToggle: Platform.isAndroid || Platform.isIOS,
             onShowFpsChanged: (value) =>
                 ref.read(settingsProvider.notifier).setShowFps(value),
             onToggleKeyboard: _toggleKeyboard,

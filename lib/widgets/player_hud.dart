@@ -105,6 +105,7 @@ class PlayerHud extends StatefulWidget {
     required this.keyboardShown,
     required this.touchpadEnabled,
     required this.showTouchpadToggle,
+    required this.showKeyboardToggle,
     required this.onShowFpsChanged,
     required this.onToggleKeyboard,
     required this.onTouchpadChanged,
@@ -116,6 +117,7 @@ class PlayerHud extends StatefulWidget {
   final bool keyboardShown;
   final bool touchpadEnabled;
   final bool showTouchpadToggle;
+  final bool showKeyboardToggle;
   final ValueChanged<bool> onShowFpsChanged;
   final VoidCallback onToggleKeyboard;
   final ValueChanged<bool> onTouchpadChanged;
@@ -292,6 +294,7 @@ class _PlayerHudState extends State<PlayerHud> {
           keyboardShown: widget.keyboardShown,
           touchpadEnabled: widget.touchpadEnabled,
           showTouchpadToggle: widget.showTouchpadToggle,
+          showKeyboardToggle: widget.showKeyboardToggle,
           onClose: _closePanel,
           onShowFpsChanged: () {
             widget.onShowFpsChanged(!widget.showFps);
@@ -320,6 +323,7 @@ class _HudPanel extends StatelessWidget {
     required this.keyboardShown,
     required this.touchpadEnabled,
     required this.showTouchpadToggle,
+    required this.showKeyboardToggle,
     required this.onClose,
     required this.onShowFpsChanged,
     required this.onToggleKeyboard,
@@ -333,6 +337,7 @@ class _HudPanel extends StatelessWidget {
   final bool keyboardShown;
   final bool touchpadEnabled;
   final bool showTouchpadToggle;
+  final bool showKeyboardToggle;
   final VoidCallback onClose;
   final VoidCallback onShowFpsChanged;
   final VoidCallback onToggleKeyboard;
@@ -352,7 +357,8 @@ class _HudPanel extends StatelessWidget {
 
   List<_HudItem> get _items => [
     _HudItem(label: '帧率', on: showFps, onTap: onShowFpsChanged),
-    _HudItem(label: '虚拟键盘', on: keyboardShown, onTap: onToggleKeyboard),
+    if (showKeyboardToggle)
+      _HudItem(label: '虚拟键盘', on: keyboardShown, onTap: onToggleKeyboard),
     if (showTouchpadToggle)
       _HudItem(label: '触摸板鼠标', on: touchpadEnabled, onTap: onTouchpadChanged),
     _HudItem(label: '退出游戏', destructive: true, onTap: onExit),
