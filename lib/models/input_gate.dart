@@ -150,6 +150,21 @@ class InputGatePolicy {
   /// null/缺字段一律回到全放行默认，保证旧存档与无补丁项目的零行为变化。
   factory InputGatePolicy.fromJson(Map<String, dynamic>? json) {
     if (json == null) return full;
+    // 旧版 touchOnly 错误关闭了指针位置、滚轮和双指右键；
+    // 精确识别该预设的序列化形状，不改动其他自定义门控。
+    if (json['keyboard'] == false &&
+        json['mouseButtons'] != false &&
+        json['mouseMove'] == false &&
+        json['touch'] != false &&
+        json['wheelToKeys'] == false &&
+        json['twoFingerRightClick'] == false &&
+        json['twoFingerScrollWheel'] == true &&
+        json['blockedKeys'] is List &&
+        (json['blockedKeys'] as List).isEmpty &&
+        json['keyRemap'] is Map &&
+        (json['keyRemap'] as Map).isEmpty) {
+      return touchOnly;
+    }
     return InputGatePolicy(
       keyboard: json['keyboard'] != false,
       mouseButtons: json['mouseButtons'] != false,

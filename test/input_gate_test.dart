@@ -92,6 +92,30 @@ void main() {
       expect(gate.isFull, isTrue);
     });
 
+    test('legacy touchOnly json migrates without changing custom gates', () {
+      final migrated = InputGatePolicy.fromJson({
+        'keyboard': false,
+        'mouseButtons': true,
+        'mouseMove': false,
+        'touch': true,
+        'wheelToKeys': false,
+        'twoFingerRightClick': false,
+        'twoFingerScrollWheel': true,
+        'blockedKeys': <int>[],
+        'keyRemap': <String, int>{},
+      });
+      expect(migrated.knownProfile, InputGateProfile.touchOnly);
+      expect(migrated.mouseMove, isTrue);
+      expect(migrated.twoFingerRightClick, isTrue);
+
+      final custom = InputGatePolicy.fromJson({
+        ...migrated.toJson(),
+        'mouseMove': false,
+      });
+      expect(custom.mouseMove, isFalse);
+      expect(custom.knownProfile, isNull);
+    });
+
     test('malformed json entries are skipped instead of crashing', () {
       final gate = InputGatePolicy.fromJson({
         'blockedKeys': ['x', 13, null],
