@@ -49,6 +49,7 @@ dependencies:
   package_info_plus: ^10.2.0
   jis0208: ^1.0.1
   protobuf: ^6.0.0
+  flutter_miuix: ^1.1.1
 dev_dependencies:
   flutter_test:
     sdk: flutter

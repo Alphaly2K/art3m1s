@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'about_screen.dart';
 import 'translation_settings_screen.dart';
+import '../models/host_ui_theme.dart';
 import '../models/render_backend.dart';
 import '../providers/settings_provider.dart';
 import '../services/logger.dart';
@@ -20,6 +21,27 @@ class SettingsScreen extends ConsumerWidget {
       appBar: AppBar(title: const Text('设置')),
       body: ListView(
         children: [
+          if (Platform.isAndroid) ...[
+            const _SectionHeader('外观'),
+            ListTile(
+              title: const Text('界面主题'),
+              subtitle: Text(settings.hostUiTheme.label),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: SegmentedButton<HostUiTheme>(
+                segments: [
+                  for (final theme in HostUiTheme.values)
+                    ButtonSegment(value: theme, label: Text(theme.label)),
+                ],
+                selected: {settings.hostUiTheme},
+                onSelectionChanged: (selected) => ref
+                    .read(settingsProvider.notifier)
+                    .setHostUiTheme(selected.first),
+              ),
+            ),
+            const Divider(),
+          ],
           const _SectionHeader('渲染'),
           ListTile(
             title: const Text('图形后端'),

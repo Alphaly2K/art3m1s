@@ -1,13 +1,16 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_miuix/miuix.dart';
 
 /// 轻量提示。
 ///
 /// Material 壳里走 [ScaffoldMessenger]（保持平台惯例）；
 /// macOS / Cupertino 壳没有 ScaffoldMessenger，退化为顶层 Overlay toast。
 void notify(BuildContext context, String message) {
-  final messenger = ScaffoldMessenger.maybeOf(context);
+  final messenger = MiuixTheme.maybeOf(context) == null
+      ? ScaffoldMessenger.maybeOf(context)
+      : null;
   if (messenger != null) {
     messenger.showSnackBar(SnackBar(content: Text(message)));
     return;
@@ -40,9 +43,7 @@ class _Toast extends StatelessWidget {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
             decoration: BoxDecoration(
-              color: dark
-                  ? const Color(0xEE3A3A3C)
-                  : const Color(0xEE2C2C2E),
+              color: dark ? const Color(0xEE3A3A3C) : const Color(0xEE2C2C2E),
               borderRadius: BorderRadius.circular(10),
               boxShadow: const [
                 BoxShadow(

@@ -63,6 +63,7 @@ class AboutScreen extends StatelessWidget {
               'jis0208',
               'audioplayers',
               'media_kit / media_kit_video',
+              'flutter_miuix',
             ],
           ),
           const _DependencyGroup(

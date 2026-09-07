@@ -17,7 +17,7 @@ Art3m1s 是使用 Flutter 编写的跨平台 Artemis 视觉小说运行时宿主
   会分别建立项目条目
 - 启动时无界面读取游戏标题，并通过 VNDB 补全标题和封面
 - 以稳定项目 ID 映射游戏目录、具体 PFS、存档、封面和设置，避免同名文件互相串档
-- 按平台使用 macOS、Cupertino、Fluent、Yaru/Material 3 风格的原生化界面
+- 按平台使用 macOS、Cupertino、Fluent、Yaru/Material 3 风格的原生化界面；Android 可在设置中切换 Material Design 与 Miuix
 - 以约 60 FPS 驱动 Rust runtime，转发鼠标、键盘、触摸、右键、悬停和拖动
 - 移动端可启用相对移动触摸板，以系统箭头光标完成精确点击和长按拖动
 - 播放 BGM、SE、Voice、全屏视频与参与 core 合成的图层视频
@@ -129,7 +129,7 @@ Documents/Art3m1s/
 | iOS | Cupertino、原生文件与资料库管理器 | UIDocumentPicker 或 `Art3m1s/Games` |
 | Windows | Fluent UI | 目录或 PFS 选择器 |
 | Linux | Yaru/Material 界面 | 目录或 PFS 选择器 |
-| Android | Material 3 | 原生 SAF 目录复制 |
+| Android | Material 3 或 Miuix | 原生 SAF 目录复制 |
 
 设置和关于页面共用相同的数据与功能，但会使用符合目标平台习惯的控件进行渲染。
 Fable 的本轮 macOS UI 更新还加入了原生应用菜单、更加清晰的明暗主题图标状态和紧凑

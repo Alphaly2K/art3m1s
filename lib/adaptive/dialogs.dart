@@ -4,11 +4,13 @@ import 'package:file_selector/file_selector.dart';
 import 'package:fluent_ui/fluent_ui.dart' as fluent;
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_miuix/miuix.dart';
 import 'package:macos_ui/macos_ui.dart';
 
 import '../models/input_gate.dart';
 import '../models/render_backend.dart';
 import '../widgets/inset_scrollbar.dart';
+import 'miuix_chrome.dart';
 
 /// 编辑对话框的结果。
 class GameEditData {
@@ -109,6 +111,14 @@ Future<bool> showAdaptiveConfirm(
           ),
         ],
       ),
+    );
+  } else if (usesMiuixChrome(context)) {
+    return showMiuixConfirm(
+      context,
+      title: title,
+      message: message,
+      confirmLabel: confirmLabel,
+      destructive: destructive,
     );
   } else if (Platform.isIOS) {
     result = await showCupertinoDialog<bool>(
@@ -243,6 +253,21 @@ Future<GameEditData?> showGameEditDialog(
         initialReportedOs: initialReportedOs,
         initialRuntimePlatform: initialRuntimePlatform,
       ),
+    );
+  }
+  if (usesMiuixChrome(context)) {
+    return showMiuixGameEditDialog(
+      context,
+      title: title,
+      initialName: initialName,
+      initialCoverPath: initialCoverPath,
+      initialTranslationEnabled: initialTranslationEnabled,
+      initialTranslationPatchPath: initialTranslationPatchPath,
+      initialEnvironmentPatchEnabled: initialEnvironmentPatchEnabled,
+      initialExperimentalElunaEnabled: initialExperimentalElunaEnabled,
+      initialInputGate: initialInputGate,
+      initialReportedOs: initialReportedOs,
+      initialRuntimePlatform: initialRuntimePlatform,
     );
   }
   if (Platform.isIOS) {
@@ -1559,6 +1584,269 @@ class _FluentEditDialogState extends State<_FluentEditDialog> {
           child: const Text('保存'),
         ),
       ],
+    );
+  }
+}
+
+Future<GameEditData?> showMiuixGameEditDialog(
+  BuildContext context, {
+  required String title,
+  required String initialName,
+  String? initialCoverPath,
+  required bool initialTranslationEnabled,
+  required String initialTranslationPatchPath,
+  required bool initialEnvironmentPatchEnabled,
+  required bool initialExperimentalElunaEnabled,
+  required InputGatePolicy initialInputGate,
+  required String initialReportedOs,
+  required String initialRuntimePlatform,
+}) {
+  return showMiuixHostedOverlay<GameEditData>(
+    context: context,
+    overlay: (context, show, dismiss, finish) {
+      return MiuixOverlayDialog(
+        show: show,
+        title: title,
+        renderInRootScaffold: false,
+        onDismissRequest: dismiss,
+        onDismissFinished: finish,
+        content: _MiuixEditForm(
+          initialName: initialName,
+          initialCover: initialCoverPath,
+          initialTranslationEnabled: initialTranslationEnabled,
+          initialTranslationPatchPath: initialTranslationPatchPath,
+          initialEnvironmentPatchEnabled: initialEnvironmentPatchEnabled,
+          initialExperimentalElunaEnabled: initialExperimentalElunaEnabled,
+          initialInputGate: initialInputGate,
+          initialReportedOs: initialReportedOs,
+          initialRuntimePlatform: initialRuntimePlatform,
+          onCancel: () => dismiss(),
+          onSave: (data) => dismiss(data),
+        ),
+      );
+    },
+  );
+}
+
+class _MiuixEditForm extends StatefulWidget {
+  const _MiuixEditForm({
+    required this.initialName,
+    required this.initialCover,
+    required this.initialTranslationEnabled,
+    required this.initialTranslationPatchPath,
+    required this.initialEnvironmentPatchEnabled,
+    required this.initialExperimentalElunaEnabled,
+    required this.initialInputGate,
+    required this.initialReportedOs,
+    required this.initialRuntimePlatform,
+    required this.onCancel,
+    required this.onSave,
+  });
+
+  final String initialName;
+  final String? initialCover;
+  final bool initialTranslationEnabled;
+  final String initialTranslationPatchPath;
+  final bool initialEnvironmentPatchEnabled;
+  final bool initialExperimentalElunaEnabled;
+  final InputGatePolicy initialInputGate;
+  final String initialReportedOs;
+  final String initialRuntimePlatform;
+  final VoidCallback onCancel;
+  final ValueChanged<GameEditData> onSave;
+
+  @override
+  State<_MiuixEditForm> createState() => _MiuixEditFormState();
+}
+
+class _MiuixEditFormState extends State<_MiuixEditForm> {
+  late final TextEditingController _name = TextEditingController(
+    text: widget.initialName,
+  );
+  String? _cover;
+  late bool _translationEnabled;
+  late String _translationPatchPath;
+  late bool _environmentPatchEnabled;
+  late bool _experimentalElunaEnabled;
+  late InputGatePolicy _inputGate;
+  late String _reportedOs;
+  late String _runtimePlatform;
+
+  @override
+  void initState() {
+    super.initState();
+    _cover = widget.initialCover;
+    _translationEnabled = widget.initialTranslationEnabled;
+    _translationPatchPath = widget.initialTranslationPatchPath;
+    _environmentPatchEnabled = widget.initialEnvironmentPatchEnabled;
+    _experimentalElunaEnabled = widget.initialExperimentalElunaEnabled;
+    _inputGate = widget.initialInputGate;
+    _reportedOs = widget.initialReportedOs;
+    _runtimePlatform = widget.initialRuntimePlatform;
+  }
+
+  @override
+  void dispose() {
+    _name.dispose();
+    super.dispose();
+  }
+
+  void _selectInputGateProfile(InputGateProfile? profile) {
+    if (profile == null) return;
+    setState(
+      () => _inputGate = switch (profile) {
+        InputGateProfile.full => InputGatePolicy.full,
+        InputGateProfile.touchOnly => InputGatePolicy.touchOnly,
+      },
+    );
+  }
+
+  GameEditData _data() {
+    return GameEditData(
+      name: _name.text.trim(),
+      coverPath: _cover,
+      translationEnabled: _translationEnabled,
+      translationPatchPath: _translationPatchPath,
+      environmentPatchEnabled: _environmentPatchEnabled,
+      experimentalElunaEnabled: _experimentalElunaEnabled,
+      inputGate: _inputGate,
+      reportedOs: _reportedOs,
+      runtimePlatform: _runtimePlatform,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = MiuixTheme.of(context);
+    final reportedKeys = reportedOsOptions.keys.toList();
+    final runtimeIndex = runtimePlatforms.contains(_runtimePlatform)
+        ? runtimePlatforms.indexOf(_runtimePlatform)
+        : 0;
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxHeight: 520),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            MiuixTextField(
+              controller: _name,
+              label: '游戏名称',
+              useLabelAsPlaceholder: true,
+              singleLine: true,
+              autofocus: true,
+            ),
+            const SizedBox(height: 8),
+            MiuixBasicComponent(
+              title: '封面',
+              summary: _cover == null ? '未选择' : '已选择封面',
+              startAction: Padding(
+                padding: const EdgeInsets.only(right: 12),
+                child: _CoverThumb(path: _cover, size: 44),
+              ),
+              endActions: [
+                MiuixTextButton(
+                  _cover == null ? '选择' : '更换',
+                  onPressed: () async {
+                    final path = await _pickCoverFile();
+                    if (path != null) setState(() => _cover = path);
+                  },
+                ),
+                if (_cover != null)
+                  MiuixTextButton(
+                    '清除',
+                    onPressed: () => setState(() => _cover = null),
+                  ),
+              ],
+            ),
+            MiuixSwitchPreference(
+              title: '启用文本翻译',
+              value: _translationEnabled,
+              onChanged: (value) => setState(() => _translationEnabled = value),
+            ),
+            if (_translationEnabled)
+              MiuixBasicComponent(
+                title: '对照文件',
+                summary: _translationPatchPath.isEmpty
+                    ? '未选择对照文件'
+                    : _translationPatchPath,
+                endActions: [
+                  MiuixTextButton(
+                    '选择',
+                    onPressed: () async {
+                      final path = await _pickTranslationPatchFile();
+                      if (path != null) {
+                        setState(() => _translationPatchPath = path);
+                      }
+                    },
+                  ),
+                  if (_translationPatchPath.isNotEmpty)
+                    MiuixTextButton(
+                      '清除',
+                      onPressed: () =>
+                          setState(() => _translationPatchPath = ''),
+                    ),
+                ],
+              ),
+            MiuixSwitchPreference(
+              title: '环境兼容补丁',
+              value: _environmentPatchEnabled,
+              onChanged: (value) =>
+                  setState(() => _environmentPatchEnabled = value),
+            ),
+            MiuixSwitchPreference(
+              title: '实验性 Eluna E-Mote',
+              value: _experimentalElunaEnabled,
+              onChanged: (value) =>
+                  setState(() => _experimentalElunaEnabled = value),
+            ),
+            MiuixOverlayDropdownPreference(
+              title: '输入方式',
+              summary: _inputGate.knownProfile == null ? '自定义规则（来自补丁）' : null,
+              items: [
+                for (final profile in InputGateProfile.values) profile.label,
+              ],
+              selectedIndex: _inputGate.knownProfile?.index ?? 0,
+              renderInRootScaffold: false,
+              onSelectedIndexChange: (index) {
+                _selectInputGateProfile(InputGateProfile.values[index]);
+              },
+            ),
+            MiuixOverlayDropdownPreference(
+              title: '机种上报',
+              items: [for (final label in reportedOsOptions.values) label],
+              selectedIndex: reportedKeys
+                  .indexOf(_reportedOs)
+                  .clamp(0, reportedKeys.length - 1),
+              renderInRootScaffold: false,
+              onSelectedIndexChange: (index) {
+                setState(() => _reportedOs = reportedKeys[index]);
+              },
+            ),
+            MiuixOverlayDropdownPreference(
+              title: '启动 OS',
+              items: runtimePlatforms,
+              selectedIndex: runtimeIndex,
+              renderInRootScaffold: false,
+              onSelectedIndexChange: (index) {
+                setState(() => _runtimePlatform = runtimePlatforms[index]);
+              },
+            ),
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                MiuixTextButton('取消', onPressed: widget.onCancel),
+                const SizedBox(width: 12),
+                MiuixButton(
+                  colors: MiuixButtonDefaults.buttonColorsPrimary(context),
+                  onPressed: () => widget.onSave(_data()),
+                  child: MiuixText('保存', style: theme.textStyles.button),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

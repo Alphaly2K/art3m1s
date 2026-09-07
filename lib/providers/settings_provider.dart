@@ -4,6 +4,7 @@ import 'dart:io' show Platform;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../models/host_ui_theme.dart';
 import '../models/translation_settings.dart';
 import '../services/logger.dart';
 
@@ -21,6 +22,7 @@ class SettingsState {
   final bool showFps;
   final bool mobileTouchpadEnabled;
   final int backend; // 0 = CGL, 1 = ANGLE
+  final HostUiTheme hostUiTheme;
   final TranslationSettings translation;
 
   const SettingsState({
@@ -31,6 +33,7 @@ class SettingsState {
     this.showFps = false,
     this.mobileTouchpadEnabled = false,
     this.backend = 0,
+    this.hostUiTheme = HostUiTheme.material,
     this.translation = const TranslationSettings(),
   });
 
@@ -42,6 +45,7 @@ class SettingsState {
     bool? showFps,
     bool? mobileTouchpadEnabled,
     int? backend,
+    HostUiTheme? hostUiTheme,
     TranslationSettings? translation,
   }) {
     return SettingsState(
@@ -53,6 +57,7 @@ class SettingsState {
       mobileTouchpadEnabled:
           mobileTouchpadEnabled ?? this.mobileTouchpadEnabled,
       backend: backend ?? this.backend,
+      hostUiTheme: hostUiTheme ?? this.hostUiTheme,
       translation: translation ?? this.translation,
     );
   }
@@ -142,6 +147,7 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
         backend:
             prefs.getInt('gfx_backend') ??
             getDefaultBackend(), // default: ANGLE Vulkan
+        hostUiTheme: HostUiTheme.byName(prefs.getString('host_ui_theme')),
         translation: TranslationSettings(
           mode: mode ?? TranslationMode.off,
           // First-generation online settings had no provider field and used
@@ -218,6 +224,12 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt('gfx_backend', v);
     state = state.copyWith(backend: v);
+  }
+
+  Future<void> setHostUiTheme(HostUiTheme v) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('host_ui_theme', v.name);
+    state = state.copyWith(hostUiTheme: v);
   }
 
   Future<void> setTranslation(TranslationSettings value) async {

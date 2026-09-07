@@ -10,10 +10,13 @@ import 'services/app_info.dart';
 import 'services/app_data_paths.dart';
 import 'services/logger.dart';
 import 'services/storage_service.dart';
+import 'models/host_ui_theme.dart';
+import 'providers/settings_provider.dart';
 import 'shell/cupertino_shell.dart';
 import 'shell/fluent_shell.dart';
 import 'shell/macos_shell.dart';
 import 'shell/material_shell.dart';
+import 'shell/miuix_shell.dart';
 
 void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -80,15 +83,20 @@ String? _bundledMpvLibraryPath() {
 }
 
 /// 按平台选壳：macOS 原生风（macos_ui）、iOS Cupertino、
-/// Windows Fluent（fluent_ui）、Linux yaru、Android Material 3。
-class Art3m1sApp extends StatelessWidget {
+/// Windows Fluent（fluent_ui）、Linux yaru、Android Material 3 或 Miuix。
+class Art3m1sApp extends ConsumerWidget {
   const Art3m1sApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     if (Platform.isMacOS) return const MacosShellApp();
     if (Platform.isIOS) return const CupertinoShellApp();
     if (Platform.isWindows) return const FluentShellApp();
+    if (Platform.isAndroid &&
+        ref.watch(settingsProvider.select((s) => s.hostUiTheme)) ==
+            HostUiTheme.miuix) {
+      return const MiuixShellApp();
+    }
     return const MaterialShellApp();
   }
 }

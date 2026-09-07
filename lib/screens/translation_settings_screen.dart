@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_miuix/miuix.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/translation_settings.dart';
@@ -10,6 +11,7 @@ import 'translation_font_picker.dart';
 import 'translation_settings_cupertino.dart';
 import 'translation_settings_fluent.dart';
 import 'translation_settings_macos.dart';
+import 'translation_settings_miuix.dart';
 
 /// 文本翻译设置页。按平台分发到对应的原生实现，与其它设置页保持一致的观感：
 /// macOS → macos_ui、Windows → fluent_ui、iOS → cupertino、Linux/Android → Material。
@@ -21,6 +23,9 @@ class TranslationSettingsScreen extends StatelessWidget {
     if (Platform.isMacOS) return const MacosTranslationSettingsScreen();
     if (Platform.isWindows) return const FluentTranslationSettingsScreen();
     if (Platform.isIOS) return const CupertinoTranslationSettingsScreen();
+    if (Platform.isAndroid && MiuixTheme.maybeOf(context) != null) {
+      return const MiuixTranslationSettingsScreen();
+    }
     return const MaterialTranslationSettingsScreen();
   }
 }
