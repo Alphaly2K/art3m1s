@@ -67,8 +67,13 @@ class PlayerHudGeometry {
     return clampFree(Offset(pad.left + margin, y), size, pad);
   }
 
-  static Offset dockedPos(PlayerHudDock dock, double y, Size size) {
-    final clampedY = y;
+  static Offset dockedPos(
+    PlayerHudDock dock,
+    double y,
+    Size size,
+    EdgeInsets pad,
+  ) {
+    final clampedY = clampFree(Offset(0, y), size, pad).dy;
     if (dock == PlayerHudDock.right) {
       return Offset(size.width - peek, clampedY);
     }
@@ -196,16 +201,7 @@ class _PlayerHudState extends State<PlayerHud> {
 
   void _onPanUpdate(DragUpdateDetails details, Size size, EdgeInsets pad) {
     setState(() {
-      _pos = Offset(
-        (_pos.dx + details.delta.dx).clamp(
-          -(PlayerHudGeometry.ballSize - 4),
-          size.width - 4,
-        ),
-        (_pos.dy + details.delta.dy).clamp(
-          pad.top,
-          size.height - pad.bottom - PlayerHudGeometry.ballSize,
-        ),
-      );
+      _pos = PlayerHudGeometry.clampFree(_pos + details.delta, size, pad);
     });
   }
 
@@ -228,8 +224,8 @@ class _PlayerHudState extends State<PlayerHud> {
           final size = Size(constraints.maxWidth, constraints.maxHeight);
           final pad = MediaQuery.paddingOf(context);
           final ball = _dock == PlayerHudDock.none
-              ? _pos
-              : PlayerHudGeometry.dockedPos(_dock, _pos.dy, size);
+              ? PlayerHudGeometry.clampFree(_pos, size, pad)
+              : PlayerHudGeometry.dockedPos(_dock, _pos.dy, size, pad);
           return Stack(
             children: [
               if (_panelOpen && _dock == PlayerHudDock.none)

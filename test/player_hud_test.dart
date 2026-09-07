@@ -36,4 +36,31 @@ void main() {
       size.width - PlayerHudGeometry.ballSize - PlayerHudGeometry.margin,
     );
   });
+
+  test('free dragging keeps the whole ball inside the safe bounds', () {
+    final topLeft = PlayerHudGeometry.clampFree(
+      const Offset(-500, -500),
+      size,
+      const EdgeInsets.fromLTRB(10, 20, 30, 40),
+    );
+    expect(topLeft, const Offset(22, 32));
+
+    final bottomRight = PlayerHudGeometry.clampFree(
+      const Offset(2000, 2000),
+      size,
+      const EdgeInsets.fromLTRB(10, 20, 30, 40),
+    );
+    expect(bottomRight, const Offset(712, 302));
+  });
+
+  test('docked ball clamps vertically after viewport changes', () {
+    final ball = PlayerHudGeometry.dockedPos(
+      PlayerHudDock.right,
+      999,
+      size,
+      const EdgeInsets.only(bottom: 20),
+    );
+    expect(ball.dx, size.width - PlayerHudGeometry.peek);
+    expect(ball.dy, 322);
+  });
 }
