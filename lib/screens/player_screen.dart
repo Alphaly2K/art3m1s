@@ -88,6 +88,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   /// 各活动指针的最近位置（双指手势中点计算用）。
   final Map<int, Offset> _pointerPositions = {};
   final TwoFingerGestureTracker _twoFingerGesture = TwoFingerGestureTracker();
+  bool _twoFingerPointerRouting = false;
   late final MobileTouchpadPointer _touchpadPointer;
   late final ValueNotifier<Offset> _touchpadCursorPosition;
   bool _touchpadDragging = false;
@@ -798,14 +799,23 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
           onKeyEvent: _handleKeyEvent,
           child: Listener(
             behavior: HitTestBehavior.translucent,
-            onPointerHover: (event) =>
-                _feedPointerPosition(event, ox, oy, scale),
+            onPointerHover: (event) {
+              if (!_twoFingerPointerRouting) {
+                _feedPointerPosition(event, ox, oy, scale);
+              }
+            },
             onPointerMove: (event) {
               if (touchpadEnabled && event.kind == PointerDeviceKind.touch) {
                 return;
               }
-              _pointerPositions[event.pointer] = event.localPosition;
-              _handleTwoFingerMove();
+              if (event.kind == PointerDeviceKind.touch) {
+                _pointerPositions[event.pointer] = event.localPosition;
+                if (_twoFingerPointerRouting) {
+                  _handleTwoFingerMove();
+                  _feedTouch(event, 1, ox, oy, scale);
+                  return;
+                }
+              }
               _feedPointerPosition(event, ox, oy, scale);
               _feedTouch(event, 1, ox, oy, scale);
               _syncPointerButtons(event.buttons);
@@ -815,34 +825,53 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                 _gameFocusNode.requestFocus();
                 return;
               }
-              _pointerPositions[event.pointer] = event.localPosition;
-              _activePointers.add(event.pointer);
-              _beginTwoFingerGesture();
+              if (event.kind == PointerDeviceKind.touch) {
+                _pointerPositions[event.pointer] = event.localPosition;
+                _activePointers.add(event.pointer);
+                _beginTwoFingerGesture();
+              }
               _gameFocusNode.requestFocus();
-              _feedPointerPosition(event, ox, oy, scale);
+              if (!_twoFingerPointerRouting) {
+                _feedPointerPosition(event, ox, oy, scale);
+                _syncPointerButtons(event.buttons);
+              }
               _feedTouch(event, 0, ox, oy, scale);
-              _syncPointerButtons(event.buttons);
             },
             onPointerUp: (event) {
               if (touchpadEnabled && event.kind == PointerDeviceKind.touch) {
                 return;
               }
-              _endTwoFingerGesture();
-              _activePointers.remove(event.pointer);
-              _pointerPositions.remove(event.pointer);
-              _feedPointerPosition(event, ox, oy, scale);
+              final routed =
+                  event.kind == PointerDeviceKind.touch &&
+                  _twoFingerPointerRouting;
+              if (event.kind == PointerDeviceKind.touch) {
+                _endTwoFingerGesture();
+                _activePointers.remove(event.pointer);
+                _pointerPositions.remove(event.pointer);
+              }
+              if (!routed) {
+                _feedPointerPosition(event, ox, oy, scale);
+                _syncPointerButtons(event.buttons);
+              }
               _feedTouch(event, 2, ox, oy, scale);
-              _syncPointerButtons(event.buttons);
+              if (_activePointers.isEmpty) {
+                _twoFingerPointerRouting = false;
+              }
             },
             onPointerCancel: (event) {
               if (touchpadEnabled && event.kind == PointerDeviceKind.touch) {
                 return;
               }
-              _endTwoFingerGesture(cancelled: true);
-              _activePointers.remove(event.pointer);
-              _pointerPositions.remove(event.pointer);
+              if (event.kind == PointerDeviceKind.touch) {
+                _endTwoFingerGesture(cancelled: true);
+                _activePointers.remove(event.pointer);
+                _pointerPositions.remove(event.pointer);
+              }
               _feedTouch(event, 2, ox, oy, scale);
               _releasePointerButtons();
+              if (_activePointers.isEmpty) {
+                _twoFingerPointerRouting = false;
+              }
             },
             onPointerSignal: _handlePointerSignal,
             child: Center(
@@ -978,6 +1007,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     _activePointers.clear();
     _pointerPositions.clear();
     _twoFingerGesture.reset();
+    _twoFingerPointerRouting = false;
     ref.read(settingsProvider.notifier).setMobileTouchpadEnabled(enabled);
   }
 
@@ -1017,6 +1047,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   /// 右键不在第二指落下时发出；等到抬起才判定是点按还是拖动。
   void _beginTwoFingerGesture() {
     if (_activePointers.length < 2) return;
+    _twoFingerPointerRouting = true;
+    _releasePointerButtons();
     _twoFingerGesture.begin(_activePointerPositions);
   }
 
@@ -1032,7 +1064,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     if (_activePointers.length != 2) return;
     for (final key in _twoFingerGesture.move(
       _activePointerPositions,
-      scrollEnabled: _effectiveInputGate.twoFingerScrollWheel,
+      scrollEnabled:
+          Platform.isAndroid ||
+          Platform.isIOS ||
+          _effectiveInputGate.twoFingerScrollWheel,
     )) {
       _emitForwardedWheelKey(key);
     }
