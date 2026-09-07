@@ -13,9 +13,10 @@ import 'pfs_bridge.dart';
 /// 项目清单（manifest）：游戏目录或 PFS 归档内的 `art3m1s.json`，记录游戏信息
 /// 与宿主侧默认配置——VNDB ID、功能开关默认值、覆盖字体与输入门控。
 ///
-/// 发现规则：在归档/目录内按路径深度至多两级（根目录与一级子目录）查找
-/// `art3m1s.json`（文件名不区分大小写），取第一个命中。清单提供的是**默认值**：
-/// 导入时种入资料库条目，之后以条目为准，用户仍可在编辑对话框里改。
+/// 发现规则：启动时优先读取游戏目录根部（或 PFS 旁）的宿主清单；没有宿主清单时，
+/// 才在归档/目录内按路径深度至多两级（根目录与一级子目录）查找旧的
+/// `art3m1s.json`（文件名不区分大小写）。直接清单是用户配置的权威来源，旧的包内
+/// 清单只负责首次导入时提供默认值。
 ///
 /// 示例：
 /// ```json
@@ -41,7 +42,10 @@ class GameManifest {
     this.fontOverride,
     this.inputGate,
     this.reportedOs,
+    this.runtimePlatform,
   });
+
+  static const defaultRuntimePlatform = 'WINDOWS';
 
   /// 游戏名（导入时预填显示名）。
   final String? name;
@@ -66,6 +70,9 @@ class GameManifest {
   /// 上报给脚本的机种串覆盖（如 `switch`/`ps4`）。部分移植版游戏把关键
   /// 功能（存档、额外内容）开关在机种判断上，桌面运行时按此伪装。
   final String? reportedOs;
+
+  /// system.ini 使用的启动段。它属于单个游戏，不能由宿主全局偏好覆盖。
+  final String? runtimePlatform;
 
   static const String fileName = 'art3m1s.json';
 
@@ -104,8 +111,59 @@ class GameManifest {
             )
           : null,
       reportedOs: optionalString('reportedOs'),
+      runtimePlatform: optionalString('runtimePlatform')?.toUpperCase(),
     );
   }
+
+  Map<String, dynamic> toJson() => {
+    if (name != null && name!.isNotEmpty) 'name': name,
+    if (vndbId != null && vndbId!.isNotEmpty) 'vndbId': vndbId,
+    if (translationEnabled != null) 'translationEnabled': translationEnabled,
+    if (translationPatchPath != null && translationPatchPath!.isNotEmpty)
+      'translationPatchPath': translationPatchPath,
+    if (environmentPatchEnabled != null)
+      'environmentPatchEnabled': environmentPatchEnabled,
+    if (experimentalElunaEnabled != null)
+      'experimentalElunaEnabled': experimentalElunaEnabled,
+    if (fontOverride != null && fontOverride!.isNotEmpty)
+      'fontOverride': fontOverride,
+    if (inputGate != null && !inputGate!.isFull)
+      'inputGate': inputGate!.toJson(),
+    if (reportedOs != null && reportedOs!.isNotEmpty) 'reportedOs': reportedOs,
+    if (runtimePlatform != null && runtimePlatform!.isNotEmpty)
+      'runtimePlatform': runtimePlatform!.toUpperCase(),
+  };
+
+  factory GameManifest.fromGameEntry(GameEntry entry) => GameManifest(
+    name: entry.displayNameOrName,
+    vndbId: entry.vndbId.isEmpty ? null : entry.vndbId,
+    translationEnabled: entry.translationEnabled,
+    translationPatchPath: entry.translationPatchPath,
+    environmentPatchEnabled: entry.environmentPatchEnabled,
+    experimentalElunaEnabled: entry.experimentalElunaEnabled,
+    fontOverride: entry.fontOverridePath.isEmpty
+        ? null
+        : entry.fontOverridePath,
+    inputGate: entry.inputGate,
+    reportedOs: entry.reportedOs.isEmpty ? null : entry.reportedOs,
+    runtimePlatform: entry.runtimePlatform,
+  );
+
+  GameEntry applyTo(GameEntry entry, {String? manifestPath}) => entry.copyWith(
+    displayName: name ?? entry.displayName,
+    translationEnabled: translationEnabled ?? entry.translationEnabled,
+    translationPatchPath: translationPatchPath ?? entry.translationPatchPath,
+    environmentPatchEnabled:
+        environmentPatchEnabled ?? entry.environmentPatchEnabled,
+    experimentalElunaEnabled:
+        experimentalElunaEnabled ?? entry.experimentalElunaEnabled,
+    inputGate: inputGate ?? entry.inputGate,
+    vndbId: vndbId ?? entry.vndbId,
+    fontOverridePath: fontOverride ?? entry.fontOverridePath,
+    reportedOs: reportedOs ?? entry.reportedOs,
+    runtimePlatform: runtimePlatform ?? entry.runtimePlatform,
+    manifestPath: manifestPath ?? entry.manifestPath,
+  );
 
   /// 解析清单字节；空内容/非 JSON 对象返回 null。
   static GameManifest? parse(Uint8List bytes) {
@@ -133,6 +191,65 @@ class GameManifest {
       Log.warn('[Manifest] 清单发现失败 ($projectPath): $error');
       return null;
     }
+  }
+
+  /// 返回宿主保存配置的直接路径。PFS 不可原地修改，因此使用归档旁的 sidecar。
+  static String manifestPathFor(String projectPath, GameSource source) {
+    return switch (source) {
+      GameSource.directory => '$projectPath${Platform.pathSeparator}$fileName',
+      GameSource.pfsArchive => '$projectPath.$fileName',
+    };
+  }
+
+  static Future<GameManifest?> loadFromPath(String path) async {
+    final file = File(path);
+    if (!await file.exists()) return null;
+    try {
+      return parse(await file.readAsBytes());
+    } catch (error) {
+      Log.warn('[Manifest] 读取清单失败 ($path): $error');
+      return null;
+    }
+  }
+
+  /// 直接读取宿主保存的 manifest；没有 sidecar 时才回退到游戏包内的旧清单。
+  static Future<GameManifest?> loadForProject(
+    String projectPath,
+    GameSource source, {
+    String? manifestPath,
+  }) async {
+    final direct = await loadFromPath(
+      manifestPath ?? manifestPathFor(projectPath, source),
+    );
+    return direct ?? await discover(projectPath, source);
+  }
+
+  static Future<String> writeForProject(
+    String projectPath,
+    GameSource source,
+    GameManifest manifest, {
+    String? manifestPath,
+  }) async {
+    final path = manifestPath ?? manifestPathFor(projectPath, source);
+    final file = File(path);
+    await file.parent.create(recursive: true);
+    await file.writeAsString(
+      '${JsonEncoder.withIndent('  ').convert(manifest.toJson())}\n',
+    );
+    Log.info('[Manifest] 已保存游戏清单: $path');
+    return path;
+  }
+
+  static Future<GameEntry> loadEntrySettings(GameEntry entry) async {
+    final path =
+        entry.manifestPath ?? manifestPathFor(entry.path, entry.source);
+    final manifest = await loadForProject(
+      entry.path,
+      entry.source,
+      manifestPath: path,
+    );
+    return manifest?.applyTo(entry, manifestPath: path) ??
+        entry.copyWith(manifestPath: path);
   }
 
   static Future<GameManifest?> _discoverDirectory(String root) async {

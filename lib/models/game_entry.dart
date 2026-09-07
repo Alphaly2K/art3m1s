@@ -33,6 +33,13 @@ class GameEntry {
   /// 移植版游戏把存档等功能开关在机种判断上时用它伪装。
   final String reportedOs;
 
+  /// system.ini 使用的启动段；这是游戏自己的配置，不是宿主全局设置。
+  final String runtimePlatform;
+
+  /// 游戏配置 manifest 的直接路径。目录项目为根目录下的 art3m1s.json，
+  /// PFS 项目为归档旁的 sidecar 文件。
+  final String? manifestPath;
+
   GameEntry({
     String? id,
     required this.name,
@@ -50,6 +57,8 @@ class GameEntry {
     this.vndbId = '',
     this.fontOverridePath = '',
     this.reportedOs = '',
+    this.runtimePlatform = 'WINDOWS',
+    this.manifestPath,
   }) : id = _normalizeId(id, path);
 
   String get displayNameOrName => displayName ?? name;
@@ -72,6 +81,8 @@ class GameEntry {
     if (vndbId.isNotEmpty) 'vndbId': vndbId,
     if (fontOverridePath.isNotEmpty) 'fontOverridePath': fontOverridePath,
     if (reportedOs.isNotEmpty) 'reportedOs': reportedOs,
+    'runtimePlatform': runtimePlatform,
+    if (manifestPath != null) 'manifestPath': manifestPath,
   };
 
   factory GameEntry.fromJson(Map<String, dynamic> json) => GameEntry(
@@ -95,6 +106,11 @@ class GameEntry {
     vndbId: json['vndbId']?.toString() ?? '',
     fontOverridePath: json['fontOverridePath']?.toString() ?? '',
     reportedOs: json['reportedOs']?.toString() ?? '',
+    runtimePlatform:
+        json['runtimePlatform']?.toString().trim().isNotEmpty == true
+        ? json['runtimePlatform'].toString().trim().toUpperCase()
+        : 'WINDOWS',
+    manifestPath: json['manifestPath']?.toString(),
   );
 
   GameEntry copyWith({
@@ -109,6 +125,8 @@ class GameEntry {
     String? vndbId,
     String? fontOverridePath,
     String? reportedOs,
+    String? runtimePlatform,
+    String? manifestPath,
   }) => GameEntry(
     id: id,
     name: name,
@@ -128,6 +146,8 @@ class GameEntry {
     vndbId: vndbId ?? this.vndbId,
     fontOverridePath: fontOverridePath ?? this.fontOverridePath,
     reportedOs: reportedOs ?? this.reportedOs,
+    runtimePlatform: runtimePlatform ?? this.runtimePlatform,
+    manifestPath: manifestPath ?? this.manifestPath,
   );
 
   static String _normalizeId(String? id, String path) {

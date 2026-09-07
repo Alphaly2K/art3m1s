@@ -175,20 +175,6 @@ class _FluentSettingsPage extends ConsumerWidget {
           title: '运行时',
           children: [
             _FluentSettingRow(
-              label: '启动 OS',
-              caption: '选择 system.ini 使用的启动段',
-              control: ComboBox<String>(
-                value: settings.runtimePlatform,
-                items: [
-                  for (final p in runtimePlatforms)
-                    ComboBoxItem(value: p, child: Text(p)),
-                ],
-                onChanged: (v) {
-                  if (v != null) notifier.setRuntimePlatform(v);
-                },
-              ),
-            ),
-            _FluentSettingRow(
               label: '文本翻译',
               caption: settings.translation.mode.label,
               control: Button(

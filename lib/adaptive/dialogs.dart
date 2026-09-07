@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:macos_ui/macos_ui.dart';
 
 import '../models/input_gate.dart';
+import '../models/render_backend.dart';
 
 /// 编辑对话框的结果。
 class GameEditData {
@@ -23,6 +24,9 @@ class GameEditData {
   /// 上报机种串覆盖（空串 = 跟随项目平台）。
   final String reportedOs;
 
+  /// system.ini 启动段；按游戏保存。
+  final String runtimePlatform;
+
   const GameEditData({
     required this.name,
     this.coverPath,
@@ -32,6 +36,7 @@ class GameEditData {
     required this.experimentalElunaEnabled,
     this.inputGate = InputGatePolicy.full,
     this.reportedOs = '',
+    this.runtimePlatform = 'WINDOWS',
   });
 }
 
@@ -180,6 +185,7 @@ Future<GameEditData?> showGameEditDialog(
   bool initialExperimentalElunaEnabled = false,
   InputGatePolicy initialInputGate = InputGatePolicy.full,
   String initialReportedOs = '',
+  String initialRuntimePlatform = 'WINDOWS',
 }) {
   if (Platform.isMacOS) {
     return showMacosAlertDialog<GameEditData>(
@@ -194,6 +200,7 @@ Future<GameEditData?> showGameEditDialog(
         initialExperimentalElunaEnabled: initialExperimentalElunaEnabled,
         initialInputGate: initialInputGate,
         initialReportedOs: initialReportedOs,
+        initialRuntimePlatform: initialRuntimePlatform,
       ),
     );
   }
@@ -210,6 +217,7 @@ Future<GameEditData?> showGameEditDialog(
         initialExperimentalElunaEnabled: initialExperimentalElunaEnabled,
         initialInputGate: initialInputGate,
         initialReportedOs: initialReportedOs,
+        initialRuntimePlatform: initialRuntimePlatform,
       ),
     );
   }
@@ -226,6 +234,7 @@ Future<GameEditData?> showGameEditDialog(
         initialExperimentalElunaEnabled: initialExperimentalElunaEnabled,
         initialInputGate: initialInputGate,
         initialReportedOs: initialReportedOs,
+        initialRuntimePlatform: initialRuntimePlatform,
       ),
     );
   }
@@ -241,6 +250,7 @@ Future<GameEditData?> showGameEditDialog(
       initialExperimentalElunaEnabled: initialExperimentalElunaEnabled,
       initialInputGate: initialInputGate,
       initialReportedOs: initialReportedOs,
+      initialRuntimePlatform: initialRuntimePlatform,
     ),
   );
 }
@@ -257,6 +267,7 @@ class _MacosEditDialog extends StatefulWidget {
   final bool initialExperimentalElunaEnabled;
   final InputGatePolicy initialInputGate;
   final String initialReportedOs;
+  final String initialRuntimePlatform;
 
   const _MacosEditDialog({
     required this.title,
@@ -268,6 +279,7 @@ class _MacosEditDialog extends StatefulWidget {
     required this.initialExperimentalElunaEnabled,
     this.initialInputGate = InputGatePolicy.full,
     this.initialReportedOs = '',
+    this.initialRuntimePlatform = 'WINDOWS',
   });
 
   @override
@@ -285,6 +297,7 @@ class _MacosEditDialogState extends State<_MacosEditDialog> {
   late bool _experimentalElunaEnabled;
   late InputGatePolicy _inputGate;
   late String _reportedOs;
+  late String _runtimePlatform;
 
   @override
   void initState() {
@@ -296,6 +309,7 @@ class _MacosEditDialogState extends State<_MacosEditDialog> {
     _experimentalElunaEnabled = widget.initialExperimentalElunaEnabled;
     _inputGate = widget.initialInputGate;
     _reportedOs = widget.initialReportedOs;
+    _runtimePlatform = widget.initialRuntimePlatform;
   }
 
   /// 输入方式 profile 选择：只认预置 profile；补丁带来的自定义规则（knownProfile
@@ -421,6 +435,26 @@ class _MacosEditDialogState extends State<_MacosEditDialog> {
           const SizedBox(height: 8),
           Row(
             children: [
+              const Expanded(child: Text('启动 OS')),
+              MacosPopupButton<String>(
+                value: runtimePlatforms.contains(_runtimePlatform)
+                    ? _runtimePlatform
+                    : 'WINDOWS',
+                items: [
+                  for (final platform in runtimePlatforms)
+                    MacosPopupMenuItem(value: platform, child: Text(platform)),
+                ],
+                onChanged: (platform) {
+                  if (platform != null) {
+                    setState(() => _runtimePlatform = platform);
+                  }
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
               const Expanded(child: Text('实验性 Eluna E-Mote')),
               MacosSwitch(
                 value: _experimentalElunaEnabled,
@@ -479,6 +513,8 @@ class _MacosEditDialogState extends State<_MacosEditDialog> {
             environmentPatchEnabled: _environmentPatchEnabled,
             experimentalElunaEnabled: _experimentalElunaEnabled,
             inputGate: _inputGate,
+            reportedOs: _reportedOs,
+            runtimePlatform: _runtimePlatform,
           ),
         ),
         child: const Text('保存'),
@@ -505,6 +541,7 @@ class _CupertinoEditDialog extends StatefulWidget {
   final bool initialExperimentalElunaEnabled;
   final InputGatePolicy initialInputGate;
   final String initialReportedOs;
+  final String initialRuntimePlatform;
 
   const _CupertinoEditDialog({
     required this.title,
@@ -516,6 +553,7 @@ class _CupertinoEditDialog extends StatefulWidget {
     required this.initialExperimentalElunaEnabled,
     this.initialInputGate = InputGatePolicy.full,
     this.initialReportedOs = '',
+    this.initialRuntimePlatform = 'WINDOWS',
   });
 
   @override
@@ -533,6 +571,7 @@ class _CupertinoEditDialogState extends State<_CupertinoEditDialog> {
   late bool _experimentalElunaEnabled;
   late InputGatePolicy _inputGate;
   late String _reportedOs;
+  late String _runtimePlatform;
 
   @override
   void initState() {
@@ -544,6 +583,7 @@ class _CupertinoEditDialogState extends State<_CupertinoEditDialog> {
     _experimentalElunaEnabled = widget.initialExperimentalElunaEnabled;
     _inputGate = widget.initialInputGate;
     _reportedOs = widget.initialReportedOs;
+    _runtimePlatform = widget.initialRuntimePlatform;
   }
 
   /// 输入方式 profile 选择：只认预置 profile；补丁带来的自定义规则（knownProfile
@@ -568,6 +608,26 @@ class _CupertinoEditDialogState extends State<_CupertinoEditDialog> {
             CupertinoActionSheetAction(
               onPressed: () => Navigator.of(ctx).pop(entry.key),
               child: Text(entry.value),
+            ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.of(ctx).pop(),
+          child: const Text('取消'),
+        ),
+      ),
+    );
+  }
+
+  Future<String?> _pickRuntimePlatform() {
+    return showCupertinoModalPopup<String>(
+      context: context,
+      builder: (ctx) => CupertinoActionSheet(
+        title: const Text('启动 OS'),
+        actions: [
+          for (final platform in runtimePlatforms)
+            CupertinoActionSheetAction(
+              onPressed: () => Navigator.of(ctx).pop(platform),
+              child: Text(platform),
             ),
         ],
         cancelButton: CupertinoActionSheetAction(
@@ -677,6 +737,23 @@ class _CupertinoEditDialogState extends State<_CupertinoEditDialog> {
           const SizedBox(height: 8),
           Row(
             children: [
+              const Expanded(child: Text('启动 OS')),
+              CupertinoButton(
+                sizeStyle: CupertinoButtonSize.small,
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                onPressed: () async {
+                  final platform = await _pickRuntimePlatform();
+                  if (platform != null) {
+                    setState(() => _runtimePlatform = platform);
+                  }
+                },
+                child: Text(_runtimePlatform),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
               const Expanded(child: Text('实验性 Eluna E-Mote')),
               CupertinoSwitch(
                 value: _experimentalElunaEnabled,
@@ -736,6 +813,7 @@ class _CupertinoEditDialogState extends State<_CupertinoEditDialog> {
               experimentalElunaEnabled: _experimentalElunaEnabled,
               inputGate: _inputGate,
               reportedOs: _reportedOs,
+              runtimePlatform: _runtimePlatform,
             ),
           ),
           child: const Text('保存'),
@@ -757,6 +835,7 @@ class _MaterialEditDialog extends StatefulWidget {
   final bool initialExperimentalElunaEnabled;
   final InputGatePolicy initialInputGate;
   final String initialReportedOs;
+  final String initialRuntimePlatform;
 
   const _MaterialEditDialog({
     required this.title,
@@ -768,6 +847,7 @@ class _MaterialEditDialog extends StatefulWidget {
     required this.initialExperimentalElunaEnabled,
     this.initialInputGate = InputGatePolicy.full,
     this.initialReportedOs = '',
+    this.initialRuntimePlatform = 'WINDOWS',
   });
 
   @override
@@ -785,6 +865,7 @@ class _MaterialEditDialogState extends State<_MaterialEditDialog> {
   late bool _experimentalElunaEnabled;
   late InputGatePolicy _inputGate;
   late String _reportedOs;
+  late String _runtimePlatform;
 
   @override
   void initState() {
@@ -796,6 +877,7 @@ class _MaterialEditDialogState extends State<_MaterialEditDialog> {
     _experimentalElunaEnabled = widget.initialExperimentalElunaEnabled;
     _inputGate = widget.initialInputGate;
     _reportedOs = widget.initialReportedOs;
+    _runtimePlatform = widget.initialRuntimePlatform;
   }
 
   /// 输入方式 profile 选择：只认预置 profile；补丁带来的自定义规则（knownProfile
@@ -934,6 +1016,24 @@ class _MaterialEditDialogState extends State<_MaterialEditDialog> {
               },
             ),
           ),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('启动 OS'),
+            trailing: DropdownButton<String>(
+              value: runtimePlatforms.contains(_runtimePlatform)
+                  ? _runtimePlatform
+                  : 'WINDOWS',
+              items: [
+                for (final platform in runtimePlatforms)
+                  DropdownMenuItem(value: platform, child: Text(platform)),
+              ],
+              onChanged: (platform) {
+                if (platform != null) {
+                  setState(() => _runtimePlatform = platform);
+                }
+              },
+            ),
+          ),
         ],
       ),
       actions: [
@@ -952,6 +1052,7 @@ class _MaterialEditDialogState extends State<_MaterialEditDialog> {
               experimentalElunaEnabled: _experimentalElunaEnabled,
               inputGate: _inputGate,
               reportedOs: _reportedOs,
+              runtimePlatform: _runtimePlatform,
             ),
           ),
           child: const Text('保存'),
@@ -1009,6 +1110,7 @@ class _FluentEditDialog extends StatefulWidget {
   final bool initialExperimentalElunaEnabled;
   final InputGatePolicy initialInputGate;
   final String initialReportedOs;
+  final String initialRuntimePlatform;
 
   const _FluentEditDialog({
     required this.title,
@@ -1020,6 +1122,7 @@ class _FluentEditDialog extends StatefulWidget {
     required this.initialExperimentalElunaEnabled,
     this.initialInputGate = InputGatePolicy.full,
     this.initialReportedOs = '',
+    this.initialRuntimePlatform = 'WINDOWS',
   });
 
   @override
@@ -1037,6 +1140,7 @@ class _FluentEditDialogState extends State<_FluentEditDialog> {
   late bool _experimentalElunaEnabled;
   late InputGatePolicy _inputGate;
   late String _reportedOs;
+  late String _runtimePlatform;
 
   @override
   void initState() {
@@ -1048,6 +1152,7 @@ class _FluentEditDialogState extends State<_FluentEditDialog> {
     _experimentalElunaEnabled = widget.initialExperimentalElunaEnabled;
     _inputGate = widget.initialInputGate;
     _reportedOs = widget.initialReportedOs;
+    _runtimePlatform = widget.initialRuntimePlatform;
   }
 
   /// 输入方式 profile 选择：只认预置 profile；补丁带来的自定义规则（knownProfile
@@ -1163,6 +1268,26 @@ class _FluentEditDialogState extends State<_FluentEditDialog> {
           const SizedBox(height: 8),
           Row(
             children: [
+              const Expanded(child: Text('启动 OS')),
+              fluent.ComboBox<String>(
+                value: runtimePlatforms.contains(_runtimePlatform)
+                    ? _runtimePlatform
+                    : 'WINDOWS',
+                items: [
+                  for (final platform in runtimePlatforms)
+                    fluent.ComboBoxItem(value: platform, child: Text(platform)),
+                ],
+                onChanged: (platform) {
+                  if (platform != null) {
+                    setState(() => _runtimePlatform = platform);
+                  }
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
               const Expanded(child: Text('实验性 Eluna E-Mote')),
               fluent.ToggleSwitch(
                 checked: _experimentalElunaEnabled,
@@ -1226,6 +1351,7 @@ class _FluentEditDialogState extends State<_FluentEditDialog> {
               experimentalElunaEnabled: _experimentalElunaEnabled,
               inputGate: _inputGate,
               reportedOs: _reportedOs,
+              runtimePlatform: _runtimePlatform,
             ),
           ),
           child: const Text('保存'),

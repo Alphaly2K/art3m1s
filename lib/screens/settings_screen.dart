@@ -38,24 +38,6 @@ class SettingsScreen extends ConsumerWidget {
                   ref.read(settingsProvider.notifier).setBackend(v.first),
             ),
           ),
-          const Divider(),
-          const _SectionHeader('运行时'),
-          ListTile(
-            title: const Text('启动 OS'),
-            subtitle: const Text('选择 system.ini 使用的启动段'),
-            trailing: DropdownButton<String>(
-              value: settings.runtimePlatform,
-              items: [
-                for (final p in runtimePlatforms)
-                  DropdownMenuItem(value: p, child: Text(p)),
-              ],
-              onChanged: (value) {
-                if (value != null) {
-                  ref.read(settingsProvider.notifier).setRuntimePlatform(value);
-                }
-              },
-            ),
-          ),
           ListTile(
             leading: const Icon(Icons.translate),
             title: const Text('文本翻译'),

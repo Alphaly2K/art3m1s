@@ -190,20 +190,6 @@ class _CupertinoSettingsScreen extends ConsumerWidget {
               header: const Text('运行时'),
               children: [
                 CupertinoListTile.notched(
-                  title: const Text('启动 OS'),
-                  subtitle: const Text('选择 system.ini 使用的启动段'),
-                  additionalInfo: Text(settings.runtimePlatform),
-                  trailing: const CupertinoListTileChevron(),
-                  onTap: () async {
-                    final v = await _pickOption<String>(
-                      context,
-                      title: '启动 OS',
-                      options: [for (final p in runtimePlatforms) (p, p)],
-                    );
-                    if (v != null) notifier.setRuntimePlatform(v);
-                  },
-                ),
-                CupertinoListTile.notched(
                   title: const Text('文本翻译'),
                   additionalInfo: Text(settings.translation.mode.label),
                   trailing: const CupertinoListTileChevron(),

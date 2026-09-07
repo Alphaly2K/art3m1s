@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/game_entry.dart';
 import '../models/input_gate.dart';
 import '../services/game_importer.dart';
+import '../services/game_manifest.dart';
 import '../services/logger.dart';
 import '../services/storage_service.dart';
 
@@ -45,6 +46,12 @@ class LibraryNotifier extends StateNotifier<List<GameEntry>> {
             translationPatchPath: entry.translationPatchPath,
             environmentPatchEnabled: entry.environmentPatchEnabled,
             experimentalElunaEnabled: entry.experimentalElunaEnabled,
+            inputGate: entry.inputGate,
+            vndbId: entry.vndbId,
+            fontOverridePath: entry.fontOverridePath,
+            reportedOs: entry.reportedOs,
+            runtimePlatform: entry.runtimePlatform,
+            manifestPath: null,
           );
           Log.info('[Library] 已切换到沙箱路径: $sandboxPath');
         }
@@ -52,6 +59,16 @@ class LibraryNotifier extends StateNotifier<List<GameEntry>> {
         Log.error('[Library] 沙箱导入失败: $e');
         // 回退到原路径 —— 可能能工作，也可能不行，由用户承担。
       }
+    }
+    try {
+      final manifestPath = await GameManifest.writeForProject(
+        finalEntry.path,
+        finalEntry.source,
+        GameManifest.fromGameEntry(finalEntry),
+      );
+      finalEntry = finalEntry.copyWith(manifestPath: manifestPath);
+    } catch (e) {
+      Log.warn('[Library] 游戏 manifest 保存失败: $e');
     }
     await _storage.addToLibrary(finalEntry);
     state = _storage.getLibrary();
@@ -80,6 +97,7 @@ class LibraryNotifier extends StateNotifier<List<GameEntry>> {
     bool? experimentalElunaEnabled,
     InputGatePolicy? inputGate,
     String? reportedOs,
+    String? runtimePlatform,
   }) async {
     final lib = _storage.getLibrary();
     final i = lib.indexWhere((g) => g.path == path);
@@ -93,8 +111,20 @@ class LibraryNotifier extends StateNotifier<List<GameEntry>> {
       experimentalElunaEnabled: experimentalElunaEnabled,
       inputGate: inputGate,
       reportedOs: reportedOs,
+      runtimePlatform: runtimePlatform,
     );
-    lib[i] = updated;
+    try {
+      final manifestPath = await GameManifest.writeForProject(
+        updated.path,
+        updated.source,
+        GameManifest.fromGameEntry(updated),
+        manifestPath: updated.manifestPath,
+      );
+      lib[i] = updated.copyWith(manifestPath: manifestPath);
+    } catch (e) {
+      Log.warn('[Library] 游戏 manifest 保存失败: $e');
+      lib[i] = updated;
+    }
     await _storage.saveLibrary(lib);
     state = lib;
   }

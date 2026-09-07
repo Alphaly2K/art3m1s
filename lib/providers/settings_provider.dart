@@ -21,7 +21,6 @@ class SettingsState {
   final bool showFps;
   final bool mobileTouchpadEnabled;
   final int backend; // 0 = CGL, 1 = ANGLE
-  final String runtimePlatform;
   final TranslationSettings translation;
 
   const SettingsState({
@@ -32,7 +31,6 @@ class SettingsState {
     this.showFps = false,
     this.mobileTouchpadEnabled = false,
     this.backend = 0,
-    this.runtimePlatform = 'WINDOWS',
     this.translation = const TranslationSettings(),
   });
 
@@ -44,7 +42,6 @@ class SettingsState {
     bool? showFps,
     bool? mobileTouchpadEnabled,
     int? backend,
-    String? runtimePlatform,
     TranslationSettings? translation,
   }) {
     return SettingsState(
@@ -56,7 +53,6 @@ class SettingsState {
       mobileTouchpadEnabled:
           mobileTouchpadEnabled ?? this.mobileTouchpadEnabled,
       backend: backend ?? this.backend,
-      runtimePlatform: runtimePlatform ?? this.runtimePlatform,
       translation: translation ?? this.translation,
     );
   }
@@ -146,9 +142,6 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
         backend:
             prefs.getInt('gfx_backend') ??
             getDefaultBackend(), // default: ANGLE Vulkan
-        runtimePlatform: _normalizeRuntimePlatform(
-          prefs.getString('runtime_platform'),
-        ),
         translation: TranslationSettings(
           mode: mode ?? TranslationMode.off,
           // First-generation online settings had no provider field and used
@@ -227,13 +220,6 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
     state = state.copyWith(backend: v);
   }
 
-  Future<void> setRuntimePlatform(String v) async {
-    final platform = _normalizeRuntimePlatform(v);
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('runtime_platform', platform);
-    state = state.copyWith(runtimePlatform: platform);
-  }
-
   Future<void> setTranslation(TranslationSettings value) async {
     // 先更新内存态，避免多个输入框的异步持久化互相读到旧值并覆盖。
     state = state.copyWith(translation: value);
@@ -299,13 +285,5 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
     } on FormatException {
       Log.warn('[Settings] 忽略损坏的翻译服务配置');
     }
-  }
-
-  static String _normalizeRuntimePlatform(String? value) {
-    final platform = value?.trim().toUpperCase();
-    return switch (platform) {
-      'WINDOWS' || 'ANDROID' || 'IOS' || 'WASM' => platform!,
-      _ => 'WINDOWS',
-    };
   }
 }

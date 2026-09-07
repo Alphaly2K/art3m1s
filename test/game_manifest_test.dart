@@ -20,8 +20,10 @@ void main() {
             'experimentalElunaEnabled': false,
             'fontOverride': 'font/cjk.ttf',
             'reportedOs': 'ps4',
-            'inputGate': {'keyboard': false, 'blockedKeys': [27]},
-
+            'inputGate': {
+              'keyboard': false,
+              'blockedKeys': [27],
+            },
           }),
         ),
       )!;
@@ -72,10 +74,7 @@ void main() {
 
   group('GameManifest.selectManifestPath', () {
     test('accepts root and one level deep, case-insensitive', () {
-      expect(
-        GameManifest.selectManifestPath(['art3m1s.json']),
-        'art3m1s.json',
-      );
+      expect(GameManifest.selectManifestPath(['art3m1s.json']), 'art3m1s.json');
       expect(
         GameManifest.selectManifestPath(['patch/Art3M1S.JSON']),
         'patch/Art3M1S.JSON',
@@ -231,6 +230,51 @@ void main() {
       expect(entry.vndbId, '');
       expect(entry.fontOverridePath, '');
       expect(entry.inputGate.isFull, isTrue);
+    });
+
+    test(
+      'uses a direct directory manifest as the authoritative settings file',
+      () async {
+        final dir = await Directory.systemTemp.createTemp('manifest_test');
+        try {
+          final entry = GameEntry(
+            name: 'n',
+            path: dir.path,
+            source: GameSource.directory,
+            addedAt: DateTime(2026),
+            displayName: '显示名',
+            translationEnabled: true,
+            translationPatchPath: 'patch/zh.json',
+            reportedOs: 'switch',
+            runtimePlatform: 'IOS',
+          );
+          final path = await GameManifest.writeForProject(
+            dir.path,
+            GameSource.directory,
+            GameManifest.fromGameEntry(entry),
+          );
+
+          expect(path, '${dir.path}/art3m1s.json');
+          final loaded = await GameManifest.loadEntrySettings(
+            entry.copyWith(manifestPath: path, runtimePlatform: 'WINDOWS'),
+          );
+          expect(loaded.displayName, '显示名');
+          expect(loaded.translationEnabled, isTrue);
+          expect(loaded.translationPatchPath, 'patch/zh.json');
+          expect(loaded.reportedOs, 'switch');
+          expect(loaded.runtimePlatform, 'IOS');
+          expect(loaded.manifestPath, path);
+        } finally {
+          await dir.delete(recursive: true);
+        }
+      },
+    );
+
+    test('stores PFS settings in a sidecar manifest', () {
+      expect(
+        GameManifest.manifestPathFor('/games/root.pfs', GameSource.pfsArchive),
+        '/games/root.pfs.art3m1s.json',
+      );
     });
   });
 }

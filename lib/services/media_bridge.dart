@@ -876,6 +876,7 @@ class _AudioHandle {
       player.stream.completed.listen((completed) {
         if (!completed || handle._disposed || handle._completed || loop) return;
         handle._completed = true;
+        Log.debug('[MediaBridge] 音频播放完成: channel=$channel id=${id ?? "bgm"}');
         onCompleted(id);
       }),
     );

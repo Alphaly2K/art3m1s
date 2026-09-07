@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 
@@ -11,7 +12,6 @@ import '../models/game_entry.dart';
 import '../models/input_gate.dart';
 import '../navigation/player_page_route.dart';
 import '../providers/library_provider.dart';
-import '../providers/settings_provider.dart';
 import '../services/core_bridge.dart';
 import '../screens/player_screen.dart';
 import '../services/app_data_paths.dart';
@@ -153,7 +153,7 @@ class LibraryActions {
         ? GameSource.pfsArchive
         : GameSource.directory;
     final gameId = _gameIdForPath(game.path);
-    final manifest = await GameManifest.discover(game.path, source);
+    final manifest = await GameManifest.loadForProject(game.path, source);
     final metadata = await _resolveGameMetadata(
       game.name,
       game.path,
@@ -176,14 +176,16 @@ class LibraryActions {
             coverPath: metadata.coverPath,
             translationEnabled: manifest?.translationEnabled ?? false,
             translationPatchPath: manifest?.translationPatchPath ?? '',
-            environmentPatchEnabled:
-                manifest?.environmentPatchEnabled ?? false,
+            environmentPatchEnabled: manifest?.environmentPatchEnabled ?? false,
             experimentalElunaEnabled:
                 manifest?.experimentalElunaEnabled ?? false,
             inputGate: manifest?.inputGate ?? InputGatePolicy.full,
             vndbId: metadata.vndbId ?? '',
             fontOverridePath: manifest?.fontOverride ?? '',
             reportedOs: manifest?.reportedOs ?? '',
+            runtimePlatform:
+                manifest?.runtimePlatform ??
+                GameManifest.defaultRuntimePlatform,
           ),
         );
     Log.info('已自动添加: ${metadata.name}');
@@ -197,7 +199,7 @@ class LibraryActions {
   ) async {
     final gameId = _gameIdForPath(path);
     notify(context, '正在获取游戏信息…');
-    final manifest = await GameManifest.discover(path, source);
+    final manifest = await GameManifest.loadForProject(path, source);
     final metadata = await _resolveGameMetadata(
       defaultName,
       path,
@@ -219,6 +221,8 @@ class LibraryActions {
       initialExperimentalElunaEnabled:
           manifest?.experimentalElunaEnabled ?? false,
       initialInputGate: manifest?.inputGate ?? InputGatePolicy.full,
+      initialRuntimePlatform:
+          manifest?.runtimePlatform ?? GameManifest.defaultRuntimePlatform,
     );
     if (result == null || !context.mounted) return;
     final coverPath = await AppDataPaths.importCover(result.coverPath, gameId);
@@ -245,6 +249,7 @@ class LibraryActions {
             reportedOs: result.reportedOs.isNotEmpty
                 ? result.reportedOs
                 : manifest?.reportedOs ?? '',
+            runtimePlatform: result.runtimePlatform,
           ),
         );
     Log.info('已添加: ${result.name.isNotEmpty ? result.name : defaultName}');
@@ -269,7 +274,8 @@ class LibraryActions {
       final caption = await CoreBridge().probeCaption(
         projectPath: path,
         isPfsArchive: source == GameSource.pfsArchive,
-        platform: ref.read(settingsProvider).runtimePlatform,
+        platform:
+            manifest?.runtimePlatform ?? GameManifest.defaultRuntimePlatform,
       );
       if (!context.mounted) return null;
       // caption 常是「脏」的（含汉化译名/版本号/补丁公告），lookupGame 会切段滤垃圾。
@@ -319,17 +325,20 @@ class LibraryActions {
   // ── 条目操作 ──────────────────────────────────────────────
 
   Future<void> editGame(GameEntry entry) async {
+    final configured = await GameManifest.loadEntrySettings(entry);
+    if (!context.mounted) return;
     final result = await showGameEditDialog(
       context,
       title: '编辑项目',
-      initialName: entry.displayNameOrName,
-      initialCoverPath: entry.coverPath,
-      initialTranslationEnabled: entry.translationEnabled,
-      initialTranslationPatchPath: entry.translationPatchPath,
-      initialEnvironmentPatchEnabled: entry.environmentPatchEnabled,
-      initialExperimentalElunaEnabled: entry.experimentalElunaEnabled,
-      initialInputGate: entry.inputGate,
-      initialReportedOs: entry.reportedOs,
+      initialName: configured.displayNameOrName,
+      initialCoverPath: configured.coverPath,
+      initialTranslationEnabled: configured.translationEnabled,
+      initialTranslationPatchPath: configured.translationPatchPath,
+      initialEnvironmentPatchEnabled: configured.environmentPatchEnabled,
+      initialExperimentalElunaEnabled: configured.experimentalElunaEnabled,
+      initialInputGate: configured.inputGate,
+      initialReportedOs: configured.reportedOs,
+      initialRuntimePlatform: configured.runtimePlatform,
     );
     if (result == null || !context.mounted) return;
     final coverPath = await AppDataPaths.importCover(
@@ -350,6 +359,7 @@ class LibraryActions {
           experimentalElunaEnabled: result.experimentalElunaEnabled,
           inputGate: result.inputGate,
           reportedOs: result.reportedOs,
+          runtimePlatform: result.runtimePlatform,
         );
   }
 
@@ -367,21 +377,32 @@ class LibraryActions {
   }
 
   void launch(GameEntry entry) {
-    ref.read(libraryProvider.notifier).markPlayed(entry.path);
+    unawaited(_launch(entry));
+  }
+
+  Future<void> _launch(GameEntry entry) async {
+    // Manifest 是每个游戏的权威配置源；每次创建宿主前重新读取，外部编辑
+    // 或跨启动修改都能立即生效，不再依赖 GameEntry 的旧缓存。
+    final configured = await GameManifest.loadEntrySettings(entry);
+    if (!context.mounted) return;
+    await ref.read(libraryProvider.notifier).markPlayed(configured.path);
+    if (!context.mounted) return;
     Navigator.of(context, rootNavigator: true).push(
       PlayerPageRoute<void>(
         builder: (_) => wrapPlayerRoute(
           PlayerScreen(
-            gameId: entry.id,
-            projectPath: entry.path,
-            source: entry.source,
-            translationEnabled: entry.translationEnabled,
-            translationPatchPath: entry.translationPatchPath,
-            environmentPatchEnabled: entry.environmentPatchEnabled,
-            experimentalElunaEnabled: entry.experimentalElunaEnabled,
-            inputGate: entry.inputGate,
-            fontOverridePath: entry.fontOverridePath,
-            reportedOs: entry.reportedOs,
+            gameId: configured.id,
+            projectPath: configured.path,
+            source: configured.source,
+            translationEnabled: configured.translationEnabled,
+            translationPatchPath: configured.translationPatchPath,
+            environmentPatchEnabled: configured.environmentPatchEnabled,
+            experimentalElunaEnabled: configured.experimentalElunaEnabled,
+            inputGate: configured.inputGate,
+            fontOverridePath: configured.fontOverridePath,
+            reportedOs: configured.reportedOs,
+            runtimePlatform: configured.runtimePlatform,
+            manifestPath: configured.manifestPath,
           ),
         ),
       ),

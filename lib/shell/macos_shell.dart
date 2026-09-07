@@ -250,20 +250,6 @@ class _MacosSettingsPage extends ConsumerWidget {
                     title: '运行时',
                     children: [
                       _SettingRow(
-                        label: '启动 OS',
-                        caption: '选择 system.ini 使用的启动段',
-                        control: MacosPopupButton<String>(
-                          value: settings.runtimePlatform,
-                          items: [
-                            for (final p in runtimePlatforms)
-                              MacosPopupMenuItem(value: p, child: Text(p)),
-                          ],
-                          onChanged: (v) {
-                            if (v != null) notifier.setRuntimePlatform(v);
-                          },
-                        ),
-                      ),
-                      _SettingRow(
                         label: '文本翻译',
                         caption: settings.translation.mode.label,
                         control: PushButton(

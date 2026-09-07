@@ -43,6 +43,11 @@ class PlayerScreen extends ConsumerStatefulWidget {
   /// 上报给脚本的机种串覆盖（来自资料库条目/项目补丁）；空串跟随项目平台。
   final String reportedOs;
 
+  /// system.ini 启动段（来自该游戏的 manifest）。
+  final String runtimePlatform;
+
+  final String? manifestPath;
+
   const PlayerScreen({
     super.key,
     required this.gameId,
@@ -55,6 +60,8 @@ class PlayerScreen extends ConsumerStatefulWidget {
     this.inputGate = InputGatePolicy.full,
     this.fontOverridePath = '',
     this.reportedOs = '',
+    this.runtimePlatform = 'WINDOWS',
+    this.manifestPath,
   });
 
   @override
@@ -69,11 +76,13 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   bool _sharedTextureReady = false;
   bool _frameInFlight = false;
   bool _closing = false;
+  GameEntry? _activeConfig;
   int _stageW = 1280;
   int _stageH = 720;
   final FocusNode _gameFocusNode = FocusNode(debugLabel: 'game-input');
   final Set<int> _mouseButtonsDown = <int>{};
   final Set<int> _activePointers = {};
+
   /// 各活动指针的最近位置（双指手势中点计算用）。
   final Map<int, Offset> _pointerPositions = {};
   Offset? _twoFingerLastMidpoint;
@@ -190,18 +199,37 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     }
 
     final settings = ref.read(settingsProvider);
+    final baseConfig = GameEntry(
+      id: widget.gameId,
+      name: widget.gameId,
+      path: widget.projectPath,
+      source: widget.source,
+      addedAt: DateTime.fromMillisecondsSinceEpoch(0),
+      translationEnabled: widget.translationEnabled,
+      translationPatchPath: widget.translationPatchPath,
+      environmentPatchEnabled: widget.environmentPatchEnabled,
+      experimentalElunaEnabled: widget.experimentalElunaEnabled,
+      inputGate: widget.inputGate,
+      fontOverridePath: widget.fontOverridePath,
+      reportedOs: widget.reportedOs,
+      runtimePlatform: widget.runtimePlatform,
+      manifestPath: widget.manifestPath,
+    );
+    final config = _activeConfig = await GameManifest.loadEntrySettings(
+      baseConfig,
+    );
     _bridge.setDebug(settings.debugMode);
     _bridge.setDamageVisualization(
       settings.debugMode && settings.damageVisualization,
     );
-    final runtimePlatform = settings.runtimePlatform;
+    final runtimePlatform = config.runtimePlatform;
 
     Uint8List iniContent;
     if (widget.source == GameSource.pfsArchive) {
       try {
         FileProvider.openPfs(
           widget.projectPath,
-          environmentPatchEnabled: widget.environmentPatchEnabled,
+          environmentPatchEnabled: config.environmentPatchEnabled,
         );
       } catch (e) {
         if (mounted) {
@@ -218,12 +246,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       FileProvider.openPfs(
         widget.projectPath,
         archiveEncoding: charset,
-        environmentPatchEnabled: widget.environmentPatchEnabled,
+        environmentPatchEnabled: config.environmentPatchEnabled,
       );
     } else {
       FileProvider.openDirectory(
         widget.projectPath,
-        environmentPatchEnabled: widget.environmentPatchEnabled,
+        environmentPatchEnabled: config.environmentPatchEnabled,
       );
       iniContent = File(
         '${widget.projectPath}${Platform.pathSeparator}system.ini',
@@ -250,11 +278,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     final saveDir = '${saves.path}${Platform.pathSeparator}$gameId';
     _bridge.setSaveDir(saveDir);
 
-    if (widget.translationEnabled) {
+    if (config.translationEnabled) {
       final translations = await AppDataPaths.translationsDirectory();
       final translation = await TextTranslationService.create(
         settings: ref.read(settingsProvider).translation,
-        patchPath: widget.translationPatchPath,
+        patchPath: config.translationPatchPath,
         cacheFile: File(
           '${translations.path}${Platform.pathSeparator}$gameId.pb',
         ),
@@ -271,14 +299,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     await _applyFontOverride();
 
     // 输入门控：项目补丁/资料库条目的环境特化过滤，在 bridge 出口统一生效。
-    _bridge.configureInputGate(widget.inputGate);
+    _bridge.configureInputGate(config.inputGate);
 
     _bridge.registerFileReader();
     final renderBackend = ref.read(settingsProvider).backend;
     _bridge.createRuntime(_stageW, _stageH, backend: renderBackend);
     // 机种上报覆盖（runtime 已建、项目未加载；空串=跟随平台）。
-    _bridge.setReportedOs(widget.reportedOs);
-    if (widget.experimentalElunaEnabled && !_bridge.setEmoteBackend(1)) {
+    _bridge.setReportedOs(config.reportedOs);
+    if (config.experimentalElunaEnabled && !_bridge.setEmoteBackend(1)) {
       Log.warn('[E-Mote] 当前 Core 未包含实验性 Eluna 后端，已保留内置实现');
     }
     _setProfilerEnabled(settings.debugMode && settings.profilerOverlay);
@@ -333,7 +361,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   /// 覆盖字体字节来源：翻译设置里用户显式选择的字体（仅翻译开启时）优先，
   /// 其次是项目清单自带的游戏内字体；都没有返回 null。
   Future<(Uint8List, String)?> _resolveFontOverrideBytes() async {
-    final globalPath = widget.translationEnabled
+    final config = _activeConfig;
+    final globalPath = config?.translationEnabled == true
         ? ref.read(settingsProvider).translation.fontPath
         : '';
     if (globalPath.isNotEmpty) {
@@ -344,17 +373,17 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         return null;
       }
     }
-    if (widget.fontOverridePath.isNotEmpty) {
+    if (config != null && config.fontOverridePath.isNotEmpty) {
       final bytes = await GameManifest.readGameFile(
-        widget.projectPath,
-        widget.source,
-        widget.fontOverridePath,
+        config.path,
+        config.source,
+        config.fontOverridePath,
       );
       if (bytes == null) {
-        Log.warn('[字体] 清单覆盖字体读取失败: ${widget.fontOverridePath}');
+        Log.warn('[字体] 清单覆盖字体读取失败: ${config.fontOverridePath}');
         return null;
       }
-      return (bytes, widget.fontOverridePath);
+      return (bytes, config.fontOverridePath);
     }
     return null;
   }
