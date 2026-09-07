@@ -70,7 +70,7 @@
 | `mouseButtons` | `true` | 鼠标键总开关（触屏 tap 在引擎里就是左键，一般保持开启）。 |
 | `mouseMove` | `true` | 指针位置（hover/移动）上报开关。 |
 | `touch` | `true` | 真实触摸点上报开关（多点/flick 等）。 |
-| `wheelToKeys` | `true` | 滚轮 → 方向键（VK 136/137）转发。 |
+| `wheelToKeys` | `true` | 滚轮 → 标准方向键（VK_UP 38 / VK_DOWN 40）转发。 |
 | `twoFingerRightClick` | `true` | 双指触摸 → 鼠标右键转发。 |
 | `twoFingerScrollWheel` | `false` | 双指拖动 → 滚轮转发（菜单/回想界面滚动）。 |
 | `blockedKeys` | `[]` | 按键黑名单（Windows VK 码），键盘开启时仍拦截。 |

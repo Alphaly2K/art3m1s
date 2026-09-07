@@ -1103,10 +1103,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   }
 
   void _handlePointerSignal(PointerSignalEvent event) {
-    // 滚轮 → 方向键（VK 136/137）是宿主侧转发，受门控的转发开关约束。
+    // 核心没有独立滚轮入口；宿主转为标准 VK_UP/VK_DOWN。
     if (!_effectiveInputGate.wheelToKeys) return;
     if (event is! PointerScrollEvent) return;
-    final key = event.scrollDelta.dy < 0 ? 136 : 137;
+    final key = event.scrollDelta.dy < 0 ? 38 : 40;
     _emitForwardedWheelKey(key);
   }
 

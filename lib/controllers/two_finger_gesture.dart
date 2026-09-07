@@ -31,11 +31,11 @@ class TwoFingerGestureTracker {
     final keys = <int>[];
     while (_scrollAccum >= wheelNotch) {
       _scrollAccum -= wheelNotch;
-      keys.add(136);
+      keys.add(38); // VK_UP
     }
     while (_scrollAccum <= -wheelNotch) {
       _scrollAccum += wheelNotch;
-      keys.add(137);
+      keys.add(40); // VK_DOWN
     }
     return keys;
   }

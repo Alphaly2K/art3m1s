@@ -9,6 +9,13 @@ void main() {
     expect(gesture.active, isTrue);
     expect(gesture.end(), isTrue);
     expect(gesture.end(), isFalse);
+
+    final reverse = TwoFingerGestureTracker()
+      ..begin(const [Offset(0, 50), Offset(20, 50)]);
+    expect(
+      reverse.move(const [Offset(0, 5), Offset(20, 5)], scrollEnabled: true),
+      [40],
+    );
   });
 
   test('drag takes priority over tap and emits wheel notches', () {
@@ -16,7 +23,7 @@ void main() {
       ..begin(const [Offset(0, 0), Offset(20, 0)]);
     expect(
       gesture.move(const [Offset(0, 45), Offset(20, 45)], scrollEnabled: true),
-      [136],
+      [38],
     );
     expect(gesture.end(), isFalse);
   });
