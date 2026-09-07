@@ -425,22 +425,18 @@ class _MacosEditDialogState extends State<_MacosEditDialog> {
                   children: [
                     Padding(
                       padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
-                      child: MacosTextField(
-                        controller: _name,
-                        placeholder: '游戏名称',
-                        autofocus: true,
-                      ),
-                    ),
-                    _MacosFormRow(
-                      label: '封面',
-                      caption: _cover == null || _cover!.isEmpty
-                          ? '未选择'
-                          : _cover!.split(RegExp(r'[/\\]')).last,
-                      control: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          _CoverThumb(path: _cover, size: 36),
-                          const SizedBox(width: 8),
+                      child: _CoverTitleBlock(
+                        coverPath: _cover,
+                        onTapCover: () async {
+                          final path = await _pickCoverFile();
+                          if (path != null) setState(() => _cover = path);
+                        },
+                        titleField: MacosTextField(
+                          controller: _name,
+                          placeholder: '游戏名称',
+                          autofocus: true,
+                        ),
+                        actions: [
                           PushButton(
                             controlSize: ControlSize.small,
                             secondary: true,
@@ -448,17 +444,15 @@ class _MacosEditDialogState extends State<_MacosEditDialog> {
                               final path = await _pickCoverFile();
                               if (path != null) setState(() => _cover = path);
                             },
-                            child: Text(_cover != null ? '更换' : '选择'),
+                            child: Text(_cover != null ? '更换封面' : '选择封面'),
                           ),
-                          if (_cover != null) ...[
-                            const SizedBox(width: 6),
+                          if (_cover != null)
                             PushButton(
                               controlSize: ControlSize.small,
                               secondary: true,
                               onPressed: () => setState(() => _cover = null),
                               child: const Text('清除'),
                             ),
-                          ],
                         ],
                       ),
                     ),
@@ -879,18 +873,22 @@ class _CupertinoEditDialogState extends State<_CupertinoEditDialog> {
         mainAxisSize: MainAxisSize.min,
         children: [
           const SizedBox(height: 12),
-          CupertinoTextField(
-            controller: _name,
-            placeholder: '游戏名称',
-            autofocus: true,
-          ),
-          const SizedBox(height: 10),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              _CoverThumb(path: _cover, size: 40),
+          _CoverTitleBlock(
+            coverPath: _cover,
+            thumbSize: 48,
+            onTapCover: () async {
+              final path = await _pickCoverFile();
+              if (path != null) setState(() => _cover = path);
+            },
+            titleField: CupertinoTextField(
+              controller: _name,
+              placeholder: '游戏名称',
+              autofocus: true,
+            ),
+            actions: [
               CupertinoButton(
                 sizeStyle: CupertinoButtonSize.small,
+                padding: EdgeInsets.zero,
                 onPressed: () async {
                   final path = await _pickCoverFile();
                   if (path != null) setState(() => _cover = path);
@@ -900,6 +898,7 @@ class _CupertinoEditDialogState extends State<_CupertinoEditDialog> {
               if (_cover != null)
                 CupertinoButton(
                   sizeStyle: CupertinoButtonSize.small,
+                  padding: EdgeInsets.zero,
                   onPressed: () => setState(() => _cover = null),
                   child: const Text('清除'),
                 ),
@@ -1135,26 +1134,29 @@ class _MaterialEditDialogState extends State<_MaterialEditDialog> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              TextField(
-                controller: _name,
-                autofocus: true,
-                decoration: const InputDecoration(
-                  labelText: '游戏名称',
-                  hintText: '输入自定义名称',
+              _CoverTitleBlock(
+                coverPath: _cover,
+                thumbSize: 56,
+                onTapCover: () async {
+                  final path = await _pickCoverFile();
+                  if (path != null) setState(() => _cover = path);
+                },
+                titleField: TextField(
+                  controller: _name,
+                  autofocus: true,
+                  decoration: const InputDecoration(
+                    labelText: '游戏名称',
+                    hintText: '输入自定义名称',
+                  ),
                 ),
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  _CoverThumb(path: _cover, size: 56),
-                  const SizedBox(width: 12),
+                actions: [
                   TextButton.icon(
                     onPressed: () async {
                       final path = await _pickCoverFile();
                       if (path != null) setState(() => _cover = path);
                     },
                     icon: const Icon(Icons.folder_open, size: 18),
-                    label: Text(_cover != null ? '更换' : '选择封面'),
+                    label: Text(_cover != null ? '更换封面' : '选择封面'),
                   ),
                   if (_cover != null)
                     TextButton(
@@ -1301,6 +1303,49 @@ class _MaterialEditDialogState extends State<_MaterialEditDialog> {
   }
 }
 
+class _CoverTitleBlock extends StatelessWidget {
+  const _CoverTitleBlock({
+    required this.coverPath,
+    required this.titleField,
+    required this.actions,
+    this.onTapCover,
+    this.thumbSize = 52,
+  });
+
+  final String? coverPath;
+  final Widget titleField;
+  final List<Widget> actions;
+  final VoidCallback? onTapCover;
+  final double thumbSize;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        GestureDetector(
+          onTap: onTapCover,
+          child: _CoverThumb(path: coverPath, size: thumbSize),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              titleField,
+              if (actions.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Wrap(spacing: 6, runSpacing: 4, children: actions),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _CoverThumb extends StatelessWidget {
   final String? path;
   final double size;
@@ -1423,19 +1468,22 @@ class _FluentEditDialogState extends State<_FluentEditDialog> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              fluent.InfoLabel(
-                label: '游戏名称',
-                child: fluent.TextBox(
-                  controller: _name,
-                  placeholder: '输入自定义名称',
-                  autofocus: true,
+              _CoverTitleBlock(
+                coverPath: _cover,
+                thumbSize: 52,
+                onTapCover: () async {
+                  final path = await _pickCoverFile();
+                  if (path != null) setState(() => _cover = path);
+                },
+                titleField: fluent.InfoLabel(
+                  label: '游戏名称',
+                  child: fluent.TextBox(
+                    controller: _name,
+                    placeholder: '输入自定义名称',
+                    autofocus: true,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  _CoverThumb(path: _cover, size: 48),
-                  const SizedBox(width: 10),
+                actions: [
                   fluent.Button(
                     onPressed: () async {
                       final path = await _pickCoverFile();
@@ -1443,13 +1491,11 @@ class _FluentEditDialogState extends State<_FluentEditDialog> {
                     },
                     child: Text(_cover != null ? '更换封面' : '选择封面'),
                   ),
-                  if (_cover != null) ...[
-                    const SizedBox(width: 6),
+                  if (_cover != null)
                     fluent.Button(
                       onPressed: () => setState(() => _cover = null),
                       child: const Text('清除'),
                     ),
-                  ],
                 ],
               ),
               const SizedBox(height: 12),
@@ -1753,24 +1799,29 @@ class _MiuixEditFormState extends State<_MiuixEditForm> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  MiuixTextField(
-                    controller: _name,
-                    label: '游戏名称',
-                    useLabelAsPlaceholder: true,
-                    singleLine: true,
-                    autofocus: true,
-                  ),
-                  const SizedBox(height: 8),
                   MiuixBasicComponent(
-                    title: '封面',
-                    summary: _cover == null ? '未选择' : '已选择封面',
                     startAction: Padding(
                       padding: const EdgeInsets.only(right: 12),
-                      child: _CoverThumb(path: _cover, size: 44),
+                      child: GestureDetector(
+                        onTap: () async {
+                          final path = await _pickCoverFile();
+                          if (path != null) setState(() => _cover = path);
+                        },
+                        child: _CoverThumb(path: _cover, size: 48),
+                      ),
                     ),
+                    content: [
+                      MiuixTextField(
+                        controller: _name,
+                        label: '游戏名称',
+                        useLabelAsPlaceholder: true,
+                        singleLine: true,
+                        autofocus: true,
+                      ),
+                    ],
                     endActions: [
                       MiuixTextButton(
-                        _cover == null ? '选择' : '更换',
+                        _cover == null ? '选择封面' : '更换',
                         onPressed: () async {
                           final path = await _pickCoverFile();
                           if (path != null) setState(() => _cover = path);
