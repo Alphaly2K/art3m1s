@@ -42,16 +42,30 @@ class _CupertinoHome extends StatelessWidget {
   Widget build(BuildContext context) {
     return CupertinoTabScaffold(
       tabBar: CupertinoTabBar(
+        height: 56,
+        iconSize: 25,
         items: const [
           BottomNavigationBarItem(
-            icon: Icon(CupertinoIcons.square_grid_2x2),
+            icon: Padding(
+              padding: EdgeInsets.only(top: 6),
+              child: Icon(CupertinoIcons.square_grid_2x2),
+            ),
             label: '资料库',
           ),
           BottomNavigationBarItem(
-            icon: Icon(CupertinoIcons.settings),
+            icon: Padding(
+              padding: EdgeInsets.only(top: 6),
+              child: Icon(CupertinoIcons.settings),
+            ),
             label: '设置',
           ),
-          BottomNavigationBarItem(icon: Icon(CupertinoIcons.info), label: '关于'),
+          BottomNavigationBarItem(
+            icon: Padding(
+              padding: EdgeInsets.only(top: 6),
+              child: Icon(CupertinoIcons.info),
+            ),
+            label: '关于',
+          ),
         ],
       ),
       tabBuilder: (context, index) {
@@ -214,8 +228,8 @@ class _CupertinoSettingsScreen extends ConsumerWidget {
                   additionalInfo: Text(settings.translation.mode.label),
                   trailing: const CupertinoListTileChevron(),
                   onTap: () {
-                    Navigator.of(context).push(
-                      CupertinoPageRoute(
+                    Navigator.of(context, rootNavigator: true).push(
+                      CupertinoPageRoute<void>(
                         builder: (_) => const TranslationSettingsScreen(),
                       ),
                     );
@@ -367,7 +381,7 @@ class _CupertinoAboutScreen extends StatelessWidget {
                   subtitle: const Text('查看 Flutter 与依赖包许可证'),
                   trailing: const CupertinoListTileChevron(),
                   onTap: () {
-                    Navigator.of(context).push(
+                    Navigator.of(context, rootNavigator: true).push(
                       CupertinoPageRoute<void>(
                         builder: (_) => const CupertinoLicensesPage(),
                       ),
