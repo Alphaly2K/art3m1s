@@ -429,7 +429,18 @@ class _CupertinoGameCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final dark = CupertinoTheme.of(context).brightness == Brightness.dark;
+    final brightness =
+        CupertinoTheme.of(context).brightness ??
+        MediaQuery.platformBrightnessOf(context);
+    final dark = brightness == Brightness.dark;
+    final background = CupertinoColors.secondarySystemGroupedBackground
+        .resolveFrom(context);
+    final border = dark ? const Color(0x40FFFFFF) : const Color(0x33000000);
+    final titleColor = CupertinoColors.label.resolveFrom(context);
+    final subtitleColor = CupertinoColors.secondaryLabel.resolveFrom(context);
+    final placeholder = CupertinoColors.tertiarySystemFill.resolveFrom(context);
+    final iconColor = CupertinoColors.secondaryLabel.resolveFrom(context);
+
     return GestureDetector(
       onTap: onOpen,
       onLongPress: () => _openGameMenu(
@@ -439,12 +450,14 @@ class _CupertinoGameCard extends StatelessWidget {
         onEdit: onEdit,
         onDelete: onDelete,
       ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(14),
-        child: ColoredBox(
-          color: dark
-              ? CupertinoColors.secondarySystemGroupedBackground.darkColor
-              : CupertinoColors.secondarySystemGroupedBackground.color,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: background,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: border, width: 0.5),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(14),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -452,15 +465,13 @@ class _CupertinoGameCard extends StatelessWidget {
                 child: _CoverImage(
                   entry: entry,
                   placeholder: ColoredBox(
-                    color: dark
-                        ? const Color(0xFF3A3A3C)
-                        : const Color(0xFFE5E5EA),
+                    color: placeholder,
                     child: Icon(
                       entry.source == GameSource.pfsArchive
                           ? CupertinoIcons.archivebox
                           : CupertinoIcons.folder,
                       size: 42,
-                      color: CupertinoColors.systemGrey,
+                      color: iconColor,
                     ),
                   ),
                 ),
@@ -474,9 +485,10 @@ class _CupertinoGameCard extends StatelessWidget {
                       entry.displayNameOrName,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 15,
                         fontWeight: FontWeight.w600,
+                        color: titleColor,
                         decoration: TextDecoration.none,
                       ),
                     ),
@@ -489,9 +501,7 @@ class _CupertinoGameCard extends StatelessWidget {
                       ].join(' · '),
                       style: TextStyle(
                         fontSize: 12,
-                        color: CupertinoColors.secondaryLabel.resolveFrom(
-                          context,
-                        ),
+                        color: subtitleColor,
                         decoration: TextDecoration.none,
                       ),
                     ),
