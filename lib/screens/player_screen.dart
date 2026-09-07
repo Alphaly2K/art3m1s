@@ -23,6 +23,7 @@ import '../services/text_translation_service.dart';
 import '../widgets/engine_dialog.dart';
 import '../widgets/mobile_game_cursor.dart';
 import '../widgets/mobile_touchpad_surface.dart';
+import '../widgets/player_hud.dart';
 import '../widgets/profiler_overlay.dart';
 
 class PlayerScreen extends ConsumerStatefulWidget {
@@ -91,11 +92,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   late final MobileTouchpadPointer _touchpadPointer;
   late final ValueNotifier<Offset> _touchpadCursorPosition;
   bool _touchpadDragging = false;
-
-  Offset _ballPos = const Offset(16, 60);
-  bool _panelOpen = false;
-  Timer? _panelTimer;
-  static const _panelAutoHideMs = 4000;
 
   final _keyboardNode = FocusNode();
   final _keyboardCtrl = TextEditingController();
@@ -555,7 +551,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     _unlockOrientation();
     _bridge.media.fullscreenVideoBlocking.removeListener(_syncGameTicker);
     _gameTicker.dispose();
-    _panelTimer?.cancel();
     _profilerTimer?.cancel();
     if (_profilerEnabled) _bridge.setProfilerEnabled(false);
     _endTouchpadDrag();
@@ -576,7 +571,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     if (_closing) return;
     _closing = true;
     _syncGameTicker();
-    _panelTimer?.cancel();
     if (mounted) {
       Navigator.of(context).pop();
     }
@@ -597,13 +591,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     SystemChrome.setPreferredOrientations(DeviceOrientation.values);
   }
 
-  void _resetPanelTimer() {
-    _panelTimer?.cancel();
-    _panelTimer = Timer(const Duration(milliseconds: _panelAutoHideMs), () {
-      if (mounted) setState(() => _panelOpen = false);
-    });
-  }
-
   void _toggleKeyboard() {
     setState(() {
       _keyboardShown = !_keyboardShown;
@@ -613,7 +600,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         _keyboardNode.unfocus();
       }
     });
-    _resetPanelTimer();
   }
 
   void _onKeyboardInput() {
@@ -654,6 +640,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     final showProfiler = ref.watch(
       settingsProvider.select((s) => s.debugMode && s.profilerOverlay),
     );
+    final touchpadEnabled = ref.watch(
+      settingsProvider.select((s) => s.mobileTouchpadEnabled),
+    );
     if (showProfiler != _profilerEnabled) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted && !_closing) _setProfilerEnabled(showProfiler);
@@ -672,8 +661,18 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
           _buildVideoLayer(),
           if (showFps) _buildFpsDisplay(),
           if (showProfiler) ProfilerOverlay(snapshot: _profilerNotifier),
-          _buildFloatingBall(),
-          _buildControlPanel(),
+          PlayerHud(
+            title: widget.projectPath.split(RegExp(r'[/\\]')).last,
+            showFps: showFps,
+            keyboardShown: _keyboardShown,
+            touchpadEnabled: touchpadEnabled,
+            showTouchpadToggle: Platform.isAndroid || Platform.isIOS,
+            onShowFpsChanged: (value) =>
+                ref.read(settingsProvider.notifier).setShowFps(value),
+            onToggleKeyboard: _toggleKeyboard,
+            onTouchpadChanged: _setTouchpadEnabled,
+            onExit: _closePlayer,
+          ),
           _buildHiddenKeyboard(),
           _buildAvoidOverlay(),
         ],
@@ -724,236 +723,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
               fontSize: 12,
               fontFamily: 'monospace',
             ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildFloatingBall() {
-    return Positioned(
-      left: _ballPos.dx,
-      top: _ballPos.dy,
-      child: GestureDetector(
-        onTap: () {
-          setState(() => _panelOpen = !_panelOpen);
-          if (_panelOpen) _resetPanelTimer();
-        },
-        onPanUpdate: (d) => setState(() => _ballPos += d.delta),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
-          curve: Curves.easeOut,
-          width: 46,
-          height: 46,
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [Color(0xF23A3A42), Color(0xF218181B)],
-            ),
-            shape: BoxShape.circle,
-            border: Border.all(
-              color: _panelOpen
-                  ? const Color(0x66FFFFFF)
-                  : const Color(0x2EFFFFFF),
-              width: 1,
-            ),
-            boxShadow: const [
-              BoxShadow(
-                color: Color(0x59000000),
-                blurRadius: 12,
-                offset: Offset(0, 3),
-              ),
-            ],
-          ),
-          child: AnimatedRotation(
-            turns: _panelOpen ? 0.125 : 0,
-            duration: const Duration(milliseconds: 160),
-            child: Icon(
-              _panelOpen ? Icons.close : Icons.tune,
-              color: const Color(0xFFE4E4E7),
-              size: 20,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildControlPanel() {
-    if (!_panelOpen) return const SizedBox.shrink();
-    final showFps = ref.watch(settingsProvider.select((s) => s.showFps));
-    final touchpadEnabled = ref.watch(
-      settingsProvider.select((s) => s.mobileTouchpadEnabled),
-    );
-
-    return Positioned(
-      top: _ballPos.dy + 54,
-      left: _ballPos.dx,
-      child: Listener(
-        behavior: HitTestBehavior.translucent,
-        onPointerHover: (_) => _resetPanelTimer(),
-        onPointerMove: (_) => _resetPanelTimer(),
-        // 显式浅色，浮层不受游戏/主题文字色影响。
-        child: DefaultTextStyle(
-          style: const TextStyle(
-            color: Color(0xFFE4E4E7),
-            fontSize: 13,
-            decoration: TextDecoration.none,
-          ),
-          child: Material(
-            color: Colors.transparent,
-            elevation: 14,
-            borderRadius: BorderRadius.circular(14),
-            child: Container(
-              width: 212,
-              clipBehavior: Clip.antiAlias,
-              decoration: BoxDecoration(
-                color: const Color(0xF218181B),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: const Color(0x1FFFFFFF)),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  _panelHeader(),
-                  _panelTile(
-                    icon: Icons.speed_rounded,
-                    label: '帧率',
-                    on: showFps,
-                    onTap: () => ref
-                        .read(settingsProvider.notifier)
-                        .setShowFps(!showFps),
-                  ),
-                  _panelTile(
-                    icon: Icons.keyboard_rounded,
-                    label: '虚拟键盘',
-                    on: _keyboardShown,
-                    onTap: _toggleKeyboard,
-                  ),
-                  if (Platform.isAndroid || Platform.isIOS)
-                    _panelTile(
-                      icon: Icons.mouse_outlined,
-                      label: '触摸板鼠标',
-                      on: touchpadEnabled,
-                      onTap: () => _setTouchpadEnabled(!touchpadEnabled),
-                    ),
-                  const Divider(
-                    height: 1,
-                    thickness: 1,
-                    color: Color(0x14FFFFFF),
-                  ),
-                  _panelTile(
-                    icon: Icons.logout_rounded,
-                    label: '退出游戏',
-                    destructive: true,
-                    onTap: _closePlayer,
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _panelHeader() {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(12, 8, 6, 8),
-      decoration: const BoxDecoration(
-        color: Color(0xFF232329),
-        border: Border(bottom: BorderSide(color: Color(0x14FFFFFF))),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              widget.projectPath.split('/').last,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFFD4D4D8),
-              ),
-            ),
-          ),
-          GestureDetector(
-            onTap: () => setState(() => _panelOpen = false),
-            behavior: HitTestBehavior.opaque,
-            child: const Padding(
-              padding: EdgeInsets.all(4),
-              child: Icon(
-                Icons.close_rounded,
-                size: 16,
-                color: Color(0xFF9CA3AF),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _panelTile({
-    required IconData icon,
-    required String label,
-    VoidCallback? onTap,
-    bool? on,
-    bool destructive = false,
-  }) {
-    final accent = destructive
-        ? const Color(0xFFF87171)
-        : (on == true ? const Color(0xFF4ADE80) : const Color(0xFF9CA3AF));
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
-        child: Row(
-          children: [
-            Icon(icon, size: 18, color: accent),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                label,
-                style: TextStyle(
-                  fontSize: 13,
-                  color: destructive
-                      ? const Color(0xFFF87171)
-                      : const Color(0xFFE4E4E7),
-                ),
-              ),
-            ),
-            if (on != null) _miniToggle(on),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// 迷你开关，明确显示开/关态。
-  Widget _miniToggle(bool on) {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 150),
-      width: 32,
-      height: 18,
-      padding: const EdgeInsets.all(2),
-      decoration: BoxDecoration(
-        color: on ? const Color(0xFF4ADE80) : const Color(0x33FFFFFF),
-        borderRadius: BorderRadius.circular(9),
-      ),
-      child: AnimatedAlign(
-        duration: const Duration(milliseconds: 150),
-        curve: Curves.easeOut,
-        alignment: on ? Alignment.centerRight : Alignment.centerLeft,
-        child: Container(
-          width: 14,
-          height: 14,
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            shape: BoxShape.circle,
           ),
         ),
       ),
@@ -1191,7 +960,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     _pointerPositions.clear();
     _twoFingerLastMidpoint = null;
     ref.read(settingsProvider.notifier).setMobileTouchpadEnabled(enabled);
-    _resetPanelTimer();
   }
 
   /// 把真实触摸事件转发给 core（驱动 getTouchCount/Point、flick、多点触控）。
