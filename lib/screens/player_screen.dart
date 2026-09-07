@@ -9,6 +9,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 
 import '../controllers/mobile_touchpad.dart';
+import '../controllers/two_finger_gesture.dart';
 import '../models/game_entry.dart';
 import '../models/input_gate.dart';
 import '../providers/settings_provider.dart';
@@ -86,9 +87,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
   /// 各活动指针的最近位置（双指手势中点计算用）。
   final Map<int, Offset> _pointerPositions = {};
-  Offset? _twoFingerLastMidpoint;
-  bool _twoFingerDragged = false;
-  double _twoFingerScrollAccum = 0;
+  final TwoFingerGestureTracker _twoFingerGesture = TwoFingerGestureTracker();
   late final MobileTouchpadPointer _touchpadPointer;
   late final ValueNotifier<Offset> _touchpadCursorPosition;
   bool _touchpadDragging = false;
@@ -806,7 +805,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                 return;
               }
               _pointerPositions[event.pointer] = event.localPosition;
-              _handleTwoFingerScroll();
+              _handleTwoFingerMove();
               _feedPointerPosition(event, ox, oy, scale);
               _feedTouch(event, 1, ox, oy, scale);
               _syncPointerButtons(event.buttons);
@@ -839,7 +838,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
               if (touchpadEnabled && event.kind == PointerDeviceKind.touch) {
                 return;
               }
-              _endTwoFingerGesture();
+              _endTwoFingerGesture(cancelled: true);
               _activePointers.remove(event.pointer);
               _pointerPositions.remove(event.pointer);
               _feedTouch(event, 2, ox, oy, scale);
@@ -978,7 +977,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     _releasePointerButtons();
     _activePointers.clear();
     _pointerPositions.clear();
-    _twoFingerLastMidpoint = null;
+    _twoFingerGesture.reset();
     ref.read(settingsProvider.notifier).setMobileTouchpadEnabled(enabled);
   }
 
@@ -1008,69 +1007,34 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     return Offset(mx, my);
   }
 
-  /// 双指手势开始（第二指落下）。滚动转发开启时进入滚动模式，右键延迟到
-  /// 手势结束按点按判定；否则维持原行为（落下即右键按下）。
+  InputGatePolicy get _effectiveInputGate =>
+      _activeConfig?.inputGate ?? widget.inputGate;
+
+  List<Offset> get _activePointerPositions => [
+    for (final pointer in _activePointers) _pointerPositions[pointer]!,
+  ];
+
+  /// 右键不在第二指落下时发出；等到抬起才判定是点按还是拖动。
   void _beginTwoFingerGesture() {
     if (_activePointers.length < 2) return;
-    if (!widget.inputGate.twoFingerScrollWheel) {
-      if (widget.inputGate.twoFingerRightClick) {
-        _bridge.feedMouseButton(2, true);
-      }
-      return;
-    }
-    _twoFingerLastMidpoint = null;
-    _twoFingerDragged = false;
-    _twoFingerScrollAccum = 0;
+    _twoFingerGesture.begin(_activePointerPositions);
   }
 
-  /// 双指手势结束（回到单指或全部抬起）。
-  void _endTwoFingerGesture() {
-    if (_activePointers.length < 2) return;
-    if (!widget.inputGate.twoFingerScrollWheel) {
-      if (widget.inputGate.twoFingerRightClick) {
-        _bridge.feedMouseButton(2, false);
-      }
-      return;
-    }
-    // 滚动模式：整段手势没有明显拖动才按点按转发右键。
-    if (!_twoFingerDragged && widget.inputGate.twoFingerRightClick) {
+  void _endTwoFingerGesture({bool cancelled = false}) {
+    final tapped = _twoFingerGesture.end(cancelled: cancelled);
+    if (tapped && _effectiveInputGate.twoFingerRightClick) {
       _bridge.feedMouseButton(2, true);
       _bridge.feedMouseButton(2, false);
     }
-    _twoFingerLastMidpoint = null;
-    _twoFingerScrollAccum = 0;
   }
 
-  /// 双指拖动 → 滚轮（VK 136/137）转发：按两指中点的纵向位移累计，
-  /// 每 40 逻辑像素合成一格滚轮。方向与自然滚动一致：下滑=视口向上（136）。
-  /// 合成键走 feedForwardedKey，不受键盘类别主开关约束。
-  void _handleTwoFingerScroll() {
-    if (!widget.inputGate.twoFingerScrollWheel || _activePointers.length < 2) {
-      return;
-    }
-    var midpoint = Offset.zero;
-    var count = 0;
-    for (final pointer in _activePointers) {
-      final position = _pointerPositions[pointer];
-      if (position == null) return;
-      midpoint += position;
-      count++;
-    }
-    midpoint /= count.toDouble();
-    final last = _twoFingerLastMidpoint;
-    _twoFingerLastMidpoint = midpoint;
-    if (last == null) return;
-    final dy = midpoint.dy - last.dy;
-    if (dy.abs() > 6) _twoFingerDragged = true;
-    _twoFingerScrollAccum += dy;
-    const notch = 40.0;
-    while (_twoFingerScrollAccum >= notch) {
-      _twoFingerScrollAccum -= notch;
-      _emitForwardedWheelKey(136);
-    }
-    while (_twoFingerScrollAccum <= -notch) {
-      _twoFingerScrollAccum += notch;
-      _emitForwardedWheelKey(137);
+  void _handleTwoFingerMove() {
+    if (_activePointers.length != 2) return;
+    for (final key in _twoFingerGesture.move(
+      _activePointerPositions,
+      scrollEnabled: _effectiveInputGate.twoFingerScrollWheel,
+    )) {
+      _emitForwardedWheelKey(key);
     }
   }
 
@@ -1105,7 +1069,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
   void _handlePointerSignal(PointerSignalEvent event) {
     // 滚轮 → 方向键（VK 136/137）是宿主侧转发，受门控的转发开关约束。
-    if (!widget.inputGate.wheelToKeys) return;
+    if (!_effectiveInputGate.wheelToKeys) return;
     if (event is! PointerScrollEvent) return;
     final key = event.scrollDelta.dy < 0 ? 136 : 137;
     _emitForwardedWheelKey(key);
