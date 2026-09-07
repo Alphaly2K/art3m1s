@@ -704,11 +704,30 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     );
   }
 
+  /// Immersive mode zeros [MediaQuery.padding], so overlays must use
+  /// [MediaQuery.viewPadding]. Large-radius screens also need a floor so
+  /// the badge is not clipped by the corner curve.
+  EdgeInsets _overlaySafeInset(BuildContext context) {
+    final view = MediaQuery.viewPaddingOf(context);
+    const gap = 8.0;
+    final extraTop = Platform.isMacOS ? 28.0 : 0.0;
+    final corner = (Platform.isIOS || Platform.isAndroid) ? 20.0 : 8.0;
+    double axis(double inset, [double extra = 0]) =>
+        (inset > corner ? inset : corner) + gap + extra;
+
+    return EdgeInsets.only(
+      left: axis(view.left),
+      top: axis(view.top, extraTop),
+      right: axis(view.right),
+      bottom: axis(view.bottom),
+    );
+  }
+
   Widget _buildFpsDisplay() {
+    final inset = _overlaySafeInset(context);
     return Positioned(
-      // macOS 沉浸式标题栏下红绿灯悬浮在左上角，往下让开。
-      top: Platform.isMacOS ? 36 : 8,
-      left: 8,
+      top: inset.top,
+      left: inset.left,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
         decoration: BoxDecoration(

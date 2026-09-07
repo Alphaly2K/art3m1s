@@ -16,9 +16,13 @@ class ProfilerOverlay extends StatelessWidget {
     final width = availableWidth >= 780
         ? math.min(840.0, availableWidth)
         : math.min(360.0, availableWidth);
+    final view = MediaQuery.viewPaddingOf(context);
+    const corner = 20.0;
+    const gap = 8.0;
+    double axis(double inset) => inset > corner ? inset + gap : corner + gap;
     return Positioned(
-      top: 8,
-      right: 8,
+      top: axis(view.top),
+      right: axis(view.right),
       width: width,
       child: IgnorePointer(
         child: ValueListenableBuilder<ProfilerSnapshot?>(
