@@ -1,12 +1,15 @@
 import 'dart:io';
-
-import 'package:flutter/cupertino.dart' show CupertinoIcons;
-import 'package:flutter/widgets.dart';
+import 'package:fluent_ui/fluent_ui.dart' as fluent;
+import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_miuix/miuix.dart';
+import 'package:macos_ui/macos_ui.dart';
 
 import '../adaptive/context_menu.dart';
+import '../adaptive/miuix_chrome.dart';
 import '../models/game_entry.dart';
 
-/// 三个壳共用的资料库网格：列数随窗口宽度自适应。
+/// 资料库网格：列数随窗口宽度自适应，卡片外观跟当前壳走。
 class GameGrid extends StatelessWidget {
   final List<GameEntry> games;
   final void Function(GameEntry) onOpen;
@@ -50,8 +53,7 @@ class GameGrid extends StatelessWidget {
   }
 }
 
-/// 单张游戏卡片：整卡点击启动，hover 显示快捷按钮，右键/长按出菜单。
-class GameCard extends StatefulWidget {
+class GameCard extends StatelessWidget {
   final GameEntry entry;
   final VoidCallback onOpen;
   final VoidCallback onEdit;
@@ -66,240 +68,664 @@ class GameCard extends StatefulWidget {
   });
 
   @override
-  State<GameCard> createState() => _GameCardState();
+  Widget build(BuildContext context) {
+    if (Platform.isMacOS) {
+      return _MacosGameCard(
+        entry: entry,
+        onOpen: onOpen,
+        onEdit: onEdit,
+        onDelete: onDelete,
+      );
+    }
+    if (Platform.isWindows) {
+      return _FluentGameCard(
+        entry: entry,
+        onOpen: onOpen,
+        onEdit: onEdit,
+        onDelete: onDelete,
+      );
+    }
+    if (Platform.isIOS) {
+      return _CupertinoGameCard(
+        entry: entry,
+        onOpen: onOpen,
+        onEdit: onEdit,
+        onDelete: onDelete,
+      );
+    }
+    if (usesMiuixChrome(context)) {
+      return _MiuixGameCard(
+        entry: entry,
+        onOpen: onOpen,
+        onEdit: onEdit,
+        onDelete: onDelete,
+      );
+    }
+    return _MaterialGameCard(
+      entry: entry,
+      onOpen: onOpen,
+      onEdit: onEdit,
+      onDelete: onDelete,
+    );
+  }
 }
 
-class _GameCardState extends State<GameCard> {
-  bool _hover = false;
+List<ContextMenuAction> _gameActions({
+  required VoidCallback onOpen,
+  required VoidCallback onEdit,
+  required VoidCallback onDelete,
+}) {
+  return [
+    ContextMenuAction(label: '开始游戏', onSelected: onOpen),
+    ContextMenuAction(label: '编辑…', onSelected: onEdit),
+    ContextMenuAction(label: '从库中移除…', destructive: true, onSelected: onDelete),
+  ];
+}
 
-  void _showMenu(Offset globalPosition) {
-    showAdaptiveContextMenu(context, globalPosition, [
-      ContextMenuAction(
-        label: '开始游戏',
-        icon: CupertinoIcons.play,
-        onSelected: widget.onOpen,
-      ),
-      ContextMenuAction(
-        label: '编辑…',
-        icon: CupertinoIcons.pencil,
-        onSelected: widget.onEdit,
-      ),
-      ContextMenuAction(
-        label: '从库中移除…',
-        icon: CupertinoIcons.trash,
-        destructive: true,
-        onSelected: widget.onDelete,
-      ),
-    ]);
-  }
+void _openGameMenu(
+  BuildContext context,
+  Offset globalPosition, {
+  required VoidCallback onOpen,
+  required VoidCallback onEdit,
+  required VoidCallback onDelete,
+}) {
+  showAdaptiveContextMenu(
+    context,
+    globalPosition,
+    _gameActions(onOpen: onOpen, onEdit: onEdit, onDelete: onDelete),
+  );
+}
+
+class _CoverImage extends StatelessWidget {
+  const _CoverImage({required this.entry, this.placeholder});
+
+  final GameEntry entry;
+  final Widget? placeholder;
 
   @override
   Widget build(BuildContext context) {
-    final dark = MediaQuery.platformBrightnessOf(context) == Brightness.dark;
-    final entry = widget.entry;
+    final path = entry.coverPath;
+    if (path != null && File(path).existsSync()) {
+      return Image.file(File(path), fit: BoxFit.cover, width: double.infinity);
+    }
+    return placeholder ??
+        ColoredBox(
+          color: const Color(0xFFE8E8ED),
+          child: Icon(
+            entry.source == GameSource.pfsArchive
+                ? Icons.inventory_2_outlined
+                : Icons.folder_outlined,
+            size: 42,
+            color: const Color(0xFF8E8E93),
+          ),
+        );
+  }
+}
 
+String _relativeTime(DateTime t) {
+  final d = DateTime.now().difference(t);
+  if (d.inMinutes < 1) return '刚刚';
+  if (d.inHours < 1) return '${d.inMinutes} 分钟前';
+  if (d.inDays < 1) return '${d.inHours} 小时前';
+  if (d.inDays < 30) return '${d.inDays} 天前';
+  return '${t.year}/${t.month}/${t.day}';
+}
+
+String _sourceLabel(GameEntry entry) =>
+    entry.source == GameSource.pfsArchive ? 'PFS' : '目录';
+
+class _HoverActions extends StatelessWidget {
+  const _HoverActions({
+    required this.visible,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  final bool visible;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!visible) return const SizedBox.shrink();
+    return Positioned(
+      top: 8,
+      right: 8,
+      child: Row(
+        children: [
+          _RoundIconButton(icon: Icons.edit_outlined, onTap: onEdit),
+          const SizedBox(width: 6),
+          _RoundIconButton(icon: Icons.close, onTap: onDelete),
+        ],
+      ),
+    );
+  }
+}
+
+class _RoundIconButton extends StatelessWidget {
+  const _RoundIconButton({required this.icon, required this.onTap});
+
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: const Color(0xCC111111),
+      shape: const CircleBorder(),
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(6),
+          child: Icon(icon, size: 14, color: Colors.white),
+        ),
+      ),
+    );
+  }
+}
+
+class _MaterialGameCard extends StatefulWidget {
+  const _MaterialGameCard({
+    required this.entry,
+    required this.onOpen,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  final GameEntry entry;
+  final VoidCallback onOpen;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+
+  @override
+  State<_MaterialGameCard> createState() => _MaterialGameCardState();
+}
+
+class _MaterialGameCardState extends State<_MaterialGameCard> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final desktop = !Platform.isAndroid && !Platform.isIOS;
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: widget.onOpen,
-        onSecondaryTapUp: (d) => _showMenu(d.globalPosition),
-        onLongPressStart: (d) => _showMenu(d.globalPosition),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 120),
-          clipBehavior: Clip.antiAlias,
-          decoration: BoxDecoration(
-            color: dark ? const Color(0xFF2C2C2E) : const Color(0xFFFFFFFF),
-            borderRadius: BorderRadius.circular(10),
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0x28000000),
-                blurRadius: _hover ? 14 : 5,
-                offset: Offset(0, _hover ? 5 : 2),
-              ),
-            ],
+      child: Card(
+        clipBehavior: Clip.antiAlias,
+        elevation: _hover ? 2 : 0,
+        color: scheme.surfaceContainerLow,
+        child: InkWell(
+          onTap: widget.onOpen,
+          onLongPress: () => _openGameMenu(
+            context,
+            Offset.zero,
+            onOpen: widget.onOpen,
+            onEdit: widget.onEdit,
+            onDelete: widget.onDelete,
           ),
-          // 边框画在前景层：位于封面图之上，圆角处不会被内容截断。
-          foregroundDecoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: _hover
-                  ? const Color(0xFF0A64D0)
-                  : (dark ? const Color(0x26FFFFFF) : const Color(0x1A000000)),
-              width: _hover ? 1.5 : 0.5,
-            ),
-          ),
+          onSecondaryTapUp: desktop
+              ? (d) => _openGameMenu(
+                  context,
+                  d.globalPosition,
+                  onOpen: widget.onOpen,
+                  onEdit: widget.onEdit,
+                  onDelete: widget.onDelete,
+                )
+              : null,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Expanded(child: _buildCover(dark)),
-              _buildInfoBar(dark, entry),
+              Expanded(
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    _CoverImage(
+                      entry: widget.entry,
+                      placeholder: ColoredBox(
+                        color: scheme.surfaceContainerHighest,
+                        child: Icon(
+                          widget.entry.source == GameSource.pfsArchive
+                              ? Icons.inventory_2_outlined
+                              : Icons.folder_outlined,
+                          size: 42,
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                    _HoverActions(
+                      visible: desktop && _hover,
+                      onEdit: widget.onEdit,
+                      onDelete: widget.onDelete,
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      widget.entry.displayNameOrName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      [
+                        _sourceLabel(widget.entry),
+                        if (widget.entry.lastPlayedAt != null)
+                          _relativeTime(widget.entry.lastPlayedAt!),
+                      ].join(' · '),
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ],
           ),
         ),
       ),
     );
   }
+}
 
-  Widget _buildCover(bool dark) {
-    final entry = widget.entry;
-    Widget cover;
-    if (entry.coverPath != null && File(entry.coverPath!).existsSync()) {
-      cover = Image.file(File(entry.coverPath!), fit: BoxFit.cover);
-    } else {
-      cover = Container(
-        color: dark ? const Color(0xFF3A3A3C) : const Color(0xFFE9E9EE),
-        child: Center(
-          child: Icon(
-            entry.source == GameSource.pfsArchive
-                ? CupertinoIcons.archivebox
-                : CupertinoIcons.folder,
-            size: 44,
-            color: dark ? const Color(0xFF98989D) : const Color(0xFF8E8E93),
-          ),
-        ),
-      );
-    }
+class _MiuixGameCard extends StatelessWidget {
+  const _MiuixGameCard({
+    required this.entry,
+    required this.onOpen,
+    required this.onEdit,
+    required this.onDelete,
+  });
 
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        cover,
-        // hover 快捷按钮（桌面）：编辑 / 移除，热区 28px。
-        if (_hover)
-          Positioned(
-            top: 6,
-            right: 6,
-            child: Row(
-              children: [
-                _QuickAction(
-                  icon: CupertinoIcons.pencil,
-                  tooltip: '编辑',
-                  onTap: widget.onEdit,
+  final GameEntry entry;
+  final VoidCallback onOpen;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = MiuixTheme.of(context);
+    return MiuixCard(
+      insideMargin: EdgeInsets.zero,
+      onPressed: onOpen,
+      onLongPress: () => _openGameMenu(
+        context,
+        Offset.zero,
+        onOpen: onOpen,
+        onEdit: onEdit,
+        onDelete: onDelete,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(
+            child: ClipRRect(
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(16),
+              ),
+              child: _CoverImage(
+                entry: entry,
+                placeholder: ColoredBox(
+                  color: theme.colors.surfaceContainerHigh,
+                  child: Icon(
+                    entry.source == GameSource.pfsArchive
+                        ? Icons.inventory_2_outlined
+                        : Icons.folder_outlined,
+                    size: 42,
+                    color: theme.colors.onSurfaceVariantSummary,
+                  ),
                 ),
-                const SizedBox(width: 5),
-                _QuickAction(
-                  icon: CupertinoIcons.xmark,
-                  tooltip: '移除',
-                  onTap: widget.onDelete,
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                MiuixText(
+                  entry.displayNameOrName,
+                  style: theme.textStyles.headline2,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 4),
+                MiuixText(
+                  [
+                    _sourceLabel(entry),
+                    if (entry.lastPlayedAt != null)
+                      _relativeTime(entry.lastPlayedAt!),
+                  ].join(' · '),
+                  style: theme.textStyles.footnote1,
+                  color: theme.colors.onSurfaceVariantSummary,
                 ),
               ],
             ),
-          ),
-      ],
-    );
-  }
-
-  Widget _buildInfoBar(bool dark, GameEntry entry) {
-    final secondary =
-        dark ? const Color(0xFF98989D) : const Color(0xFF6E6E73);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(10, 8, 10, 9),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            entry.displayNameOrName,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
-              color: dark ? const Color(0xFFF2F2F7) : const Color(0xFF1C1C1E),
-              decoration: TextDecoration.none,
-            ),
-          ),
-          const SizedBox(height: 3),
-          Row(
-            children: [
-              Icon(
-                entry.source == GameSource.pfsArchive
-                    ? CupertinoIcons.archivebox
-                    : CupertinoIcons.folder,
-                size: 11,
-                color: secondary,
-              ),
-              const SizedBox(width: 4),
-              Text(
-                entry.source == GameSource.pfsArchive ? 'PFS' : '目录',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: secondary,
-                  decoration: TextDecoration.none,
-                  fontWeight: FontWeight.w400,
-                ),
-              ),
-              const Spacer(),
-              if (entry.lastPlayedAt != null)
-                Text(
-                  _relativeTime(entry.lastPlayedAt!),
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: secondary,
-                    decoration: TextDecoration.none,
-                    fontWeight: FontWeight.w400,
-                  ),
-                ),
-            ],
           ),
         ],
       ),
     );
   }
-
-  static String _relativeTime(DateTime t) {
-    final d = DateTime.now().difference(t);
-    if (d.inMinutes < 1) return '刚刚';
-    if (d.inHours < 1) return '${d.inMinutes} 分钟前';
-    if (d.inDays < 1) return '${d.inHours} 小时前';
-    if (d.inDays < 30) return '${d.inDays} 天前';
-    return '${t.year}/${t.month}/${t.day}';
-  }
 }
 
-class _QuickAction extends StatefulWidget {
-  final IconData icon;
-  final String tooltip;
-  final VoidCallback onTap;
-
-  const _QuickAction({
-    required this.icon,
-    required this.tooltip,
-    required this.onTap,
+class _CupertinoGameCard extends StatelessWidget {
+  const _CupertinoGameCard({
+    required this.entry,
+    required this.onOpen,
+    required this.onEdit,
+    required this.onDelete,
   });
 
-  @override
-  State<_QuickAction> createState() => _QuickActionState();
-}
-
-class _QuickActionState extends State<_QuickAction> {
-  bool _hover = false;
+  final GameEntry entry;
+  final VoidCallback onOpen;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: widget.onTap,
-        child: Container(
-          width: 28,
-          height: 28,
-          decoration: BoxDecoration(
-            color: _hover ? const Color(0xE6000000) : const Color(0x99000000),
-            shape: BoxShape.circle,
+    final dark = CupertinoTheme.of(context).brightness == Brightness.dark;
+    return GestureDetector(
+      onTap: onOpen,
+      onLongPress: () => _openGameMenu(
+        context,
+        Offset.zero,
+        onOpen: onOpen,
+        onEdit: onEdit,
+        onDelete: onDelete,
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(14),
+        child: ColoredBox(
+          color: dark
+              ? CupertinoColors.secondarySystemGroupedBackground.darkColor
+              : CupertinoColors.secondarySystemGroupedBackground.color,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: _CoverImage(
+                  entry: entry,
+                  placeholder: ColoredBox(
+                    color: dark
+                        ? const Color(0xFF3A3A3C)
+                        : const Color(0xFFE5E5EA),
+                    child: Icon(
+                      entry.source == GameSource.pfsArchive
+                          ? CupertinoIcons.archivebox
+                          : CupertinoIcons.folder,
+                      size: 42,
+                      color: CupertinoColors.systemGrey,
+                    ),
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      entry.displayNameOrName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        decoration: TextDecoration.none,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      [
+                        _sourceLabel(entry),
+                        if (entry.lastPlayedAt != null)
+                          _relativeTime(entry.lastPlayedAt!),
+                      ].join(' · '),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: CupertinoColors.secondaryLabel.resolveFrom(
+                          context,
+                        ),
+                        decoration: TextDecoration.none,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-          child: Icon(widget.icon, size: 14, color: const Color(0xFFFFFFFF)),
         ),
       ),
     );
   }
 }
 
-/// 空资料库占位。`action` 由各壳传入平台风格的按钮。
+class _MacosGameCard extends StatefulWidget {
+  const _MacosGameCard({
+    required this.entry,
+    required this.onOpen,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  final GameEntry entry;
+  final VoidCallback onOpen;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+
+  @override
+  State<_MacosGameCard> createState() => _MacosGameCardState();
+}
+
+class _MacosGameCardState extends State<_MacosGameCard> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = MacosTheme.of(context);
+    final dark = theme.brightness == Brightness.dark;
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: widget.onOpen,
+        onSecondaryTapUp: (d) => _openGameMenu(
+          context,
+          d.globalPosition,
+          onOpen: widget.onOpen,
+          onEdit: widget.onEdit,
+          onDelete: widget.onDelete,
+        ),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 120),
+          clipBehavior: Clip.antiAlias,
+          decoration: BoxDecoration(
+            color: _hover
+                ? (dark ? const Color(0x22FFFFFF) : const Color(0xFFFFFFFF))
+                : (dark ? const Color(0x14FFFFFF) : const Color(0xFFF7F7F8)),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: _hover
+                  ? const Color(0xFF0A82FF)
+                  : (dark ? const Color(0x26FFFFFF) : const Color(0x1A000000)),
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    _CoverImage(
+                      entry: widget.entry,
+                      placeholder: ColoredBox(
+                        color: dark
+                            ? const Color(0xFF3A3A3C)
+                            : const Color(0xFFE8E8ED),
+                        child: MacosIcon(
+                          widget.entry.source == GameSource.pfsArchive
+                              ? CupertinoIcons.archivebox
+                              : CupertinoIcons.folder,
+                          size: 36,
+                          color: MacosColors.systemGrayColor,
+                        ),
+                      ),
+                    ),
+                    _HoverActions(
+                      visible: _hover,
+                      onEdit: widget.onEdit,
+                      onDelete: widget.onDelete,
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      widget.entry.displayNameOrName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.typography.body.copyWith(
+                        fontWeight: FontWeight.w600,
+                        decoration: TextDecoration.none,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      [
+                        _sourceLabel(widget.entry),
+                        if (widget.entry.lastPlayedAt != null)
+                          _relativeTime(widget.entry.lastPlayedAt!),
+                      ].join(' · '),
+                      style: theme.typography.caption1.copyWith(
+                        color: MacosColors.systemGrayColor,
+                        decoration: TextDecoration.none,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FluentGameCard extends StatefulWidget {
+  const _FluentGameCard({
+    required this.entry,
+    required this.onOpen,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  final GameEntry entry;
+  final VoidCallback onOpen;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+
+  @override
+  State<_FluentGameCard> createState() => _FluentGameCardState();
+}
+
+class _FluentGameCardState extends State<_FluentGameCard> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = fluent.FluentTheme.of(context);
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: GestureDetector(
+        onSecondaryTapUp: (d) => _openGameMenu(
+          context,
+          d.globalPosition,
+          onOpen: widget.onOpen,
+          onEdit: widget.onEdit,
+          onDelete: widget.onDelete,
+        ),
+        child: fluent.Card(
+          padding: EdgeInsets.zero,
+          child: fluent.HoverButton(
+            onPressed: widget.onOpen,
+            builder: (context, states) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        _CoverImage(
+                          entry: widget.entry,
+                          placeholder: ColoredBox(
+                            color: theme.resources.controlFillColorDefault,
+                            child: Icon(
+                              widget.entry.source == GameSource.pfsArchive
+                                  ? fluent.FluentIcons.archive
+                                  : fluent.FluentIcons.folder_open,
+                              size: 36,
+                              color: theme.resources.textFillColorSecondary,
+                            ),
+                          ),
+                        ),
+                        _HoverActions(
+                          visible: _hover,
+                          onEdit: widget.onEdit,
+                          onDelete: widget.onDelete,
+                        ),
+                      ],
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          widget.entry.displayNameOrName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.typography.bodyStrong,
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          [
+                            _sourceLabel(widget.entry),
+                            if (widget.entry.lastPlayedAt != null)
+                              _relativeTime(widget.entry.lastPlayedAt!),
+                          ].join(' · '),
+                          style: theme.typography.caption?.copyWith(
+                            color: theme.resources.textFillColorSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class LibraryEmptyState extends StatelessWidget {
   final Widget action;
 
@@ -308,17 +734,12 @@ class LibraryEmptyState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final dark = MediaQuery.platformBrightnessOf(context) == Brightness.dark;
-    final secondary =
-        dark ? const Color(0xFF98989D) : const Color(0xFF6E6E73);
+    final secondary = dark ? const Color(0xFF98989D) : const Color(0xFF6E6E73);
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            CupertinoIcons.game_controller,
-            size: 64,
-            color: secondary,
-          ),
+          Icon(CupertinoIcons.game_controller, size: 64, color: secondary),
           const SizedBox(height: 16),
           Text(
             '库中暂无项目',

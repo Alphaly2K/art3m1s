@@ -678,7 +678,7 @@ class _MacosFormSection extends StatelessWidget {
                   if (i > 0)
                     Container(
                       height: 0.5,
-                      margin: const EdgeInsets.only(left: 14),
+                      margin: const EdgeInsets.symmetric(horizontal: 14),
                       color: dark
                           ? const Color(0x26FFFFFF)
                           : const Color(0x1A000000),
@@ -1129,139 +1129,151 @@ class _MaterialEditDialogState extends State<_MaterialEditDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       title: Text(widget.title),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          TextField(
-            controller: _name,
-            autofocus: true,
-            decoration: const InputDecoration(
-              labelText: '游戏名称',
-              hintText: '输入自定义名称',
-            ),
-          ),
-          const SizedBox(height: 12),
-          Row(
+      content: SizedBox(
+        width: 420,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              _CoverThumb(path: _cover, size: 56),
-              const SizedBox(width: 12),
-              TextButton.icon(
-                onPressed: () async {
-                  final path = await _pickCoverFile();
-                  if (path != null) setState(() => _cover = path);
-                },
-                icon: const Icon(Icons.folder_open, size: 18),
-                label: Text(_cover != null ? '更换' : '选择封面'),
-              ),
-              if (_cover != null)
-                TextButton(
-                  onPressed: () => setState(() => _cover = null),
-                  child: const Text('清除'),
+              TextField(
+                controller: _name,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  labelText: '游戏名称',
+                  hintText: '输入自定义名称',
                 ),
-            ],
-          ),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('启用文本翻译'),
-            value: _translationEnabled,
-            onChanged: (value) => setState(() => _translationEnabled = value),
-          ),
-          if (_translationEnabled)
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              title: Text(
-                _translationPatchPath.isEmpty
-                    ? '未选择对照文件'
-                    : _translationPatchPath,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
               ),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
+              const SizedBox(height: 12),
+              Row(
                 children: [
-                  if (_translationPatchPath.isNotEmpty)
-                    IconButton(
-                      tooltip: '清除',
-                      icon: const Icon(Icons.close),
-                      onPressed: () =>
-                          setState(() => _translationPatchPath = ''),
-                    ),
-                  IconButton(
-                    tooltip: '选择对照文件',
-                    icon: const Icon(Icons.folder_open),
+                  _CoverThumb(path: _cover, size: 56),
+                  const SizedBox(width: 12),
+                  TextButton.icon(
                     onPressed: () async {
-                      final path = await _pickTranslationPatchFile();
-                      if (path != null) {
-                        setState(() => _translationPatchPath = path);
-                      }
+                      final path = await _pickCoverFile();
+                      if (path != null) setState(() => _cover = path);
                     },
+                    icon: const Icon(Icons.folder_open, size: 18),
+                    label: Text(_cover != null ? '更换' : '选择封面'),
                   ),
+                  if (_cover != null)
+                    TextButton(
+                      onPressed: () => setState(() => _cover = null),
+                      child: const Text('清除'),
+                    ),
                 ],
               ),
-            ),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('环境兼容补丁'),
-            value: _environmentPatchEnabled,
-            onChanged: (value) =>
-                setState(() => _environmentPatchEnabled = value),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('启用文本翻译'),
+                value: _translationEnabled,
+                onChanged: (value) =>
+                    setState(() => _translationEnabled = value),
+              ),
+              if (_translationEnabled)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(
+                    _translationPatchPath.isEmpty
+                        ? '未选择对照文件'
+                        : _translationPatchPath,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (_translationPatchPath.isNotEmpty)
+                        IconButton(
+                          tooltip: '清除',
+                          icon: const Icon(Icons.close),
+                          onPressed: () =>
+                              setState(() => _translationPatchPath = ''),
+                        ),
+                      IconButton(
+                        tooltip: '选择对照文件',
+                        icon: const Icon(Icons.folder_open),
+                        onPressed: () async {
+                          final path = await _pickTranslationPatchFile();
+                          if (path != null) {
+                            setState(() => _translationPatchPath = path);
+                          }
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('环境兼容补丁'),
+                value: _environmentPatchEnabled,
+                onChanged: (value) =>
+                    setState(() => _environmentPatchEnabled = value),
+              ),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('实验性 Eluna E-Mote'),
+                value: _experimentalElunaEnabled,
+                onChanged: (value) =>
+                    setState(() => _experimentalElunaEnabled = value),
+              ),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('输入方式'),
+                subtitle: _inputGate.knownProfile == null
+                    ? const Text('自定义规则（来自补丁）')
+                    : null,
+                trailing: DropdownButton<InputGateProfile>(
+                  value: _inputGate.knownProfile,
+                  hint: const Text('自定义'),
+                  items: [
+                    for (final profile in InputGateProfile.values)
+                      DropdownMenuItem(
+                        value: profile,
+                        child: Text(profile.label),
+                      ),
+                  ],
+                  onChanged: _selectInputGateProfile,
+                ),
+              ),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('机种上报'),
+                trailing: DropdownButton<String>(
+                  value: _reportedOs,
+                  items: [
+                    for (final entry in reportedOsOptions.entries)
+                      DropdownMenuItem(
+                        value: entry.key,
+                        child: Text(entry.value),
+                      ),
+                  ],
+                  onChanged: (os) {
+                    if (os != null) setState(() => _reportedOs = os);
+                  },
+                ),
+              ),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('启动 OS'),
+                trailing: DropdownButton<String>(
+                  value: runtimePlatforms.contains(_runtimePlatform)
+                      ? _runtimePlatform
+                      : 'WINDOWS',
+                  items: [
+                    for (final platform in runtimePlatforms)
+                      DropdownMenuItem(value: platform, child: Text(platform)),
+                  ],
+                  onChanged: (platform) {
+                    if (platform != null) {
+                      setState(() => _runtimePlatform = platform);
+                    }
+                  },
+                ),
+              ),
+            ],
           ),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('实验性 Eluna E-Mote'),
-            value: _experimentalElunaEnabled,
-            onChanged: (value) =>
-                setState(() => _experimentalElunaEnabled = value),
-          ),
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('输入方式'),
-            subtitle: _inputGate.knownProfile == null
-                ? const Text('自定义规则（来自补丁）')
-                : null,
-            trailing: DropdownButton<InputGateProfile>(
-              value: _inputGate.knownProfile,
-              hint: const Text('自定义'),
-              items: [
-                for (final profile in InputGateProfile.values)
-                  DropdownMenuItem(value: profile, child: Text(profile.label)),
-              ],
-              onChanged: _selectInputGateProfile,
-            ),
-          ),
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('机种上报'),
-            trailing: DropdownButton<String>(
-              value: _reportedOs,
-              items: [
-                for (final entry in reportedOsOptions.entries)
-                  DropdownMenuItem(value: entry.key, child: Text(entry.value)),
-              ],
-              onChanged: (os) {
-                if (os != null) setState(() => _reportedOs = os);
-              },
-            ),
-          ),
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('启动 OS'),
-            trailing: DropdownButton<String>(
-              value: runtimePlatforms.contains(_runtimePlatform)
-                  ? _runtimePlatform
-                  : 'WINDOWS',
-              items: [
-                for (final platform in runtimePlatforms)
-                  DropdownMenuItem(value: platform, child: Text(platform)),
-              ],
-              onChanged: (platform) {
-                if (platform != null) {
-                  setState(() => _runtimePlatform = platform);
-                }
-              },
-            ),
-          ),
-        ],
+        ),
       ),
       actions: [
         TextButton(
@@ -1404,163 +1416,172 @@ class _FluentEditDialogState extends State<_FluentEditDialog> {
   Widget build(BuildContext context) {
     return fluent.ContentDialog(
       title: Text(widget.title),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          fluent.InfoLabel(
-            label: '游戏名称',
-            child: fluent.TextBox(
-              controller: _name,
-              placeholder: '输入自定义名称',
-              autofocus: true,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Row(
+      content: SizedBox(
+        width: 460,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _CoverThumb(path: _cover, size: 48),
-              const SizedBox(width: 10),
-              fluent.Button(
-                onPressed: () async {
-                  final path = await _pickCoverFile();
-                  if (path != null) setState(() => _cover = path);
-                },
-                child: Text(_cover != null ? '更换封面' : '选择封面'),
-              ),
-              if (_cover != null) ...[
-                const SizedBox(width: 6),
-                fluent.Button(
-                  onPressed: () => setState(() => _cover = null),
-                  child: const Text('清除'),
+              fluent.InfoLabel(
+                label: '游戏名称',
+                child: fluent.TextBox(
+                  controller: _name,
+                  placeholder: '输入自定义名称',
+                  autofocus: true,
                 ),
-              ],
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              const Expanded(child: Text('启用文本翻译')),
-              fluent.ToggleSwitch(
-                checked: _translationEnabled,
-                onChanged: (value) =>
-                    setState(() => _translationEnabled = value),
               ),
-            ],
-          ),
-          if (_translationEnabled) ...[
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    _translationPatchPath.isEmpty
-                        ? '未选择对照文件'
-                        : _translationPatchPath,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                if (_translationPatchPath.isNotEmpty) ...[
-                  const SizedBox(width: 6),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  _CoverThumb(path: _cover, size: 48),
+                  const SizedBox(width: 10),
                   fluent.Button(
-                    onPressed: () => setState(() => _translationPatchPath = ''),
-                    child: const Text('清除'),
+                    onPressed: () async {
+                      final path = await _pickCoverFile();
+                      if (path != null) setState(() => _cover = path);
+                    },
+                    child: Text(_cover != null ? '更换封面' : '选择封面'),
+                  ),
+                  if (_cover != null) ...[
+                    const SizedBox(width: 6),
+                    fluent.Button(
+                      onPressed: () => setState(() => _cover = null),
+                      child: const Text('清除'),
+                    ),
+                  ],
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  const Expanded(child: Text('启用文本翻译')),
+                  fluent.ToggleSwitch(
+                    checked: _translationEnabled,
+                    onChanged: (value) =>
+                        setState(() => _translationEnabled = value),
                   ),
                 ],
-                const SizedBox(width: 6),
-                fluent.Button(
-                  onPressed: () async {
-                    final path = await _pickTranslationPatchFile();
-                    if (path != null) {
-                      setState(() => _translationPatchPath = path);
-                    }
-                  },
-                  child: const Text('选择对照文件'),
+              ),
+              if (_translationEnabled) ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        _translationPatchPath.isEmpty
+                            ? '未选择对照文件'
+                            : _translationPatchPath,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    if (_translationPatchPath.isNotEmpty) ...[
+                      const SizedBox(width: 6),
+                      fluent.Button(
+                        onPressed: () =>
+                            setState(() => _translationPatchPath = ''),
+                        child: const Text('清除'),
+                      ),
+                    ],
+                    const SizedBox(width: 6),
+                    fluent.Button(
+                      onPressed: () async {
+                        final path = await _pickTranslationPatchFile();
+                        if (path != null) {
+                          setState(() => _translationPatchPath = path);
+                        }
+                      },
+                      child: const Text('选择对照文件'),
+                    ),
+                  ],
                 ),
               ],
-            ),
-          ],
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              const Expanded(child: Text('环境兼容补丁')),
-              fluent.ToggleSwitch(
-                checked: _environmentPatchEnabled,
-                onChanged: (value) =>
-                    setState(() => _environmentPatchEnabled = value),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              const Expanded(child: Text('启动 OS')),
-              fluent.ComboBox<String>(
-                value: runtimePlatforms.contains(_runtimePlatform)
-                    ? _runtimePlatform
-                    : 'WINDOWS',
-                items: [
-                  for (final platform in runtimePlatforms)
-                    fluent.ComboBoxItem(value: platform, child: Text(platform)),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  const Expanded(child: Text('环境兼容补丁')),
+                  fluent.ToggleSwitch(
+                    checked: _environmentPatchEnabled,
+                    onChanged: (value) =>
+                        setState(() => _environmentPatchEnabled = value),
+                  ),
                 ],
-                onChanged: (platform) {
-                  if (platform != null) {
-                    setState(() => _runtimePlatform = platform);
-                  }
-                },
               ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              const Expanded(child: Text('实验性 Eluna E-Mote')),
-              fluent.ToggleSwitch(
-                checked: _experimentalElunaEnabled,
-                onChanged: (value) =>
-                    setState(() => _experimentalElunaEnabled = value),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              const Expanded(child: Text('输入方式')),
-              fluent.ComboBox<InputGateProfile>(
-                value: _inputGate.knownProfile,
-                placeholder: const Text('自定义（补丁）'),
-                items: [
-                  for (final profile in InputGateProfile.values)
-                    fluent.ComboBoxItem(
-                      value: profile,
-                      child: Text(profile.label),
-                    ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  const Expanded(child: Text('启动 OS')),
+                  fluent.ComboBox<String>(
+                    value: runtimePlatforms.contains(_runtimePlatform)
+                        ? _runtimePlatform
+                        : 'WINDOWS',
+                    items: [
+                      for (final platform in runtimePlatforms)
+                        fluent.ComboBoxItem(
+                          value: platform,
+                          child: Text(platform),
+                        ),
+                    ],
+                    onChanged: (platform) {
+                      if (platform != null) {
+                        setState(() => _runtimePlatform = platform);
+                      }
+                    },
+                  ),
                 ],
-                onChanged: _selectInputGateProfile,
               ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              const Expanded(child: Text('机种上报')),
-              fluent.ComboBox<String>(
-                value: _reportedOs,
-                items: [
-                  for (final entry in reportedOsOptions.entries)
-                    fluent.ComboBoxItem(
-                      value: entry.key,
-                      child: Text(entry.value),
-                    ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  const Expanded(child: Text('实验性 Eluna E-Mote')),
+                  fluent.ToggleSwitch(
+                    checked: _experimentalElunaEnabled,
+                    onChanged: (value) =>
+                        setState(() => _experimentalElunaEnabled = value),
+                  ),
                 ],
-                onChanged: (os) {
-                  if (os != null) setState(() => _reportedOs = os);
-                },
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  const Expanded(child: Text('输入方式')),
+                  fluent.ComboBox<InputGateProfile>(
+                    value: _inputGate.knownProfile,
+                    placeholder: const Text('自定义（补丁）'),
+                    items: [
+                      for (final profile in InputGateProfile.values)
+                        fluent.ComboBoxItem(
+                          value: profile,
+                          child: Text(profile.label),
+                        ),
+                    ],
+                    onChanged: _selectInputGateProfile,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  const Expanded(child: Text('机种上报')),
+                  fluent.ComboBox<String>(
+                    value: _reportedOs,
+                    items: [
+                      for (final entry in reportedOsOptions.entries)
+                        fluent.ComboBoxItem(
+                          value: entry.key,
+                          child: Text(entry.value),
+                        ),
+                    ],
+                    onChanged: (os) {
+                      if (os != null) setState(() => _reportedOs = os);
+                    },
+                  ),
+                ],
               ),
             ],
           ),
-        ],
+        ),
       ),
       actions: [
         fluent.Button(
@@ -1724,128 +1745,143 @@ class _MiuixEditFormState extends State<_MiuixEditForm> {
         : 0;
     return ConstrainedBox(
       constraints: const BoxConstraints(maxHeight: 520),
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            MiuixTextField(
-              controller: _name,
-              label: '游戏名称',
-              useLabelAsPlaceholder: true,
-              singleLine: true,
-              autofocus: true,
-            ),
-            const SizedBox(height: 8),
-            MiuixBasicComponent(
-              title: '封面',
-              summary: _cover == null ? '未选择' : '已选择封面',
-              startAction: Padding(
-                padding: const EdgeInsets.only(right: 12),
-                child: _CoverThumb(path: _cover, size: 44),
-              ),
-              endActions: [
-                MiuixTextButton(
-                  _cover == null ? '选择' : '更换',
-                  onPressed: () async {
-                    final path = await _pickCoverFile();
-                    if (path != null) setState(() => _cover = path);
-                  },
-                ),
-                if (_cover != null)
-                  MiuixTextButton(
-                    '清除',
-                    onPressed: () => setState(() => _cover = null),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Flexible(
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  MiuixTextField(
+                    controller: _name,
+                    label: '游戏名称',
+                    useLabelAsPlaceholder: true,
+                    singleLine: true,
+                    autofocus: true,
                   ),
-              ],
-            ),
-            MiuixSwitchPreference(
-              title: '启用文本翻译',
-              value: _translationEnabled,
-              onChanged: (value) => setState(() => _translationEnabled = value),
-            ),
-            if (_translationEnabled)
-              MiuixBasicComponent(
-                title: '对照文件',
-                summary: _translationPatchPath.isEmpty
-                    ? '未选择对照文件'
-                    : _translationPatchPath,
-                endActions: [
-                  MiuixTextButton(
-                    '选择',
-                    onPressed: () async {
-                      final path = await _pickTranslationPatchFile();
-                      if (path != null) {
-                        setState(() => _translationPatchPath = path);
-                      }
+                  const SizedBox(height: 8),
+                  MiuixBasicComponent(
+                    title: '封面',
+                    summary: _cover == null ? '未选择' : '已选择封面',
+                    startAction: Padding(
+                      padding: const EdgeInsets.only(right: 12),
+                      child: _CoverThumb(path: _cover, size: 44),
+                    ),
+                    endActions: [
+                      MiuixTextButton(
+                        _cover == null ? '选择' : '更换',
+                        onPressed: () async {
+                          final path = await _pickCoverFile();
+                          if (path != null) setState(() => _cover = path);
+                        },
+                      ),
+                      if (_cover != null)
+                        MiuixTextButton(
+                          '清除',
+                          onPressed: () => setState(() => _cover = null),
+                        ),
+                    ],
+                  ),
+                  MiuixSwitchPreference(
+                    title: '启用文本翻译',
+                    value: _translationEnabled,
+                    onChanged: (value) =>
+                        setState(() => _translationEnabled = value),
+                  ),
+                  if (_translationEnabled)
+                    MiuixBasicComponent(
+                      title: '对照文件',
+                      summary: _translationPatchPath.isEmpty
+                          ? '未选择对照文件'
+                          : _translationPatchPath,
+                      endActions: [
+                        MiuixTextButton(
+                          '选择',
+                          onPressed: () async {
+                            final path = await _pickTranslationPatchFile();
+                            if (path != null) {
+                              setState(() => _translationPatchPath = path);
+                            }
+                          },
+                        ),
+                        if (_translationPatchPath.isNotEmpty)
+                          MiuixTextButton(
+                            '清除',
+                            onPressed: () =>
+                                setState(() => _translationPatchPath = ''),
+                          ),
+                      ],
+                    ),
+                  MiuixSwitchPreference(
+                    title: '环境兼容补丁',
+                    value: _environmentPatchEnabled,
+                    onChanged: (value) =>
+                        setState(() => _environmentPatchEnabled = value),
+                  ),
+                  MiuixSwitchPreference(
+                    title: '实验性 Eluna E-Mote',
+                    value: _experimentalElunaEnabled,
+                    onChanged: (value) =>
+                        setState(() => _experimentalElunaEnabled = value),
+                  ),
+                  MiuixOverlayDropdownPreference(
+                    title: '输入方式',
+                    summary: _inputGate.knownProfile == null
+                        ? '自定义规则（来自补丁）'
+                        : null,
+                    items: [
+                      for (final profile in InputGateProfile.values)
+                        profile.label,
+                    ],
+                    selectedIndex: _inputGate.knownProfile?.index ?? 0,
+                    renderInRootScaffold: false,
+                    onSelectedIndexChange: (index) {
+                      _selectInputGateProfile(InputGateProfile.values[index]);
                     },
                   ),
-                  if (_translationPatchPath.isNotEmpty)
-                    MiuixTextButton(
-                      '清除',
-                      onPressed: () =>
-                          setState(() => _translationPatchPath = ''),
-                    ),
+                  MiuixOverlayDropdownPreference(
+                    title: '机种上报',
+                    items: [
+                      for (final label in reportedOsOptions.values) label,
+                    ],
+                    selectedIndex: reportedKeys
+                        .indexOf(_reportedOs)
+                        .clamp(0, reportedKeys.length - 1),
+                    renderInRootScaffold: false,
+                    onSelectedIndexChange: (index) {
+                      setState(() => _reportedOs = reportedKeys[index]);
+                    },
+                  ),
+                  MiuixOverlayDropdownPreference(
+                    title: '启动 OS',
+                    items: runtimePlatforms,
+                    selectedIndex: runtimeIndex,
+                    renderInRootScaffold: false,
+                    onSelectedIndexChange: (index) {
+                      setState(
+                        () => _runtimePlatform = runtimePlatforms[index],
+                      );
+                    },
+                  ),
                 ],
               ),
-            MiuixSwitchPreference(
-              title: '环境兼容补丁',
-              value: _environmentPatchEnabled,
-              onChanged: (value) =>
-                  setState(() => _environmentPatchEnabled = value),
             ),
-            MiuixSwitchPreference(
-              title: '实验性 Eluna E-Mote',
-              value: _experimentalElunaEnabled,
-              onChanged: (value) =>
-                  setState(() => _experimentalElunaEnabled = value),
-            ),
-            MiuixOverlayDropdownPreference(
-              title: '输入方式',
-              summary: _inputGate.knownProfile == null ? '自定义规则（来自补丁）' : null,
-              items: [
-                for (final profile in InputGateProfile.values) profile.label,
-              ],
-              selectedIndex: _inputGate.knownProfile?.index ?? 0,
-              renderInRootScaffold: false,
-              onSelectedIndexChange: (index) {
-                _selectInputGateProfile(InputGateProfile.values[index]);
-              },
-            ),
-            MiuixOverlayDropdownPreference(
-              title: '机种上报',
-              items: [for (final label in reportedOsOptions.values) label],
-              selectedIndex: reportedKeys
-                  .indexOf(_reportedOs)
-                  .clamp(0, reportedKeys.length - 1),
-              renderInRootScaffold: false,
-              onSelectedIndexChange: (index) {
-                setState(() => _reportedOs = reportedKeys[index]);
-              },
-            ),
-            MiuixOverlayDropdownPreference(
-              title: '启动 OS',
-              items: runtimePlatforms,
-              selectedIndex: runtimeIndex,
-              renderInRootScaffold: false,
-              onSelectedIndexChange: (index) {
-                setState(() => _runtimePlatform = runtimePlatforms[index]);
-              },
-            ),
-            const SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                MiuixTextButton('取消', onPressed: widget.onCancel),
-                const SizedBox(width: 12),
-                MiuixButton(
-                  colors: MiuixButtonDefaults.buttonColorsPrimary(context),
-                  onPressed: () => widget.onSave(_data()),
-                  child: MiuixText('保存', style: theme.textStyles.button),
-                ),
-              ],
-            ),
-          ],
-        ),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              MiuixTextButton('取消', onPressed: widget.onCancel),
+              const SizedBox(width: 12),
+              MiuixButton(
+                colors: MiuixButtonDefaults.buttonColorsPrimary(context),
+                onPressed: () => widget.onSave(_data()),
+                child: MiuixText('保存', style: theme.textStyles.button),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

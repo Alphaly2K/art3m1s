@@ -11,135 +11,130 @@ import '../providers/settings_provider.dart';
 import '../services/logger.dart';
 
 class SettingsScreen extends ConsumerWidget {
-  const SettingsScreen({super.key});
+  const SettingsScreen({super.key, this.embedded = false});
+
+  final bool embedded;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final settings = ref.watch(settingsProvider);
-
-    return Scaffold(
-      appBar: AppBar(title: const Text('设置')),
-      body: ListView(
-        children: [
-          if (Platform.isAndroid) ...[
-            const _SectionHeader('外观'),
-            ListTile(
-              title: const Text('界面主题'),
-              subtitle: Text(settings.hostUiTheme.label),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: SegmentedButton<HostUiTheme>(
-                segments: [
-                  for (final theme in HostUiTheme.values)
-                    ButtonSegment(value: theme, label: Text(theme.label)),
-                ],
-                selected: {settings.hostUiTheme},
-                onSelectionChanged: (selected) => ref
-                    .read(settingsProvider.notifier)
-                    .setHostUiTheme(selected.first),
-              ),
-            ),
-            const Divider(),
-          ],
-          const _SectionHeader('渲染'),
+    final body = ListView(
+      children: [
+        if (Platform.isAndroid) ...[
+          const _SectionHeader('外观'),
           ListTile(
-            title: const Text('图形后端'),
-            subtitle: Text(backendName(settings.backend)),
+            title: const Text('界面主题'),
+            subtitle: Text(settings.hostUiTheme.label),
           ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: SegmentedButton<int>(
-              segments: availableBackends()
-                  .map(
-                    (o) => ButtonSegment(value: o.value, label: Text(o.label)),
-                  )
-                  .toList(),
-              selected: {settings.backend},
-              onSelectionChanged: (v) =>
-                  ref.read(settingsProvider.notifier).setBackend(v.first),
-            ),
-          ),
-          ListTile(
-            leading: const Icon(Icons.translate),
-            title: const Text('文本翻译'),
-            subtitle: Text(settings.translation.mode.label),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => const TranslationSettingsScreen(),
-                ),
-              );
-            },
-          ),
-          if (Platform.isAndroid || Platform.isIOS) ...[
-            const Divider(),
-            const _SectionHeader('控制'),
-            SwitchListTile(
-              secondary: const Icon(Icons.mouse_outlined),
-              title: const Text('触摸板鼠标'),
-              subtitle: const Text('使用相对移动与鼠标点击操作游戏'),
-              value: settings.mobileTouchpadEnabled,
-              onChanged: (v) => ref
+            child: SegmentedButton<HostUiTheme>(
+              segments: [
+                for (final theme in HostUiTheme.values)
+                  ButtonSegment(value: theme, label: Text(theme.label)),
+              ],
+              selected: {settings.hostUiTheme},
+              onSelectionChanged: (selected) => ref
                   .read(settingsProvider.notifier)
-                  .setMobileTouchpadEnabled(v),
+                  .setHostUiTheme(selected.first),
             ),
-          ],
-          const Divider(),
-          const _SectionHeader('调试'),
-          SwitchListTile(
-            title: const Text('调试模式'),
-            subtitle: const Text('记录详细日志'),
-            value: settings.debugMode,
-            onChanged: (v) =>
-                ref.read(settingsProvider.notifier).setDebugMode(v),
-          ),
-          SwitchListTile(
-            title: const Text('脏区着色'),
-            subtitle: const Text('标记实际重绘区域'),
-            value: settings.damageVisualization,
-            onChanged: settings.debugMode
-                ? (v) => ref
-                      .read(settingsProvider.notifier)
-                      .setDamageVisualization(v)
-                : null,
-          ),
-          SwitchListTile(
-            title: const Text('Profiler 浮层'),
-            subtitle: const Text('显示分阶段耗时与内存统计'),
-            value: settings.profilerOverlay,
-            onChanged: settings.debugMode
-                ? (v) =>
-                      ref.read(settingsProvider.notifier).setProfilerOverlay(v)
-                : null,
-          ),
-          SwitchListTile(
-            title: const Text('调试面板'),
-            subtitle: const Text('显示浮动监控面板'),
-            value: settings.debugOverlay,
-            onChanged: (v) =>
-                ref.read(settingsProvider.notifier).setDebugOverlay(v),
-          ),
-          ListTile(
-            leading: const Icon(Icons.save_alt),
-            title: const Text('导出日志文件'),
-            onTap: () async {
-              final file = await Log.exportToFile();
-              if (context.mounted) {
-                ScaffoldMessenger.of(
-                  context,
-                ).showSnackBar(SnackBar(content: Text('已导出: ${file.path}')));
-              }
-            },
           ),
           const Divider(),
-          const _SectionHeader('显示'),
-          SwitchListTile(
-            title: const Text('显示帧率'),
-            value: settings.showFps,
-            onChanged: (v) => ref.read(settingsProvider.notifier).setShowFps(v),
+        ],
+        const _SectionHeader('渲染'),
+        ListTile(
+          title: const Text('图形后端'),
+          subtitle: Text(backendName(settings.backend)),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: SegmentedButton<int>(
+            segments: availableBackends()
+                .map((o) => ButtonSegment(value: o.value, label: Text(o.label)))
+                .toList(),
+            selected: {settings.backend},
+            onSelectionChanged: (v) =>
+                ref.read(settingsProvider.notifier).setBackend(v.first),
           ),
+        ),
+        ListTile(
+          leading: const Icon(Icons.translate),
+          title: const Text('文本翻译'),
+          subtitle: Text(settings.translation.mode.label),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => const TranslationSettingsScreen(),
+              ),
+            );
+          },
+        ),
+        if (Platform.isAndroid || Platform.isIOS) ...[
+          const Divider(),
+          const _SectionHeader('控制'),
+          SwitchListTile(
+            secondary: const Icon(Icons.mouse_outlined),
+            title: const Text('触摸板鼠标'),
+            subtitle: const Text('使用相对移动与鼠标点击操作游戏'),
+            value: settings.mobileTouchpadEnabled,
+            onChanged: (v) =>
+                ref.read(settingsProvider.notifier).setMobileTouchpadEnabled(v),
+          ),
+        ],
+        const Divider(),
+        const _SectionHeader('调试'),
+        SwitchListTile(
+          title: const Text('调试模式'),
+          subtitle: const Text('记录详细日志'),
+          value: settings.debugMode,
+          onChanged: (v) => ref.read(settingsProvider.notifier).setDebugMode(v),
+        ),
+        SwitchListTile(
+          title: const Text('脏区着色'),
+          subtitle: const Text('标记实际重绘区域'),
+          value: settings.damageVisualization,
+          onChanged: settings.debugMode
+              ? (v) => ref
+                    .read(settingsProvider.notifier)
+                    .setDamageVisualization(v)
+              : null,
+        ),
+        SwitchListTile(
+          title: const Text('Profiler 浮层'),
+          subtitle: const Text('显示分阶段耗时与内存统计'),
+          value: settings.profilerOverlay,
+          onChanged: settings.debugMode
+              ? (v) => ref.read(settingsProvider.notifier).setProfilerOverlay(v)
+              : null,
+        ),
+        SwitchListTile(
+          title: const Text('调试面板'),
+          subtitle: const Text('显示浮动监控面板'),
+          value: settings.debugOverlay,
+          onChanged: (v) =>
+              ref.read(settingsProvider.notifier).setDebugOverlay(v),
+        ),
+        ListTile(
+          leading: const Icon(Icons.save_alt),
+          title: const Text('导出日志文件'),
+          onTap: () async {
+            final file = await Log.exportToFile();
+            if (context.mounted) {
+              ScaffoldMessenger.of(
+                context,
+              ).showSnackBar(SnackBar(content: Text('已导出: ${file.path}')));
+            }
+          },
+        ),
+        const Divider(),
+        const _SectionHeader('显示'),
+        SwitchListTile(
+          title: const Text('显示帧率'),
+          value: settings.showFps,
+          onChanged: (v) => ref.read(settingsProvider.notifier).setShowFps(v),
+        ),
+        if (!embedded) ...[
           const Divider(),
           const _SectionHeader('信息'),
           ListTile(
@@ -154,7 +149,12 @@ class SettingsScreen extends ConsumerWidget {
             },
           ),
         ],
-      ),
+      ],
+    );
+    if (embedded) return body;
+    return Scaffold(
+      appBar: AppBar(title: const Text('设置')),
+      body: body,
     );
   }
 }

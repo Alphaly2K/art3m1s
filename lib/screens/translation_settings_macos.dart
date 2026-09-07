@@ -373,7 +373,7 @@ class _Section extends StatelessWidget {
                   if (i > 0)
                     Container(
                       height: 0.5,
-                      margin: const EdgeInsets.only(left: 14),
+                      margin: const EdgeInsets.symmetric(horizontal: 14),
                       color: dark
                           ? const Color(0x26FFFFFF)
                           : const Color(0x1A000000),

@@ -11,6 +11,7 @@ import '../models/host_ui_theme.dart';
 import '../models/render_backend.dart';
 import '../providers/library_provider.dart';
 import '../providers/settings_provider.dart';
+import '../screens/licenses_miuix.dart';
 import '../screens/translation_settings_screen.dart';
 import '../services/app_info.dart';
 import '../services/logger.dart';
@@ -32,13 +33,24 @@ class MiuixShellApp extends StatelessWidget {
             debugShowCheckedModeBanner: false,
             theme: ThemeData(
               useMaterial3: true,
+              brightness: theme.brightness,
               colorScheme: ColorScheme.fromSeed(
                 seedColor: theme.colors.primary,
                 brightness: theme.brightness,
               ),
-              brightness: theme.brightness,
             ),
-            home: const DebugOverlayHost(child: _MiuixLibraryScreen()),
+            builder: (context, child) {
+              final data = Theme.of(context);
+              return DefaultTextStyle(
+                style: (data.textTheme.bodyMedium ?? const TextStyle())
+                    .copyWith(
+                      decoration: TextDecoration.none,
+                      color: theme.colors.onBackground,
+                    ),
+                child: child ?? const SizedBox.shrink(),
+              );
+            },
+            home: const DebugOverlayHost(child: _MiuixHome()),
           );
         },
       ),
@@ -46,52 +58,75 @@ class MiuixShellApp extends StatelessWidget {
   }
 }
 
-class _MiuixLibraryScreen extends ConsumerWidget {
-  const _MiuixLibraryScreen();
+class _MiuixHome extends ConsumerStatefulWidget {
+  const _MiuixHome();
 
-  Future<void> _showAddSheet(
-    BuildContext context,
-    LibraryActions actions,
-  ) async {
+  @override
+  ConsumerState<_MiuixHome> createState() => _MiuixHomeState();
+}
+
+class _MiuixHomeState extends ConsumerState<_MiuixHome> {
+  int _tab = 0;
+
+  Future<void> _showAddSheet(LibraryActions actions) async {
     final choice = await showMiuixSheet<int>(
       context: context,
       title: '添加项目',
       content: (context, dismiss) {
-        return Padding(
-          padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
-          child: MiuixCard(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                MiuixBasicComponent(
-                  title: '选择文件夹',
-                  summary: '已解包的工程目录（含 system.ini）',
-                  startAction: Padding(
-                    padding: const EdgeInsets.only(right: 12),
-                    child: miuixNamedIcon('folder'),
-                  ),
-                  onClick: () => dismiss(0),
-                ),
-                const Padding(
-                  padding: EdgeInsetsDirectional.only(start: 16),
-                  child: MiuixHorizontalDivider(),
-                ),
-                MiuixBasicComponent(
-                  title: '选择 PFS 归档',
-                  summary: '直接读取，不写入磁盘',
-                  startAction: Padding(
-                    padding: const EdgeInsets.only(right: 12),
-                    child: miuixNamedIcon('addFolder'),
-                  ),
-                  onClick: () => dismiss(1),
-                ),
-              ],
+        Widget option({
+          required String title,
+          required String summary,
+          required String icon,
+          required int value,
+        }) {
+          return MiuixBasicComponent(
+            title: title,
+            summary: summary,
+            startAction: Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: miuixNamedIcon(icon),
             ),
+            onClick: () => dismiss(value),
+          );
+        }
+
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              MiuixCard(
+                child: Column(
+                  children: [
+                    option(
+                      title: '选择文件夹',
+                      summary: '已解包的工程目录（含 system.ini）',
+                      icon: 'folder',
+                      value: 0,
+                    ),
+                    const MiuixHorizontalDivider(),
+                    option(
+                      title: '选择 PFS 归档',
+                      summary: '直接读取，不写入磁盘',
+                      icon: 'addFolder',
+                      value: 1,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 10),
+              MiuixCard(
+                child: MiuixBasicComponent(
+                  title: '取消',
+                  onClick: () => dismiss(),
+                ),
+              ),
+            ],
           ),
         );
       },
     );
-    if (!context.mounted || choice == null) return;
+    if (!mounted || choice == null) return;
     if (choice == 0) {
       await actions.pickDirectory();
     } else if (choice == 1) {
@@ -100,61 +135,105 @@ class _MiuixLibraryScreen extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final library = ref.watch(libraryProvider);
     final sorted = List<GameEntry>.from(library)
       ..sort((a, b) => b.addedAt.compareTo(a.addedAt));
     final actions = LibraryActions(context, ref);
+    const titles = ['资料库', '设置', '关于'];
 
     return MiuixScaffold(
       topBar: MiuixTopAppBar(
-        title: 'Art3m1s',
-        largeTitle: '资料库',
+        title: titles[_tab],
+        largeTitle: titles[_tab],
         blurred: true,
         actions: [
-          miuixBarAction(
-            icon: 'add',
-            onPressed: () => _showAddSheet(context, actions),
+          if (_tab == 0)
+            miuixBarAction(
+              icon: 'add',
+              onPressed: () => _showAddSheet(actions),
+            ),
+        ],
+      ),
+      bottomBar: MiuixNavigationBar(
+        children: [
+          MiuixNavigationBarItem(
+            selected: _tab == 0,
+            onPressed: () => setState(() => _tab = 0),
+            icon: miuixNamedIcon('gridView'),
+            label: '资料库',
           ),
-          miuixBarAction(
-            icon: 'settings',
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => const MiuixSettingsScreen(),
-                ),
-              );
-            },
+          MiuixNavigationBarItem(
+            selected: _tab == 1,
+            onPressed: () => setState(() => _tab = 1),
+            icon: miuixNamedIcon('settings'),
+            label: '设置',
+          ),
+          MiuixNavigationBarItem(
+            selected: _tab == 2,
+            onPressed: () => setState(() => _tab = 2),
+            icon: miuixNamedIcon('info'),
+            label: '关于',
           ),
         ],
       ),
       content: (padding) {
-        if (sorted.isEmpty) {
-          return Padding(
+        return switch (_tab) {
+          0 => _MiuixLibraryBody(
             padding: padding,
-            child: LibraryEmptyState(
-              action: MiuixButton(
-                colors: MiuixButtonDefaults.buttonColorsPrimary(context),
-                onPressed: () => _showAddSheet(context, actions),
-                child: const MiuixText('添加项目'),
-              ),
-            ),
-          );
-        }
-        return GameGrid(
-          games: sorted,
-          padding: padding + const EdgeInsets.fromLTRB(12, 8, 12, 20),
-          onOpen: actions.launch,
-          onEdit: actions.editGame,
-          onDelete: actions.confirmDelete,
-        );
+            games: sorted,
+            actions: actions,
+            onAdd: () => _showAddSheet(actions),
+          ),
+          1 => MiuixSettingsBody(padding: padding),
+          _ => MiuixAboutBody(padding: padding),
+        };
       },
     );
   }
 }
 
-class MiuixSettingsScreen extends ConsumerWidget {
-  const MiuixSettingsScreen({super.key});
+class _MiuixLibraryBody extends StatelessWidget {
+  const _MiuixLibraryBody({
+    required this.padding,
+    required this.games,
+    required this.actions,
+    required this.onAdd,
+  });
+
+  final EdgeInsets padding;
+  final List<GameEntry> games;
+  final LibraryActions actions;
+  final VoidCallback onAdd;
+
+  @override
+  Widget build(BuildContext context) {
+    if (games.isEmpty) {
+      return Padding(
+        padding: padding,
+        child: LibraryEmptyState(
+          action: MiuixButton(
+            colors: MiuixButtonDefaults.buttonColorsPrimary(context),
+            onPressed: onAdd,
+            child: const MiuixText('添加项目'),
+          ),
+        ),
+      );
+    }
+    return GameGrid(
+      games: games,
+      padding: padding + const EdgeInsets.fromLTRB(12, 8, 12, 20),
+      onOpen: actions.launch,
+      onEdit: actions.editGame,
+      onDelete: actions.confirmDelete,
+    );
+  }
+}
+
+class MiuixSettingsBody extends ConsumerWidget {
+  const MiuixSettingsBody({super.key, required this.padding});
+
+  final EdgeInsetsGeometry padding;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -165,160 +244,130 @@ class MiuixSettingsScreen extends ConsumerWidget {
       (option) => option.value == settings.backend,
     );
 
-    return MiuixScaffold(
-      topBar: MiuixTopAppBar(
-        title: '设置',
-        navigationIcon: miuixBarAction(
-          icon: 'back',
-          onPressed: () => Navigator.of(context).maybePop(),
-        ),
-      ),
-      content: (padding) {
-        return ListView(
-          padding: padding.add(const EdgeInsets.fromLTRB(12, 0, 12, 32)),
+    return ListView(
+      padding: padding.add(const EdgeInsets.fromLTRB(12, 0, 12, 32)),
+      children: [
+        MiuixSettingsGroup(
+          title: '外观',
           children: [
-            MiuixSettingsGroup(
-              title: '外观',
-              children: [
-                for (final theme in HostUiTheme.values)
-                  MiuixRadioButtonPreference(
-                    title: theme.label,
-                    summary: theme == HostUiTheme.material
-                        ? 'Android 默认 Material 3'
-                        : 'HyperOS 风格组件',
-                    selected: settings.hostUiTheme == theme,
-                    onClick: () => notifier.setHostUiTheme(theme),
+            for (final theme in HostUiTheme.values)
+              MiuixRadioButtonPreference(
+                title: theme.label,
+                summary: theme == HostUiTheme.material
+                    ? 'Android 默认 Material 3'
+                    : 'HyperOS 风格组件',
+                selected: settings.hostUiTheme == theme,
+                onClick: () => notifier.setHostUiTheme(theme),
+              ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        MiuixSettingsGroup(
+          title: '渲染',
+          children: [
+            MiuixOverlayDropdownPreference(
+              title: '图形后端',
+              summary: backendName(settings.backend),
+              items: [for (final option in backends) option.label],
+              selectedIndex: selectedBackend < 0 ? 0 : selectedBackend,
+              onSelectedIndexChange: (index) {
+                notifier.setBackend(backends[index].value);
+              },
+            ),
+            MiuixArrowPreference(
+              title: '文本翻译',
+              summary: settings.translation.mode.label,
+              startAction: Padding(
+                padding: const EdgeInsets.only(right: 12),
+                child: miuixNamedIcon('translate'),
+              ),
+              onClick: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const TranslationSettingsScreen(),
                   ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            MiuixSettingsGroup(
-              title: '渲染',
-              children: [
-                MiuixOverlayDropdownPreference(
-                  title: '图形后端',
-                  summary: backendName(settings.backend),
-                  items: [for (final option in backends) option.label],
-                  selectedIndex: selectedBackend < 0 ? 0 : selectedBackend,
-                  onSelectedIndexChange: (index) {
-                    notifier.setBackend(backends[index].value);
-                  },
-                ),
-                MiuixArrowPreference(
-                  title: '文本翻译',
-                  summary: settings.translation.mode.label,
-                  startAction: Padding(
-                    padding: const EdgeInsets.only(right: 12),
-                    child: miuixNamedIcon('translate'),
-                  ),
-                  onClick: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => const TranslationSettingsScreen(),
-                      ),
-                    );
-                  },
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            MiuixSettingsGroup(
-              title: '控制',
-              children: [
-                MiuixSwitchPreference(
-                  title: '触摸板鼠标',
-                  summary: '使用相对移动与鼠标点击操作游戏',
-                  value: settings.mobileTouchpadEnabled,
-                  onChanged: notifier.setMobileTouchpadEnabled,
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            MiuixSettingsGroup(
-              title: '调试',
-              children: [
-                MiuixSwitchPreference(
-                  title: '调试模式',
-                  summary: '记录详细日志',
-                  value: settings.debugMode,
-                  onChanged: notifier.setDebugMode,
-                ),
-                MiuixSwitchPreference(
-                  title: '脏区着色',
-                  summary: '标记实际重绘区域',
-                  value: settings.damageVisualization,
-                  enabled: settings.debugMode,
-                  onChanged: notifier.setDamageVisualization,
-                ),
-                MiuixSwitchPreference(
-                  title: 'Profiler 浮层',
-                  summary: '显示分阶段耗时与内存统计',
-                  value: settings.profilerOverlay,
-                  enabled: settings.debugMode,
-                  onChanged: notifier.setProfilerOverlay,
-                ),
-                MiuixSwitchPreference(
-                  title: '调试面板',
-                  summary: '显示浮动监控面板',
-                  value: settings.debugOverlay,
-                  onChanged: notifier.setDebugOverlay,
-                ),
-                MiuixArrowPreference(
-                  title: '导出日志文件',
-                  startAction: Padding(
-                    padding: const EdgeInsets.only(right: 12),
-                    child: miuixNamedIcon('copy'),
-                  ),
-                  onClick: () async {
-                    final file = await Log.exportToFile();
-                    if (context.mounted) {
-                      notify(context, '已导出: ${file.path}');
-                    }
-                  },
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            MiuixSettingsGroup(
-              title: '显示',
-              children: [
-                MiuixSwitchPreference(
-                  title: '显示帧率',
-                  value: settings.showFps,
-                  onChanged: notifier.setShowFps,
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            MiuixSettingsGroup(
-              title: '信息',
-              children: [
-                MiuixArrowPreference(
-                  title: '关于 Art3m1s',
-                  summary: '许可证、依赖与仓库地址',
-                  startAction: Padding(
-                    padding: const EdgeInsets.only(right: 12),
-                    child: miuixNamedIcon('info'),
-                  ),
-                  onClick: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => const MiuixAboutScreen(),
-                      ),
-                    );
-                  },
-                ),
-              ],
+                );
+              },
             ),
           ],
-        );
-      },
+        ),
+        const SizedBox(height: 8),
+        MiuixSettingsGroup(
+          title: '控制',
+          children: [
+            MiuixSwitchPreference(
+              title: '触摸板鼠标',
+              summary: '使用相对移动与鼠标点击操作游戏',
+              value: settings.mobileTouchpadEnabled,
+              onChanged: notifier.setMobileTouchpadEnabled,
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        MiuixSettingsGroup(
+          title: '调试',
+          children: [
+            MiuixSwitchPreference(
+              title: '调试模式',
+              summary: '记录详细日志',
+              value: settings.debugMode,
+              onChanged: notifier.setDebugMode,
+            ),
+            MiuixSwitchPreference(
+              title: '脏区着色',
+              summary: '标记实际重绘区域',
+              value: settings.damageVisualization,
+              enabled: settings.debugMode,
+              onChanged: notifier.setDamageVisualization,
+            ),
+            MiuixSwitchPreference(
+              title: 'Profiler 浮层',
+              summary: '显示分阶段耗时与内存统计',
+              value: settings.profilerOverlay,
+              enabled: settings.debugMode,
+              onChanged: notifier.setProfilerOverlay,
+            ),
+            MiuixSwitchPreference(
+              title: '调试面板',
+              summary: '显示浮动监控面板',
+              value: settings.debugOverlay,
+              onChanged: notifier.setDebugOverlay,
+            ),
+            MiuixArrowPreference(
+              title: '导出日志文件',
+              startAction: Padding(
+                padding: const EdgeInsets.only(right: 12),
+                child: miuixNamedIcon('copy'),
+              ),
+              onClick: () async {
+                final file = await Log.exportToFile();
+                if (context.mounted) {
+                  notify(context, '已导出: ${file.path}');
+                }
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        MiuixSettingsGroup(
+          title: '显示',
+          children: [
+            MiuixSwitchPreference(
+              title: '显示帧率',
+              value: settings.showFps,
+              onChanged: notifier.setShowFps,
+            ),
+          ],
+        ),
+      ],
     );
   }
 }
 
-class MiuixAboutScreen extends StatelessWidget {
-  const MiuixAboutScreen({super.key});
+class MiuixAboutBody extends StatelessWidget {
+  const MiuixAboutBody({super.key, required this.padding});
+
+  final EdgeInsetsGeometry padding;
 
   static const _appRepository = 'https://github.com/Alphaly2K/art3m1s';
   static const _coreRepository = 'https://github.com/Alphaly2K/art3m1s-core';
@@ -326,109 +375,96 @@ class MiuixAboutScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = MiuixTheme.of(context);
-    return MiuixScaffold(
-      topBar: MiuixTopAppBar(
-        title: '关于',
-        navigationIcon: miuixBarAction(
-          icon: 'back',
-          onPressed: () => Navigator.of(context).maybePop(),
-        ),
-      ),
-      content: (padding) {
-        return ListView(
-          padding: padding.add(const EdgeInsets.fromLTRB(12, 0, 12, 32)),
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-              child: Row(
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: Image.asset(
-                      AppInfo.logoAsset,
-                      width: 56,
-                      height: 56,
-                      fit: BoxFit.cover,
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        MiuixText('Art3m1s', style: theme.textStyles.title2),
-                        const SizedBox(height: 4),
-                        MiuixText(
-                          'Artemis 视觉小说引擎前端',
-                          style: theme.textStyles.body2,
-                          color: theme.colors.onSurfaceVariantSummary,
-                        ),
-                        const SizedBox(height: 2),
-                        MiuixText(
-                          '版本 ${AppInfo.displayVersion}',
-                          style: theme.textStyles.body2,
-                          color: theme.colors.onSurfaceVariantSummary,
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
+    return ListView(
+      padding: padding.add(const EdgeInsets.fromLTRB(12, 0, 12, 32)),
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+          child: Row(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Image.asset(
+                  AppInfo.logoAsset,
+                  width: 56,
+                  height: 56,
+                  fit: BoxFit.cover,
+                ),
               ),
-            ),
-            const SizedBox(height: 8),
-            MiuixSettingsGroup(
-              title: '许可证',
-              children: [
-                const MiuixBasicComponent(
-                  title: 'Art3m1s',
-                  summary: 'Mozilla Public License 2.0',
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    MiuixText('Art3m1s', style: theme.textStyles.title2),
+                    const SizedBox(height: 4),
+                    MiuixText(
+                      'Artemis 视觉小说引擎前端',
+                      style: theme.textStyles.body2,
+                      color: theme.colors.onSurfaceVariantSummary,
+                    ),
+                    const SizedBox(height: 2),
+                    MiuixText(
+                      '版本 ${AppInfo.displayVersion}',
+                      style: theme.textStyles.body2,
+                      color: theme.colors.onSurfaceVariantSummary,
+                    ),
+                  ],
                 ),
-                MiuixArrowPreference(
-                  title: '第三方许可证',
-                  summary: '查看 Flutter 与依赖包许可证',
-                  onClick: () {
-                    showLicensePage(
-                      context: context,
-                      applicationName: 'Art3m1s',
-                      applicationVersion: AppInfo.displayVersion,
-                      applicationLegalese: 'MPL-2.0',
-                    );
-                  },
-                ),
-              ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        MiuixSettingsGroup(
+          title: '许可证',
+          children: [
+            const MiuixBasicComponent(
+              title: 'Art3m1s',
+              summary: 'Mozilla Public License 2.0',
             ),
-            const SizedBox(height: 8),
-            MiuixSettingsGroup(
-              title: '仓库',
-              children: [
-                _CopyPreference(title: 'Flutter App', value: _appRepository),
-                _CopyPreference(title: 'Rust Core', value: _coreRepository),
-              ],
-            ),
-            const SizedBox(height: 8),
-            const MiuixSettingsGroup(
-              title: 'Flutter 依赖',
-              children: [
-                MiuixBasicComponent(
-                  title: 'flutter_miuix / flutter_riverpod / yaru',
-                  summary:
-                      'macos_ui · fluent_ui · media_kit · shared_preferences',
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            const MiuixSettingsGroup(
-              title: 'Rust / Native',
-              children: [
-                MiuixBasicComponent(
-                  title: 'art3m1s-core / asb-interpreter',
-                  summary: 'pfs-upk-rust · mlua · ANGLE',
-                ),
-              ],
+            MiuixArrowPreference(
+              title: '第三方许可证',
+              summary: '查看 Flutter 与依赖包许可证',
+              onClick: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const MiuixLicensesPage(),
+                  ),
+                );
+              },
             ),
           ],
-        );
-      },
+        ),
+        const SizedBox(height: 8),
+        MiuixSettingsGroup(
+          title: '仓库',
+          children: [
+            _CopyPreference(title: 'Flutter App', value: _appRepository),
+            _CopyPreference(title: 'Rust Core', value: _coreRepository),
+          ],
+        ),
+        const SizedBox(height: 8),
+        const MiuixSettingsGroup(
+          title: 'Flutter 依赖',
+          children: [
+            MiuixBasicComponent(
+              title: 'flutter_miuix / flutter_riverpod / yaru',
+              summary: 'macos_ui · fluent_ui · media_kit · shared_preferences',
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        const MiuixSettingsGroup(
+          title: 'Rust / Native',
+          children: [
+            MiuixBasicComponent(
+              title: 'art3m1s-core / asb-interpreter',
+              summary: 'pfs-upk-rust · mlua · ANGLE',
+            ),
+          ],
+        ),
+      ],
     );
   }
 }

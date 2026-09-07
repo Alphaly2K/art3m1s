@@ -30,7 +30,39 @@ class CupertinoShellApp extends StatelessWidget {
         DefaultCupertinoLocalizations.delegate,
         DefaultWidgetsLocalizations.delegate,
       ],
-      home: const DebugOverlayHost(child: _CupertinoLibraryScreen()),
+      home: const DebugOverlayHost(child: _CupertinoHome()),
+    );
+  }
+}
+
+class _CupertinoHome extends StatelessWidget {
+  const _CupertinoHome();
+
+  @override
+  Widget build(BuildContext context) {
+    return CupertinoTabScaffold(
+      tabBar: CupertinoTabBar(
+        items: const [
+          BottomNavigationBarItem(
+            icon: Icon(CupertinoIcons.square_grid_2x2),
+            label: '资料库',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(CupertinoIcons.settings),
+            label: '设置',
+          ),
+          BottomNavigationBarItem(icon: Icon(CupertinoIcons.info), label: '关于'),
+        ],
+      ),
+      tabBuilder: (context, index) {
+        return CupertinoTabView(
+          builder: (context) => switch (index) {
+            0 => const _CupertinoLibraryScreen(),
+            1 => const _CupertinoSettingsScreen(),
+            _ => const _CupertinoAboutScreen(),
+          },
+        );
+      },
     );
   }
 }
@@ -93,18 +125,6 @@ class _CupertinoLibraryScreen extends ConsumerWidget {
               sizeStyle: CupertinoButtonSize.small,
               onPressed: () => _showAddSheet(context, ref),
               child: const Icon(CupertinoIcons.add),
-            ),
-            CupertinoButton(
-              padding: EdgeInsets.zero,
-              sizeStyle: CupertinoButtonSize.small,
-              onPressed: () {
-                Navigator.of(context).push(
-                  CupertinoPageRoute(
-                    builder: (_) => const _CupertinoSettingsScreen(),
-                  ),
-                );
-              },
-              child: const Icon(CupertinoIcons.gear),
             ),
           ],
         ),
@@ -276,23 +296,6 @@ class _CupertinoSettingsScreen extends ConsumerWidget {
                     value: settings.showFps,
                     onChanged: notifier.setShowFps,
                   ),
-                ),
-              ],
-            ),
-            CupertinoListSection.insetGrouped(
-              header: const Text('信息'),
-              children: [
-                CupertinoListTile.notched(
-                  title: const Text('关于 Art3m1s'),
-                  subtitle: const Text('许可证、依赖与仓库地址'),
-                  trailing: const CupertinoListTileChevron(),
-                  onTap: () {
-                    Navigator.of(context).push(
-                      CupertinoPageRoute(
-                        builder: (_) => const _CupertinoAboutScreen(),
-                      ),
-                    );
-                  },
                 ),
               ],
             ),

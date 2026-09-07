@@ -4,84 +4,88 @@ import 'package:flutter/services.dart';
 import '../services/app_info.dart';
 
 class AboutScreen extends StatelessWidget {
-  const AboutScreen({super.key});
+  const AboutScreen({super.key, this.embedded = false});
+
+  final bool embedded;
 
   static const _appRepository = 'https://github.com/Alphaly2K/art3m1s';
   static const _coreRepository = 'https://github.com/Alphaly2K/art3m1s-core';
 
   @override
   Widget build(BuildContext context) {
+    final body = ListView(
+      children: [
+        const _AppHeader(),
+        const Divider(),
+        const _SectionHeader('许可证'),
+        const ListTile(
+          leading: Icon(Icons.gavel_outlined),
+          title: Text('Art3m1s'),
+          subtitle: Text('Mozilla Public License 2.0'),
+        ),
+        ListTile(
+          leading: const Icon(Icons.article_outlined),
+          title: const Text('第三方许可证'),
+          subtitle: const Text('查看 Flutter 与依赖包许可证'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () {
+            showLicensePage(
+              context: context,
+              applicationName: 'Art3m1s',
+              applicationVersion: AppInfo.displayVersion,
+              applicationLegalese: 'MPL-2.0',
+            );
+          },
+        ),
+        const Divider(),
+        const _SectionHeader('仓库'),
+        const _CopyTile(
+          icon: Icons.phone_iphone_outlined,
+          title: 'Flutter App',
+          value: _appRepository,
+        ),
+        const _CopyTile(
+          icon: Icons.memory_outlined,
+          title: 'Rust Core',
+          value: _coreRepository,
+        ),
+        const Divider(),
+        const _SectionHeader('主要依赖'),
+        const _DependencyGroup(
+          title: 'Flutter',
+          items: [
+            'flutter_riverpod',
+            'path_provider',
+            'shared_preferences',
+            'ffi',
+            'file_selector',
+            'flutter_file_dialog',
+            'jis0208',
+            'audioplayers',
+            'media_kit / media_kit_video',
+            'flutter_miuix',
+          ],
+        ),
+        const _DependencyGroup(
+          title: 'Rust / Native',
+          items: [
+            'art3m1s-core',
+            'asb-interpreter',
+            'asb-decrypt',
+            'pfs-upk-rust',
+            'mlua / Lua 5.1',
+            'glow',
+            'image',
+            'encoding_rs',
+            'ANGLE (Metal)',
+          ],
+        ),
+      ],
+    );
+    if (embedded) return body;
     return Scaffold(
       appBar: AppBar(title: const Text('关于')),
-      body: ListView(
-        children: [
-          const _AppHeader(),
-          const Divider(),
-          const _SectionHeader('许可证'),
-          const ListTile(
-            leading: Icon(Icons.gavel_outlined),
-            title: Text('Art3m1s'),
-            subtitle: Text('Mozilla Public License 2.0'),
-          ),
-          ListTile(
-            leading: const Icon(Icons.article_outlined),
-            title: const Text('第三方许可证'),
-            subtitle: const Text('查看 Flutter 与依赖包许可证'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () {
-              showLicensePage(
-                context: context,
-                applicationName: 'Art3m1s',
-                applicationVersion: AppInfo.displayVersion,
-                applicationLegalese: 'MPL-2.0',
-              );
-            },
-          ),
-          const Divider(),
-          const _SectionHeader('仓库'),
-          const _CopyTile(
-            icon: Icons.phone_iphone_outlined,
-            title: 'Flutter App',
-            value: _appRepository,
-          ),
-          const _CopyTile(
-            icon: Icons.memory_outlined,
-            title: 'Rust Core',
-            value: _coreRepository,
-          ),
-          const Divider(),
-          const _SectionHeader('主要依赖'),
-          const _DependencyGroup(
-            title: 'Flutter',
-            items: [
-              'flutter_riverpod',
-              'path_provider',
-              'shared_preferences',
-              'ffi',
-              'file_selector',
-              'flutter_file_dialog',
-              'jis0208',
-              'audioplayers',
-              'media_kit / media_kit_video',
-              'flutter_miuix',
-            ],
-          ),
-          const _DependencyGroup(
-            title: 'Rust / Native',
-            items: [
-              'art3m1s-core',
-              'asb-interpreter',
-              'asb-decrypt',
-              'pfs-upk-rust',
-              'mlua / Lua 5.1',
-              'glow',
-              'image',
-              'encoding_rs',
-              'ANGLE (Metal)',
-            ],
-          ),
-        ],
-      ),
+      body: body,
     );
   }
 }
