@@ -1799,40 +1799,57 @@ class _MiuixEditFormState extends State<_MiuixEditForm> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  MiuixBasicComponent(
-                    startAction: Padding(
-                      padding: const EdgeInsets.only(right: 12),
-                      child: GestureDetector(
-                        onTap: () async {
-                          final path = await _pickCoverFile();
-                          if (path != null) setState(() => _cover = path);
-                        },
-                        child: _CoverThumb(path: _cover, size: 48),
-                      ),
-                    ),
-                    content: [
-                      MiuixTextField(
-                        controller: _name,
-                        label: '游戏名称',
-                        useLabelAsPlaceholder: true,
-                        singleLine: true,
-                        autofocus: true,
-                      ),
-                    ],
-                    endActions: [
-                      MiuixTextButton(
-                        _cover == null ? '选择封面' : '更换',
-                        onPressed: () async {
-                          final path = await _pickCoverFile();
-                          if (path != null) setState(() => _cover = path);
-                        },
-                      ),
-                      if (_cover != null)
-                        MiuixTextButton(
-                          '清除',
-                          onPressed: () => setState(() => _cover = null),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            GestureDetector(
+                              onTap: () async {
+                                final path = await _pickCoverFile();
+                                if (path != null) {
+                                  setState(() => _cover = path);
+                                }
+                              },
+                              child: _CoverThumb(path: _cover, size: 64),
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: MiuixTextField(
+                                controller: _name,
+                                label: '游戏名称',
+                                useLabelAsPlaceholder: true,
+                                singleLine: true,
+                                autofocus: true,
+                              ),
+                            ),
+                          ],
                         ),
-                    ],
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            MiuixTextButton(
+                              _cover == null ? '选择封面' : '更换封面',
+                              onPressed: () async {
+                                final path = await _pickCoverFile();
+                                if (path != null) {
+                                  setState(() => _cover = path);
+                                }
+                              },
+                            ),
+                            const SizedBox(width: 12),
+                            if (_cover != null)
+                              MiuixTextButton(
+                                '清除',
+                                onPressed: () => setState(() => _cover = null),
+                              ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                   MiuixSwitchPreference(
                     title: '启用文本翻译',

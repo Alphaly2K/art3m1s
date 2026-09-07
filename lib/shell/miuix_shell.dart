@@ -114,13 +114,6 @@ class _MiuixHomeState extends ConsumerState<_MiuixHome> {
                   ],
                 ),
               ),
-              const SizedBox(height: 10),
-              MiuixCard(
-                child: MiuixBasicComponent(
-                  title: '取消',
-                  onClick: () => dismiss(),
-                ),
-              ),
             ],
           ),
         );
