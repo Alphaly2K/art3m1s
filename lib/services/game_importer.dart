@@ -5,6 +5,13 @@ import 'package:path_provider/path_provider.dart';
 
 import 'logger.dart';
 
+class GameImportException implements Exception {
+  const GameImportException(this.message);
+  final String message;
+  @override
+  String toString() => message;
+}
+
 class DiscoveredGame {
   const DiscoveredGame({
     required this.name,
@@ -53,7 +60,7 @@ class GameImporter {
     } on PlatformException catch (e) {
       if (e.code == 'PICK_CANCELLED') return null;
       Log.error('[GameImporter] pickDirectoryAndCopy 失败: ${e.message}');
-      return null;
+      throw GameImportException(e.message ?? e.code);
     }
   }
 
@@ -143,6 +150,42 @@ class GameImporter {
         .toList();
     paths.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
     return paths;
+  }
+
+  /// 递归查找含 `system.ini` 的已解包工程根目录。
+  ///
+  /// 某个目录一旦含有 system.ini，就把它当作工程根，不再继续往下找，
+  /// 避免把工程内部的资源子目录误当成独立游戏。
+  static List<String> discoverUnpackedProjects(String directoryPath) {
+    final directory = Directory(directoryPath);
+    if (!directory.existsSync()) return const [];
+    final found = <String>[];
+    void visit(Directory dir) {
+      FileSystemEntity? ini;
+      final subdirs = <Directory>[];
+      try {
+        for (final entity in dir.listSync(followLinks: false)) {
+          if (entity is File && _isSystemIniName(_basename(entity.path))) {
+            ini = entity;
+          } else if (entity is Directory) {
+            subdirs.add(entity);
+          }
+        }
+      } on FileSystemException {
+        return;
+      }
+      if (ini != null) {
+        found.add(dir.path);
+        return;
+      }
+      for (final subdir in subdirs) {
+        visit(subdir);
+      }
+    }
+
+    visit(directory);
+    found.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    return found;
   }
 
   /// 把 `sourcePath` 对应的游戏数据复制到沙箱。
@@ -362,6 +405,10 @@ class GameImporter {
   static bool _isBasePfsName(String name) {
     name = name.toLowerCase();
     return name.endsWith('.pfs') && !RegExp(r'\.pfs\.\d{3}$').hasMatch(name);
+  }
+
+  static bool _isSystemIniName(String name) {
+    return name.toLowerCase() == 'system.ini';
   }
 
   static bool _isFileLikePath(String path) {

@@ -37,4 +37,57 @@ void main() {
       isEmpty,
     );
   });
+
+  test(
+    'discoverUnpackedProjects finds system.ini roots and ignores nested copies',
+    () {
+      final root = Directory.systemTemp.createTempSync('art3m1s_unpacked_');
+      addTearDown(() => root.deleteSync(recursive: true));
+
+      File(
+        '${root.path}${Platform.pathSeparator}system.ini',
+      ).writeAsStringSync('[boot]');
+      Directory('${root.path}${Platform.pathSeparator}image').createSync();
+      File(
+        '${root.path}${Platform.pathSeparator}image${Platform.pathSeparator}system.ini',
+      ).writeAsStringSync('not a game');
+
+      expect(GameImporter.discoverUnpackedProjects(root.path), [root.path]);
+    },
+  );
+
+  test(
+    'discoverUnpackedProjects searches nested folders case-insensitively',
+    () {
+      final root = Directory.systemTemp.createTempSync(
+        'art3m1s_unpacked_nested_',
+      );
+      addTearDown(() => root.deleteSync(recursive: true));
+
+      final first = Directory('${root.path}${Platform.pathSeparator}NekoMiko')
+        ..createSync();
+      File(
+        '${first.path}${Platform.pathSeparator}System.INI',
+      ).writeAsStringSync('[boot]');
+      final second = Directory('${root.path}${Platform.pathSeparator}other')
+        ..createSync();
+      File(
+        '${second.path}${Platform.pathSeparator}system.ini',
+      ).writeAsStringSync('[boot]');
+
+      expect(GameImporter.discoverUnpackedProjects(root.path), [
+        first.path,
+        second.path,
+      ]);
+    },
+  );
+
+  test('discoverUnpackedProjects safely handles a missing directory', () {
+    expect(
+      GameImporter.discoverUnpackedProjects(
+        '${Directory.systemTemp.path}${Platform.pathSeparator}missing-art3m1s-unpacked',
+      ),
+      isEmpty,
+    );
+  });
 }
