@@ -21,7 +21,8 @@ class SettingsState {
   final bool debugOverlay;
   final bool showFps;
   final bool mobileTouchpadEnabled;
-  final int backend; // 0 = CGL, 1 = ANGLE
+  // Apple: 3 = native Metal; Android: 2 = native Vulkan; 1 = reference GL.
+  final int backend;
   final HostUiTheme hostUiTheme;
   final TranslationSettings translation;
 
@@ -80,7 +81,7 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
       return 3; // Metal
     } else {
       if (Platform.isAndroid) {
-        return 1; // OpenGLES
+        return 2; // Native Vulkan
       } else {
         return 2; // Vulkan
       }
@@ -144,9 +145,7 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
         showFps: prefs.getBool('show_fps') ?? false,
         mobileTouchpadEnabled:
             prefs.getBool('mobile_touchpad_enabled') ?? false,
-        backend:
-            prefs.getInt('gfx_backend') ??
-            getDefaultBackend(), // default: ANGLE Vulkan
+        backend: prefs.getInt('gfx_backend') ?? getDefaultBackend(),
         hostUiTheme: HostUiTheme.byName(prefs.getString('host_ui_theme')),
         translation: TranslationSettings(
           mode: mode ?? TranslationMode.off,

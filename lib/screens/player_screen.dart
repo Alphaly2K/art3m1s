@@ -321,11 +321,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     _touchpadPointer.updateStageSize(_stageW, _stageH);
     _touchpadCursorPosition.value = _touchpadPointer.position;
 
-    // 移动端和 MetalANGLE 直接把 core 的最终 FBO 提交给 Flutter 外部纹理。
-    // macOS CGL 保留原 RGBA 回读路径，旧 core/旧宿主也会自动回退。
+    // 移动端以及 macOS Metal/ANGLE 把 core 的最终 render target 提交给
+    // Flutter 外部纹理。只有显式选择的 macOS CGL reference backend
+    // 保留 RGBA 回读路径；旧 core/宿主仍会自动回退。
     if (Platform.isAndroid ||
         Platform.isIOS ||
-        (Platform.isMacOS && renderBackend != 0)) {
+        (Platform.isMacOS && renderBackend != 5)) {
       await _bridge.enableSharedTexture();
     }
 

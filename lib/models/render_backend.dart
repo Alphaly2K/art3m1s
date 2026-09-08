@@ -12,11 +12,16 @@ class BackendOption {
 List<BackendOption> availableBackends() {
   final list = <BackendOption>[];
   if (Platform.isMacOS) {
-    list.add(const BackendOption(3, 'Metal'));
-    list.add(const BackendOption(0, 'CGL'));
+    list.add(const BackendOption(3, 'Metal（原生）'));
+    list.add(const BackendOption(6, 'ANGLE / Metal（参考）'));
+    list.add(const BackendOption(5, 'OpenGL / CGL（参考）'));
   }
   if (Platform.isIOS) {
-    list.add(const BackendOption(3, 'Metal'));
+    list.add(const BackendOption(3, 'Metal（原生）'));
+    list.add(const BackendOption(6, 'ANGLE / Metal（参考）'));
+  }
+  if (Platform.isAndroid) {
+    list.add(const BackendOption(2, 'Vulkan（原生）'));
   }
   if (Platform.isLinux) {
     list.add(const BackendOption(2, 'Vulkan'));
@@ -25,17 +30,19 @@ List<BackendOption> availableBackends() {
     list.add(const BackendOption(2, 'Vulkan'));
     list.add(const BackendOption(4, 'D3D11'));
   }
-  list.add(const BackendOption(1, 'GL'));
+  list.add(BackendOption(1, Platform.isAndroid ? 'OpenGL ES（参考）' : 'GL'));
   return list;
 }
 
 String backendName(int v) {
   return switch (v) {
-    0 => 'CGL (macOS Core OpenGL)',
-    1 => 'ANGLE / OpenGL ES',
-    2 => 'ANGLE / Vulkan',
-    3 => 'ANGLE / Metal',
+    0 => Platform.isIOS || Platform.isMacOS ? 'Metal（原生，平台默认）' : '平台默认',
+    1 => Platform.isAndroid ? 'OpenGL ES（参考）' : 'ANGLE / OpenGL ES',
+    2 => Platform.isAndroid ? 'Vulkan（原生）' : 'ANGLE / Vulkan',
+    3 => Platform.isIOS || Platform.isMacOS ? 'Metal（原生）' : 'ANGLE / Metal',
     4 => 'ANGLE / D3D11',
+    5 => 'OpenGL / CGL（参考）',
+    6 => 'ANGLE / Metal（参考）',
     _ => '未知',
   };
 }
