@@ -27,7 +27,7 @@ List<BackendOption> availableBackends() {
     list.add(const BackendOption(2, 'Vulkan'));
     list.add(const BackendOption(4, 'D3D11'));
   }
-  list.add(const BackendOption(1, 'GL'));
+  list.add(BackendOption(1, Platform.isAndroid ? 'OpenGL ES（参考）' : 'GL'));
   return list;
 }
 
