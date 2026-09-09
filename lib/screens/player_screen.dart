@@ -12,6 +12,7 @@ import '../controllers/mobile_touchpad.dart';
 import '../controllers/two_finger_gesture.dart';
 import '../models/game_entry.dart';
 import '../models/input_gate.dart';
+import '../models/render_quality.dart';
 import '../providers/settings_provider.dart';
 import '../services/app_data_paths.dart';
 import '../services/core_bridge.dart';
@@ -76,6 +77,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   late final Ticker _gameTicker;
   ui.Image? _frameImage;
   bool _sharedTextureReady = false;
+  bool _sharedTextureRequested = false;
+  bool _sharedTextureResizeInFlight = false;
+  bool _sharedTextureResizePending = false;
+  Timer? _sharedTextureResizeTimer;
   bool _frameInFlight = false;
   bool _closing = false;
   GameEntry? _activeConfig;
@@ -141,6 +146,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       case AppLifecycleState.resumed:
         _appActive = true;
         _syncGameTicker();
+        _scheduleSharedTextureResize();
         _bridge.setWindowStateBits(minimized: false);
         _bridge.notifyLifecycle(2); // 回前台
       case AppLifecycleState.paused:
@@ -160,6 +166,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         _endTouchpadDrag();
         _bridge.notifyLifecycle(0); // 退出
     }
+  }
+
+  @override
+  void didChangeMetrics() {
+    _scheduleSharedTextureResize();
   }
 
   Future<void> _showEngineDialog(EngineDialogRequest request) async {
@@ -328,7 +339,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     if (Platform.isAndroid ||
         Platform.isIOS ||
         (Platform.isMacOS && renderBackend != 0)) {
-      await _bridge.enableSharedTexture();
+      _sharedTextureRequested = true;
+      await _syncSharedTextureExtent();
     }
 
     if (!mounted || _closing) {
@@ -411,6 +423,57 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     _fpsWindowFrames = 0;
     _gameLoopStarted = true;
     _syncGameTicker();
+  }
+
+  ({int width, int height}) _desiredSharedTextureExtent() {
+    final physicalSize = View.of(context).physicalSize;
+    return resolveRenderOutputExtent(
+      stageWidth: _stageW,
+      stageHeight: _stageH,
+      physicalViewWidth: physicalSize.width,
+      physicalViewHeight: physicalSize.height,
+    );
+  }
+
+  void _scheduleSharedTextureResize() {
+    if (!_sharedTextureRequested || _closing || !mounted) return;
+    _sharedTextureResizeTimer?.cancel();
+    _sharedTextureResizeTimer = Timer(const Duration(milliseconds: 120), () {
+      if (mounted && !_closing) unawaited(_syncSharedTextureExtent());
+    });
+  }
+
+  Future<void> _syncSharedTextureExtent() async {
+    if (!_sharedTextureRequested || _closing || !mounted) return;
+    if (_sharedTextureResizeInFlight) {
+      _sharedTextureResizePending = true;
+      return;
+    }
+    _sharedTextureResizeInFlight = true;
+    try {
+      do {
+        _sharedTextureResizePending = false;
+        final extent = _desiredSharedTextureExtent();
+        if (_bridge.hasActiveSharedTexture &&
+            _bridge.sharedTextureWidth == extent.width &&
+            _bridge.sharedTextureHeight == extent.height) {
+          continue;
+        }
+        if (_sharedTextureReady && mounted) {
+          _sharedTextureReady = false;
+          setState(() {});
+        }
+        await _bridge.enableSharedTexture(
+          outputWidth: extent.width,
+          outputHeight: extent.height,
+        );
+        // The external texture ID changes on every recreation. Rebuild now;
+        // visibility is restored only after Core presents its first new frame.
+        if (mounted && !_closing) setState(() {});
+      } while (_sharedTextureResizePending && mounted && !_closing);
+    } finally {
+      _sharedTextureResizeInFlight = false;
+    }
   }
 
   void _syncGameTicker() {
@@ -554,6 +617,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     _bridge.media.fullscreenVideoBlocking.removeListener(_syncGameTicker);
     _gameTicker.dispose();
     _profilerTimer?.cancel();
+    _sharedTextureResizeTimer?.cancel();
     if (_profilerEnabled) _bridge.setProfilerEnabled(false);
     _endTouchpadDrag();
     _touchpadCursorPosition.dispose();

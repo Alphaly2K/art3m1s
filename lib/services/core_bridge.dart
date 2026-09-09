@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:ffi/ffi.dart';
 import 'package:flutter/foundation.dart';
@@ -412,6 +413,8 @@ class CoreBridge {
   int? _sharedTextureId;
   int? _sharedTextureKind;
   bool _sharedTextureAttached = false;
+  int _sharedTextureWidth = 0;
+  int _sharedTextureHeight = 0;
   TextTranslationService? translation;
   final Map<String, Pointer<Utf8>> _videoLayerIds = {};
   int _stageWidth = 1280;
@@ -544,14 +547,27 @@ class CoreBridge {
   int get stageWidth => _stageWidth;
   int get stageHeight => _stageHeight;
   int? get sharedTextureId => _sharedTextureId;
+  int get sharedTextureWidth => _sharedTextureWidth;
+  int get sharedTextureHeight => _sharedTextureHeight;
   bool get hasActiveSharedTexture =>
       _sharedTextureId != null && _sharedTextureAttached;
 
-  Future<int?> enableSharedTexture() async {
+  Future<int?> enableSharedTexture({
+    int? outputWidth,
+    int? outputHeight,
+  }) async {
     final runtime = _runtime;
     final lib = _lib;
     if (runtime == null || lib == null || _sharedTextureSymbolsUnavailable) {
       return null;
+    }
+    final width = math.max(outputWidth ?? _stageWidth, _stageWidth);
+    final height = math.max(outputHeight ?? _stageHeight, _stageHeight);
+    if (_sharedTextureAttached &&
+        _sharedTextureId != null &&
+        _sharedTextureWidth == width &&
+        _sharedTextureHeight == height) {
+      return _sharedTextureId;
     }
     try {
       _setExternalSurface ??= lib
@@ -575,21 +591,30 @@ class CoreBridge {
     }
 
     try {
+      // Stop Core from presenting into the old object before the native texture
+      // host unregisters/releases it during recreation.
+      _detachSharedTexture();
       final raw = await _sharedTextureChannel.invokeMapMethod<String, dynamic>(
         'create',
-        {'width': _stageWidth, 'height': _stageHeight},
+        {'width': width, 'height': height},
       );
-      if (raw == null || !_attachSharedTexture(raw)) {
+      if (raw == null ||
+          !_attachSharedTexture(raw, width: width, height: height)) {
         await _sharedTextureChannel.invokeMethod<void>('release');
+        _sharedTextureId = null;
+        _sharedTextureKind = null;
         return null;
       }
       Log.info(
         '[CoreBridge] 共享纹理已启用: id=$_sharedTextureId '
-        '$_stageWidth x $_stageHeight',
+        '${_sharedTextureWidth}x$_sharedTextureHeight '
+        '(stage=${_stageWidth}x$_stageHeight)',
       );
       return _sharedTextureId;
     } catch (error) {
       Log.warn('[CoreBridge] 共享纹理不可用，使用 RGBA 回读: $error');
+      _sharedTextureId = null;
+      _sharedTextureKind = null;
       unawaited(
         _sharedTextureChannel.invokeMethod<void>('release').catchError((_) {}),
       );
@@ -597,13 +622,20 @@ class CoreBridge {
     }
   }
 
-  bool _attachSharedTexture(Map<dynamic, dynamic> descriptor) {
+  bool _attachSharedTexture(
+    Map<dynamic, dynamic> descriptor, {
+    int? width,
+    int? height,
+  }) {
     final runtime = _runtime;
     final setSurface = _setExternalSurface;
     final textureId = (descriptor['textureId'] as num?)?.toInt();
     if (runtime == null || setSurface == null || textureId == null) {
       return false;
     }
+    final surfaceWidth = width ?? _sharedTextureWidth;
+    final surfaceHeight = height ?? _sharedTextureHeight;
+    if (surfaceWidth <= 0 || surfaceHeight <= 0) return false;
 
     final candidates = <(int?, int?)>[
       (
@@ -622,14 +654,16 @@ class CoreBridge {
             runtime,
             kind,
             Pointer<Void>.fromAddress(handle),
-            _stageWidth,
-            _stageHeight,
+            surfaceWidth,
+            surfaceHeight,
           ) !=
           0;
       if (!attached) continue;
       _sharedTextureId = textureId;
       _sharedTextureKind = kind;
       _sharedTextureAttached = true;
+      _sharedTextureWidth = surfaceWidth;
+      _sharedTextureHeight = surfaceHeight;
       return true;
     }
     return false;
@@ -1464,6 +1498,8 @@ class CoreBridge {
     _sharedTextureChannel.setMethodCallHandler(null);
     _sharedTextureId = null;
     _sharedTextureKind = null;
+    _sharedTextureWidth = 0;
+    _sharedTextureHeight = 0;
     _runtime = null;
     _initialized = false;
     _uploadVideoLayerFrame = null;
