@@ -10,6 +10,7 @@ import 'package:flutter/services.dart';
 
 import '../controllers/mobile_touchpad.dart';
 import '../controllers/two_finger_gesture.dart';
+import '../controllers/wheel_input.dart';
 import '../models/game_entry.dart';
 import '../models/input_gate.dart';
 import '../models/render_output.dart';
@@ -93,6 +94,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   /// 各活动指针的最近位置（双指手势中点计算用）。
   final Map<int, Offset> _pointerPositions = {};
   final TwoFingerGestureTracker _twoFingerGesture = TwoFingerGestureTracker();
+  final WheelInputQueue _wheelInput = WheelInputQueue();
   bool _twoFingerPointerRouting = false;
   late final MobileTouchpadPointer _touchpadPointer;
   late final ValueNotifier<Offset> _touchpadCursorPosition;
@@ -542,6 +544,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       _closePlayer();
       return;
     }
+
+    _drainWheelInput();
 
     // 口型 CSV 以 60 Hz 每次 onEnterFrame 消费一个采样。显示链繁忙或一次
     // vsync 回调迟到时，先补齐逻辑 tick，只在最后一次尝试回读和显示画面。
@@ -1103,6 +1107,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     _activePointers.clear();
     _pointerPositions.clear();
     _twoFingerGesture.reset();
+    _wheelInput.clear();
     _twoFingerPointerRouting = false;
     ref.read(settingsProvider.notifier).setMobileTouchpadEnabled(enabled);
   }
@@ -1165,8 +1170,13 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
           Platform.isIOS ||
           _effectiveInputGate.twoFingerScrollWheel,
     )) {
-      _emitForwardedWheelKey(key);
+      _wheelInput.addKey(key);
     }
+  }
+
+  void _drainWheelInput() {
+    final key = _wheelInput.take();
+    if (key != null) _emitForwardedWheelKey(key);
   }
 
   void _emitForwardedWheelKey(int vk) {
@@ -1199,11 +1209,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   }
 
   void _handlePointerSignal(PointerSignalEvent event) {
-    // 核心没有独立滚轮入口；宿主转为标准 VK_UP/VK_DOWN。
+    // 核心没有独立滚轮入口；宿主保留 Artemis 的滚轮键码 136/137。
     if (!_effectiveInputGate.wheelToKeys) return;
     if (event is! PointerScrollEvent) return;
-    final key = event.scrollDelta.dy < 0 ? 38 : 40;
-    _emitForwardedWheelKey(key);
+    _wheelInput.addScrollDelta(event.scrollDelta.dy);
   }
 
   void _handleKeyEvent(KeyEvent event) {

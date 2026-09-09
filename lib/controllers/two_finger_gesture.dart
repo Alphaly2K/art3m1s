@@ -1,5 +1,7 @@
 import 'dart:ui';
 
+import 'wheel_input.dart';
+
 /// Resolves a two-finger sequence into either scrolling or a tap on release.
 class TwoFingerGestureTracker {
   static const double dragThreshold = 6;
@@ -31,11 +33,11 @@ class TwoFingerGestureTracker {
     final keys = <int>[];
     while (_scrollAccum >= wheelNotch) {
       _scrollAccum -= wheelNotch;
-      keys.add(38); // VK_UP
+      keys.add(WheelInputQueue.wheelUpKey);
     }
     while (_scrollAccum <= -wheelNotch) {
       _scrollAccum += wheelNotch;
-      keys.add(40); // VK_DOWN
+      keys.add(WheelInputQueue.wheelDownKey);
     }
     return keys;
   }

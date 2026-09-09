@@ -13,7 +13,7 @@ void main() {
       ..begin(const [Offset(0, 50), Offset(20, 50)]);
     expect(
       reverse.move(const [Offset(0, 5), Offset(20, 5)], scrollEnabled: true),
-      [40],
+      [137],
     );
   });
 
@@ -22,7 +22,7 @@ void main() {
       ..begin(const [Offset(0, 0), Offset(20, 0)]);
     expect(
       gesture.move(const [Offset(0, 45), Offset(20, 45)], scrollEnabled: true),
-      [38],
+      [136],
     );
     expect(gesture.end(), isFalse);
   });

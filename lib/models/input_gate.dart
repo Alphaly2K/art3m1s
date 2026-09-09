@@ -36,13 +36,13 @@ class InputGatePolicy {
   /// 触摸主开关：false 时丢弃 feedTouch。
   final bool touch;
 
-  /// 滚轮 → 方向键（VK_UP/VK_DOWN）的转发开关。
+  /// 滚轮 → Artemis 滚轮键（136/137）的转发开关。
   final bool wheelToKeys;
 
   /// 双指触摸 → 鼠标右键的转发开关（在播放页判定，属转发而非类别）。
   final bool twoFingerRightClick;
 
-  /// 双指拖动 → 滚轮方向键的转发开关（在播放页判定）。
+  /// 双指拖动 → Artemis 滚轮键的转发开关（在播放页判定）。
   /// 开启时双指手势优先作为滚轮：整段手势没有明显拖动才按点按转发右键
   /// （仍受 [twoFingerRightClick] 约束），避免菜单/回想界面一滚就误触右键。
   final bool twoFingerScrollWheel;
