@@ -34,9 +34,11 @@ class LibraryActions {
     try {
       if (Platform.isAndroid) {
         // Android 不能用 dart:io 直接读 SAF 目录，先拷进沙箱再识别 system.ini。
-        final sandboxDir = await GameImporter.pickDirectoryAndCopy();
-        if (sandboxDir == null || !context.mounted) return;
-        projects = GameImporter.discoverUnpackedProjects(sandboxDir);
+        final imported = await _importAndroidDirectory(
+          GameImporter.discoverUnpackedProjects,
+        );
+        if (imported == null || !context.mounted) return;
+        projects = imported;
       } else {
         final path = await getDirectoryPath(confirmButtonText: '选择此目录');
         if (path == null || !context.mounted) return;
@@ -77,9 +79,11 @@ class LibraryActions {
       // 避免 file_selector 在 Android 上返回无法用 dart:io 访问的 content URI。
       if (Platform.isAndroid) {
         try {
-          final sandboxDir = await GameImporter.pickDirectoryAndCopy();
-          if (sandboxDir == null || !context.mounted) return;
-          filePaths = GameImporter.discoverBasePfsFiles(sandboxDir);
+          final imported = await _importAndroidDirectory(
+            GameImporter.discoverBasePfsFiles,
+          );
+          if (imported == null || !context.mounted) return;
+          filePaths = imported;
         } on GameImportException catch (error) {
           if (context.mounted) notify(context, error.message);
           return;
@@ -117,6 +121,36 @@ class LibraryActions {
       await _addDiscoveredGame(games.single);
     } else {
       await _addDiscoveredGamesAutomatically(games);
+    }
+  }
+
+  Future<List<String>?> _importAndroidDirectory(
+    List<String> Function(String path) discover,
+  ) async {
+    BlockingProgressController? progress;
+    try {
+      final sandboxDir = await GameImporter.pickDirectoryAndCopy(
+        onProgress: (value) {
+          if (!context.mounted) return;
+          progress ??= showBlockingProgress(
+            context,
+            title: '正在导入游戏',
+            message: value.message,
+          );
+          progress?.update(value.message);
+        },
+      );
+      if (sandboxDir == null || !context.mounted) return null;
+      progress ??= showBlockingProgress(
+        context,
+        title: '正在导入游戏',
+        message: '正在识别游戏文件…',
+      );
+      progress?.update('正在识别游戏文件…');
+      await Future<void>.delayed(Duration.zero);
+      return discover(sandboxDir);
+    } finally {
+      progress?.close();
     }
   }
 
@@ -231,7 +265,7 @@ class LibraryActions {
     GameSource source,
   ) async {
     final gameId = _gameIdForPath(path);
-    notify(context, '正在获取游戏信息…');
+    notify(context, '正在读取游戏信息；VNDB 不可用时将离线继续…');
     final manifest = await GameManifest.loadForProject(path, source);
     final metadata = await _resolveGameMetadata(
       defaultName,

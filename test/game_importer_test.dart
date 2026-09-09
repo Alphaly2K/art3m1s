@@ -4,6 +4,27 @@ import 'package:art3m1s/services/game_importer.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('import progress formats copied files and bytes', () {
+    const progress = GameImportProgress(
+      filesCopied: 7,
+      bytesCopied: 1536,
+      currentName: 'data.pfs',
+    );
+    expect(progress.message, '已复制 7 个文件 · 1.5 KB\ndata.pfs');
+  });
+
+  test('import progress can be decoded from native maps', () {
+    final progress = GameImportProgress.fromMap({
+      'files': 12,
+      'bytes': 1048576,
+      'current': 'system.ini',
+    });
+    expect(progress.filesCopied, 12);
+    expect(progress.bytesCopied, 1048576);
+    expect(progress.currentName, 'system.ini');
+    expect(progress.message, contains('1.0 MB'));
+  });
+
   test('discoverBasePfsFiles returns every game but not split volumes', () {
     final root = Directory.systemTemp.createTempSync('art3m1s_multi_pfs_');
     addTearDown(() => root.deleteSync(recursive: true));

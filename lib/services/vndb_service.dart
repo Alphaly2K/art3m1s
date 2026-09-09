@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
+
 import 'app_data_paths.dart';
 import 'logger.dart';
 
@@ -11,6 +13,14 @@ class VndbGameInfo {
 
   final String title;
   final String? imageUrl;
+}
+
+@visibleForTesting
+class VndbQueryAttempt {
+  const VndbQueryAttempt({this.info, required this.tryAnotherCandidate});
+
+  final VndbGameInfo? info;
+  final bool tryAnotherCandidate;
 }
 
 /// VNDB Kana HTTP API 客户端（https://api.vndb.org/kana）。
@@ -23,7 +33,7 @@ class VndbService {
   VndbService._();
 
   static const String _vnEndpoint = 'https://api.vndb.org/kana/vn';
-  static const Duration _timeout = Duration(seconds: 8);
+  static const Duration _timeout = Duration(seconds: 3);
 
   static final HttpClient _client = HttpClient()..connectionTimeout = _timeout;
 
@@ -33,9 +43,20 @@ class VndbService {
   /// 例：`NekoMiko - 神社里的猫巫女 - Ver 1.0.3H 本汉化补丁仅供学习交流…` →
   /// 候选 `[NekoMiko, 神社里的猫巫女]`（两者 VNDB 都能命中），版本/公告段被丢弃。
   static Future<VndbGameInfo?> lookupGame(String rawTitle) async {
+    return lookupGameWith(rawTitle, (candidate) {
+      return _query(['search', '=', candidate]);
+    });
+  }
+
+  @visibleForTesting
+  static Future<VndbGameInfo?> lookupGameWith(
+    String rawTitle,
+    Future<VndbQueryAttempt> Function(String candidate) query,
+  ) async {
     for (final candidate in _candidateQueries(rawTitle)) {
-      final info = await lookup(candidate);
-      if (info != null) return info;
+      final attempt = await query(candidate);
+      if (attempt.info != null) return attempt.info;
+      if (!attempt.tryAnotherCandidate) return null;
     }
     return null;
   }
@@ -95,17 +116,17 @@ class VndbService {
   static Future<VndbGameInfo?> lookupById(String vndbId) async {
     final id = vndbId.trim();
     if (id.isEmpty) return null;
-    return _query(['id', '=', id]);
+    return (await _query(['id', '=', id])).info;
   }
 
   /// 用 [query] 查 VNDB，返回首个匹配的标题 + 封面 URL；无匹配或失败返回 null。
   static Future<VndbGameInfo?> lookup(String query) async {
     final trimmed = query.trim();
     if (trimmed.isEmpty) return null;
-    return _query(['search', '=', trimmed]);
+    return (await _query(['search', '=', trimmed])).info;
   }
 
-  static Future<VndbGameInfo?> _query(List<Object> filters) async {
+  static Future<VndbQueryAttempt> _query(List<Object> filters) async {
     try {
       final request = await _client
           .postUrl(Uri.parse(_vnEndpoint))
@@ -122,22 +143,31 @@ class VndbService {
       if (response.statusCode != 200) {
         Log.warn('[VNDB] 查询返回 ${response.statusCode}: $filters');
         await response.drain<void>();
-        return null;
+        return const VndbQueryAttempt(tryAnotherCandidate: false);
       }
       final text = await response.transform(utf8.decoder).join();
       final decoded = jsonDecode(text);
       final results = decoded is Map ? decoded['results'] : null;
-      if (results is! List || results.isEmpty) return null;
+      if (results is! List || results.isEmpty) {
+        return const VndbQueryAttempt(tryAnotherCandidate: true);
+      }
       final first = results.first;
-      if (first is! Map) return null;
+      if (first is! Map) {
+        return const VndbQueryAttempt(tryAnotherCandidate: true);
+      }
       final title = first['title']?.toString();
-      if (title == null || title.isEmpty) return null;
+      if (title == null || title.isEmpty) {
+        return const VndbQueryAttempt(tryAnotherCandidate: true);
+      }
       final image = first['image'];
       final imageUrl = image is Map ? image['url']?.toString() : null;
-      return VndbGameInfo(title: title, imageUrl: imageUrl);
+      return VndbQueryAttempt(
+        info: VndbGameInfo(title: title, imageUrl: imageUrl),
+        tryAnotherCandidate: false,
+      );
     } catch (e) {
       Log.warn('[VNDB] 查询失败: $e');
-      return null;
+      return const VndbQueryAttempt(tryAnotherCandidate: false);
     }
   }
 

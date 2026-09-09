@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -32,6 +33,41 @@ class DiscoveredGame {
   );
 }
 
+class GameImportProgress {
+  const GameImportProgress({
+    required this.filesCopied,
+    required this.bytesCopied,
+    this.currentName = '',
+  });
+
+  final int filesCopied;
+  final int bytesCopied;
+  final String currentName;
+
+  factory GameImportProgress.fromMap(Map<dynamic, dynamic> map) {
+    return GameImportProgress(
+      filesCopied: (map['files'] as num?)?.toInt() ?? 0,
+      bytesCopied: (map['bytes'] as num?)?.toInt() ?? 0,
+      currentName: map['current']?.toString() ?? '',
+    );
+  }
+
+  String get message {
+    final size = _formatBytes(bytesCopied);
+    final copied = '已复制 $filesCopied 个文件 · $size';
+    return currentName.isEmpty ? copied : '$copied\n$currentName';
+  }
+
+  static String _formatBytes(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    if (bytes < 1024 * 1024 * 1024) {
+      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    }
+    return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
+  }
+}
+
 /// 游戏数据沙箱导入。
 ///
 /// Android/iOS 对文件系统有严格限制：
@@ -49,18 +85,41 @@ class GameImporter {
   static const MethodChannel _nativeChannel = MethodChannel(
     'moe.alphaly.art3m1s/native_ptrs',
   );
+  static final StreamController<GameImportProgress> _progress =
+      StreamController<GameImportProgress>.broadcast();
+  static bool _nativeHandlerInstalled = false;
+
+  static void _ensureNativeHandler() {
+    if (_nativeHandlerInstalled) return;
+    _nativeHandlerInstalled = true;
+    _nativeChannel.setMethodCallHandler((call) async {
+      if (call.method == 'importProgress' && call.arguments is Map) {
+        _progress.add(
+          GameImportProgress.fromMap(call.arguments as Map<dynamic, dynamic>),
+        );
+      }
+    });
+  }
 
   /// Android 专用：调原生 SAF 目录选择器，把整个目录拷贝到沙箱，
   /// 返回沙箱目录路径（`<filesDir>/games/incoming/<timestamp>/`）。
   /// 该目录下包含所有原始文件（含 .pfs 和 .pfs.NNN 分卷）。
-  static Future<String?> pickDirectoryAndCopy() async {
+  static Future<String?> pickDirectoryAndCopy({
+    ValueChanged<GameImportProgress>? onProgress,
+  }) async {
     if (!Platform.isAndroid) return null;
+    _ensureNativeHandler();
+    final subscription = onProgress == null
+        ? null
+        : _progress.stream.listen(onProgress);
     try {
       return await _nativeChannel.invokeMethod<String>('pickDirectoryAndCopy');
     } on PlatformException catch (e) {
       if (e.code == 'PICK_CANCELLED') return null;
       Log.error('[GameImporter] pickDirectoryAndCopy 失败: ${e.message}');
       throw GameImportException(e.message ?? e.code);
+    } finally {
+      await subscription?.cancel();
     }
   }
 

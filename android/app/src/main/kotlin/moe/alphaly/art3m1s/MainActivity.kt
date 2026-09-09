@@ -3,8 +3,9 @@ package moe.alphaly.art3m1s
 import android.app.Activity
 import android.content.Intent
 import android.net.Uri
+import android.os.SystemClock
+import android.provider.DocumentsContract
 import android.view.Surface
-import androidx.documentfile.provider.DocumentFile
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -36,6 +37,8 @@ class MainActivity : FlutterActivity() {
     }
 
     private var pendingImportResult: Result? = null
+    private lateinit var nativeChannel: MethodChannel
+    private var lastImportProgressAt = 0L
     private var sharedTextureProducer: TextureRegistry.SurfaceProducer? = null
     private var sharedTextureWindow: Long = 0
     private lateinit var sharedTextureChannel: MethodChannel
@@ -43,10 +46,11 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
-        MethodChannel(
+        nativeChannel = MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             "moe.alphaly.art3m1s/native_ptrs"
-        ).setMethodCallHandler { call, result ->
+        )
+        nativeChannel.setMethodCallHandler { call, result ->
             when (call.method) {
                 "getAndroidContextPtrs" -> {
                     val vmPtr = nativeGetVmPtr()
@@ -62,6 +66,7 @@ class MainActivity : FlutterActivity() {
                     val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                         addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+                        addFlags(Intent.FLAG_GRANT_PREFIX_URI_PERMISSION)
                     }
                     startActivityForResult(intent, REQ_PICK_DIRECTORY)
                 }
@@ -165,9 +170,13 @@ class MainActivity : FlutterActivity() {
             Thread({
                 try {
                     val sandboxPath = copyTreeToSandbox(treeUri)
-                    runOnUiThread { result?.success(sandboxPath) }
+                    runOnUiThread {
+                        if (!isDestroyed) result?.success(sandboxPath)
+                    }
                 } catch (e: Exception) {
-                    runOnUiThread { result?.error("COPY_FAILED", e.message, null) }
+                    runOnUiThread {
+                        if (!isDestroyed) result?.error("COPY_FAILED", e.message, null)
+                    }
                 }
             }, "art3m1s-import").start()
             return
@@ -184,17 +193,24 @@ class MainActivity : FlutterActivity() {
             )
         } catch (_: Exception) { }
 
-        val rootDoc = DocumentFile.fromTreeUri(this, treeUri)
-            ?: throw IllegalStateException("无法读取所选目录")
-
-        val folderName = sanitizeImportedDirectoryName(rootDoc.name)
+        val rootId = DocumentsContract.getTreeDocumentId(treeUri)
+        val rootUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, rootId)
+        val folderName = sanitizeImportedDirectoryName(queryDocumentName(rootUri))
         val incomingDir = File(filesDir, "games/incoming/${System.currentTimeMillis()}/$folderName")
         incomingDir.mkdirs()
 
-        val count = copyDocumentDir(rootDoc, incomingDir)
-        if (count == 0) {
+        lastImportProgressAt = 0L
+        val stats = ImportStats()
+        try {
+            reportImportProgress(stats, folderName, force = true)
+            copyDocumentDir(treeUri, rootId, incomingDir, stats)
+            reportImportProgress(stats, "", force = true)
+            if (stats.files == 0) {
+                throw IllegalStateException("所选目录为空或无法读取")
+            }
+        } catch (error: Exception) {
             incomingDir.deleteRecursively()
-            throw IllegalStateException("所选目录为空或无法读取")
+            throw error
         }
         return incomingDir.absolutePath
     }
@@ -206,23 +222,130 @@ class MainActivity : FlutterActivity() {
         return if (name.isEmpty() || name == "." || name == "..") "game" else name
     }
 
-    private fun copyDocumentDir(docDir: DocumentFile, targetDir: File): Int {
-        var count = 0
-        for (doc in docDir.listFiles()) {
-            val name = doc.name ?: continue
-            if (doc.isDirectory) {
-                val subDir = File(targetDir, name)
-                subDir.mkdirs()
-                count += copyDocumentDir(doc, subDir)
-            } else if (doc.isFile) {
-                contentResolver.openInputStream(doc.uri)?.use { input ->
-                    FileOutputStream(File(targetDir, name)).use { output ->
-                        input.copyTo(output)
-                    }
-                    count++
+    private data class ImportStats(var files: Int = 0, var bytes: Long = 0)
+    private data class ImportDocument(
+        val id: String,
+        val name: String,
+        val mimeType: String?
+    )
+
+    private fun queryDocumentName(documentUri: Uri): String? {
+        val projection = arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+        return try {
+            contentResolver.query(documentUri, projection, null, null, null)?.use { cursor ->
+                if (!cursor.moveToFirst()) null else cursor.getString(0)
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun copyDocumentDir(
+        treeUri: Uri,
+        parentDocumentId: String,
+        targetDir: File,
+        stats: ImportStats
+    ) {
+        val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(
+            treeUri,
+            parentDocumentId
+        )
+        val projection = arrayOf(
+            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            DocumentsContract.Document.COLUMN_MIME_TYPE
+        )
+        val documents = mutableListOf<ImportDocument>()
+        try {
+            contentResolver.query(childrenUri, projection, null, null, null)?.use { cursor ->
+                val idColumn = cursor.getColumnIndexOrThrow(
+                    DocumentsContract.Document.COLUMN_DOCUMENT_ID
+                )
+                val nameColumn = cursor.getColumnIndexOrThrow(
+                    DocumentsContract.Document.COLUMN_DISPLAY_NAME
+                )
+                val mimeColumn = cursor.getColumnIndexOrThrow(
+                    DocumentsContract.Document.COLUMN_MIME_TYPE
+                )
+                while (cursor.moveToNext()) {
+                    val id = cursor.getString(idColumn) ?: continue
+                    documents += ImportDocument(
+                        id = id,
+                        name = sanitizeDocumentName(cursor.getString(nameColumn)),
+                        mimeType = cursor.getString(mimeColumn)
+                    )
+                }
+            }
+        } catch (error: Exception) {
+            throw IllegalStateException("无法读取目录: ${error.message}", error)
+        }
+        for (document in documents) {
+            if (document.mimeType == DocumentsContract.Document.MIME_TYPE_DIR) {
+                val subDir = File(targetDir, document.name)
+                if (!subDir.exists() && !subDir.mkdirs()) {
+                    throw IllegalStateException("无法创建导入目录: ${document.name}")
+                }
+                copyDocumentDir(treeUri, document.id, subDir, stats)
+            } else {
+                val documentUri = DocumentsContract.buildDocumentUriUsingTree(
+                    treeUri,
+                    document.id
+                )
+                copyDocumentFile(
+                    documentUri,
+                    File(targetDir, document.name),
+                    document.name,
+                    stats
+                )
+            }
+        }
+    }
+
+    private fun copyDocumentFile(
+        documentUri: Uri,
+        target: File,
+        displayName: String,
+        stats: ImportStats
+    ) {
+        val input = contentResolver.openInputStream(documentUri)
+            ?: throw IllegalStateException("无法读取文件: $displayName")
+        input.use { source ->
+            FileOutputStream(target).use { output ->
+                val buffer = ByteArray(1024 * 1024)
+                while (true) {
+                    val read = source.read(buffer)
+                    if (read < 0) break
+                    if (read == 0) continue
+                    output.write(buffer, 0, read)
+                    stats.bytes += read
+                    reportImportProgress(stats, displayName)
                 }
             }
         }
-        return count
+        stats.files++
+        reportImportProgress(stats, displayName)
+    }
+
+    private fun sanitizeDocumentName(raw: String?): String {
+        val name = raw.orEmpty().replace(Regex("[\\/]+"), "_").trim()
+        return if (name.isEmpty() || name == "." || name == "..") "unnamed" else name
+    }
+
+    private fun reportImportProgress(
+        stats: ImportStats,
+        currentName: String,
+        force: Boolean = false
+    ) {
+        val now = SystemClock.elapsedRealtime()
+        if (!force && now - lastImportProgressAt < 120) return
+        lastImportProgressAt = now
+        val payload = mapOf(
+            "files" to stats.files,
+            "bytes" to stats.bytes,
+            "current" to currentName
+        )
+        runOnUiThread {
+            if (!isDestroyed) nativeChannel.invokeMethod("importProgress", payload)
+        }
     }
 }

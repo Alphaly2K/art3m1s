@@ -111,7 +111,3 @@ flutter {
     source = "../.."
 }
 
-dependencies {
-    // SAF DocumentFile：pickDirectoryAndCopy 用来递归拷贝用户选中的目录。
-    implementation("androidx.documentfile:documentfile:1.1.0")
-}
