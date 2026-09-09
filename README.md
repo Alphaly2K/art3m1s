@@ -181,6 +181,10 @@ Apple Silicon 模拟器切片；发布真机包可加 `--device-only`。iOS 输�
 脚本在未设置 `VCPKG_ROOT` 时会把 vcpkg 引导到 `.build/vcpkg`。Windows 沿用发布链
 下载的预编译 ANGLE DLL，不在本地重复编译 ANGLE。
 
+GitHub Actions（`.github/workflows/flutter.yml`）会先拉取
+[`art3m1s-core`](https://github.com/Alphaly2K/art3m1s-core) `master`，再跑
+`flutter analyze` / `flutter test`、Android APK，以及 macOS / iOS 发布构建。
+
 ### macOS 开发
 
 ```bash

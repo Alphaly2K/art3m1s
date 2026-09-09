@@ -1,0 +1,134 @@
+name: Flutter
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout art3m1s-core
+        uses: actions/checkout@v4
+        with:
+          repository: Alphaly2K/art3m1s-core
+          ref: master
+          path: art3m1s-core
+          submodules: recursive
+      - name: Checkout Art3m1s
+        uses: actions/checkout@v4
+        with:
+          path: art3m1s
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Analyze and test
+        working-directory: art3m1s
+        env:
+          CORE_SRC: ${{ github.workspace }}/art3m1s-core
+        run: |
+          flutter pub get
+          flutter analyze
+          flutter test
+
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout art3m1s-core
+        uses: actions/checkout@v4
+        with:
+          repository: Alphaly2K/art3m1s-core
+          ref: master
+          path: art3m1s-core
+          submodules: recursive
+      - name: Checkout Art3m1s
+        uses: actions/checkout@v4
+        with:
+          path: art3m1s
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Setup NDK
+        uses: nttld/setup-ndk@v1
+        id: ndk
+        with:
+          ndk-version: r27c
+          link-to-sdk: true
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Build Android APK
+        working-directory: art3m1s
+        env:
+          CORE_SRC: ${{ github.workspace }}/art3m1s-core
+          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+          ANDROID_NDK_ROOT: ${{ steps.ndk.outputs.ndk-path }}
+        run: dart run tool/build.dart android --release
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Art3m1s-android-arm64
+          path: art3m1s/build/app/outputs/flutter-apk/app-release.apk
+
+  apple:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout art3m1s-core
+        uses: actions/checkout@v4
+        with:
+          repository: Alphaly2K/art3m1s-core
+          ref: master
+          path: art3m1s-core
+          submodules: recursive
+      - name: Checkout Art3m1s
+        uses: actions/checkout@v4
+        with:
+          path: art3m1s
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios aarch64-apple-darwin
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Build macOS
+        working-directory: art3m1s
+        env:
+          CORE_SRC: ${{ github.workspace }}/art3m1s-core
+        run: dart run tool/build.dart macos --release
+      - name: Build iOS
+        working-directory: art3m1s
+        env:
+          CORE_SRC: ${{ github.workspace }}/art3m1s-core
+        run: dart run tool/build.dart ios --release --device-only
+      - name: Upload macOS app
+        uses: actions/upload-artifact@v4
+        with:
+          name: Art3m1s-macos-arm64
+          path: art3m1s/build/macos/Build/Products/Release/*.app
+      - name: Upload iOS app
+        uses: actions/upload-artifact@v4
+        with:
+          name: Art3m1s-ios-arm64
+          path: art3m1s/build/ios/iphoneos/Runner.app
