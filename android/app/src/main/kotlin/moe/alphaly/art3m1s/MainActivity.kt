@@ -61,6 +61,7 @@ class MainActivity : FlutterActivity() {
                     pendingImportResult = result
                     val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
                     }
                     startActivityForResult(intent, REQ_PICK_DIRECTORY)
                 }
@@ -160,12 +161,15 @@ class MainActivity : FlutterActivity() {
                 result?.error("PICK_CANCELLED", "用户取消了目录选择", null)
                 return
             }
-            try {
-                val sandboxPath = copyTreeToSandbox(data!!.data!!)
-                result?.success(sandboxPath)
-            } catch (e: Exception) {
-                result?.error("COPY_FAILED", e.message, null)
-            }
+            val treeUri = data.data!!
+            Thread({
+                try {
+                    val sandboxPath = copyTreeToSandbox(treeUri)
+                    runOnUiThread { result?.success(sandboxPath) }
+                } catch (e: Exception) {
+                    runOnUiThread { result?.error("COPY_FAILED", e.message, null) }
+                }
+            }, "art3m1s-import").start()
             return
         }
         @Suppress("DEPRECATION")
@@ -183,7 +187,8 @@ class MainActivity : FlutterActivity() {
         val rootDoc = DocumentFile.fromTreeUri(this, treeUri)
             ?: throw IllegalStateException("无法读取所选目录")
 
-        val incomingDir = File(filesDir, "games/incoming/${System.currentTimeMillis()}")
+        val folderName = sanitizeImportedDirectoryName(rootDoc.name)
+        val incomingDir = File(filesDir, "games/incoming/${System.currentTimeMillis()}/$folderName")
         incomingDir.mkdirs()
 
         val count = copyDocumentDir(rootDoc, incomingDir)
@@ -192,6 +197,13 @@ class MainActivity : FlutterActivity() {
             throw IllegalStateException("所选目录为空或无法读取")
         }
         return incomingDir.absolutePath
+    }
+
+    private fun sanitizeImportedDirectoryName(raw: String?): String {
+        val name = raw.orEmpty().trim()
+            .replace(Regex("[\\/]+"), "_")
+            .trim('.', ' ')
+        return if (name.isEmpty() || name == "." || name == "..") "game" else name
     }
 
     private fun copyDocumentDir(docDir: DocumentFile, targetDir: File): Int {

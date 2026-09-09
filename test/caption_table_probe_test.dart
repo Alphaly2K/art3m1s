@@ -61,4 +61,21 @@ void main() {
       isNull,
     );
   });
+
+  test('reads lua init tables that assign game_title', () {
+    final files = <String, Uint8List>{
+      'system/csv_ps4.tbl': Uint8List.fromList(
+        utf8.encode('init = {\n\t["game_title"] = "千の刃濤、桃花染の皇姫",\n}\n'),
+      ),
+    };
+
+    expect(
+      CaptionTableProbe.find(
+        paths: files.keys,
+        readFile: (path) => files[path],
+        charset: 'UTF-8',
+      ),
+      '千の刃濤、桃花染の皇姫',
+    );
+  });
 }

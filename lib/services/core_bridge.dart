@@ -406,6 +406,7 @@ class CoreBridge {
   bool _profilerSymbolsUnavailable = false;
   bool _fontOverrideSymbolsUnavailable = false;
   bool _sharedTextureSymbolsUnavailable = false;
+
   /// 输入门控：喂给 core 前的统一过滤/重映射，默认全放行。
   InputGatePolicy _inputGate = InputGatePolicy.full;
   int? _sharedTextureId;
@@ -859,10 +860,11 @@ class CoreBridge {
       return false;
     }
     try {
-      final fn = lib.lookupFunction<
-        Int32 Function(Pointer<Uint8>, Int32),
-        int Function(Pointer<Uint8>, int)
-      >('art3m1s_set_font_override');
+      final fn = lib
+          .lookupFunction<
+            Int32 Function(Pointer<Uint8>, Int32),
+            int Function(Pointer<Uint8>, int)
+          >('art3m1s_set_font_override');
       final ptr = malloc.allocate<Uint8>(bytes.length);
       try {
         ptr.asTypedList(bytes.length).setAll(0, bytes);
@@ -899,10 +901,11 @@ class CoreBridge {
     final runtime = _runtime;
     if (lib == null || runtime == null) return;
     try {
-      final fn = lib.lookupFunction<
-        Void Function(Pointer<Void>, Pointer<Utf8>),
-        void Function(Pointer<Void>, Pointer<Utf8>)
-      >('art3m1s_runtime_set_reported_os');
+      final fn = lib
+          .lookupFunction<
+            Void Function(Pointer<Void>, Pointer<Utf8>),
+            void Function(Pointer<Void>, Pointer<Utf8>)
+          >('art3m1s_runtime_set_reported_os');
       final ptr = (os == null || os.isEmpty)
           ? nullptr
           : os.toNativeUtf8().cast<Utf8>();
@@ -1042,6 +1045,21 @@ class CoreBridge {
       return fn(_runtime!, backend) != 0;
     } catch (error) {
       Log.warn('[CoreBridge] E-Mote 后端选择不可用: $error');
+      return false;
+    }
+  }
+
+  bool setRenderQualityPreset(int preset) {
+    if (_runtime == null || _lib == null) return false;
+    try {
+      final fn = _lib!
+          .lookupFunction<
+            Int32 Function(Pointer<Void>, Int32),
+            int Function(Pointer<Void>, int)
+          >('art3m1s_runtime_set_render_quality_preset');
+      return fn(_runtime!, preset) != 0;
+    } catch (error) {
+      Log.warn('[CoreBridge] 渲染质量设置不可用: $error');
       return false;
     }
   }

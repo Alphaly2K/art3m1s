@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/host_ui_theme.dart';
 import '../models/translation_settings.dart';
+import '../models/render_quality.dart';
 import '../services/logger.dart';
 
 final settingsProvider = StateNotifierProvider<SettingsNotifier, SettingsState>(
@@ -21,8 +22,8 @@ class SettingsState {
   final bool debugOverlay;
   final bool showFps;
   final bool mobileTouchpadEnabled;
-  // Apple: 3 = native Metal; Android: 2 = native Vulkan; 1 = reference GL.
-  final int backend;
+  final int backend; // 3 = native Metal, 0 = CGL, 1 = GL/ANGLE
+  final RenderQualityPreset renderQuality;
   final HostUiTheme hostUiTheme;
   final TranslationSettings translation;
 
@@ -34,6 +35,7 @@ class SettingsState {
     this.showFps = false,
     this.mobileTouchpadEnabled = false,
     this.backend = 0,
+    this.renderQuality = RenderQualityPreset.native,
     this.hostUiTheme = HostUiTheme.material,
     this.translation = const TranslationSettings(),
   });
@@ -46,6 +48,7 @@ class SettingsState {
     bool? showFps,
     bool? mobileTouchpadEnabled,
     int? backend,
+    RenderQualityPreset? renderQuality,
     HostUiTheme? hostUiTheme,
     TranslationSettings? translation,
   }) {
@@ -58,6 +61,7 @@ class SettingsState {
       mobileTouchpadEnabled:
           mobileTouchpadEnabled ?? this.mobileTouchpadEnabled,
       backend: backend ?? this.backend,
+      renderQuality: renderQuality ?? this.renderQuality,
       hostUiTheme: hostUiTheme ?? this.hostUiTheme,
       translation: translation ?? this.translation,
     );
@@ -145,7 +149,14 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
         showFps: prefs.getBool('show_fps') ?? false,
         mobileTouchpadEnabled:
             prefs.getBool('mobile_touchpad_enabled') ?? false,
-        backend: prefs.getInt('gfx_backend') ?? getDefaultBackend(),
+        backend:
+            prefs.getInt('gfx_backend') ??
+            getDefaultBackend(), // default: ANGLE Vulkan
+        renderQuality:
+            RenderQualityPreset.values[(prefs.getInt('render_quality_preset') ??
+                    0)
+                .clamp(0, 3)
+                .toInt()],
         hostUiTheme: HostUiTheme.byName(prefs.getString('host_ui_theme')),
         translation: TranslationSettings(
           mode: mode ?? TranslationMode.off,
@@ -223,6 +234,12 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt('gfx_backend', v);
     state = state.copyWith(backend: v);
+  }
+
+  Future<void> setRenderQuality(RenderQualityPreset v) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('render_quality_preset', v.ffiValue);
+    state = state.copyWith(renderQuality: v);
   }
 
   Future<void> setHostUiTheme(HostUiTheme v) async {

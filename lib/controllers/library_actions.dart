@@ -30,16 +30,44 @@ class LibraryActions {
   // ── 添加入口 ──────────────────────────────────────────────
 
   Future<void> pickDirectory() async {
-    final path = await getDirectoryPath(confirmButtonText: '选择此目录');
-    if (path == null || !context.mounted) return;
-
-    if (!File('$path${Platform.pathSeparator}system.ini').existsSync()) {
+    List<String> projects;
+    try {
+      if (Platform.isAndroid) {
+        // Android 不能用 dart:io 直接读 SAF 目录，先拷进沙箱再识别 system.ini。
+        final sandboxDir = await GameImporter.pickDirectoryAndCopy();
+        if (sandboxDir == null || !context.mounted) return;
+        projects = GameImporter.discoverUnpackedProjects(sandboxDir);
+      } else {
+        final path = await getDirectoryPath(confirmButtonText: '选择此目录');
+        if (path == null || !context.mounted) return;
+        projects = GameImporter.discoverUnpackedProjects(path);
+      }
+    } on GameImportException catch (error) {
+      if (context.mounted) notify(context, error.message);
+      return;
+    }
+    if (!context.mounted) return;
+    if (projects.isEmpty) {
       notify(context, '所选目录中没有 system.ini');
       return;
     }
-
-    final name = path.split(Platform.pathSeparator).last;
-    await _editAndAdd(name, path, GameSource.directory);
+    if (projects.length == 1) {
+      final path = projects.single;
+      await _editAndAdd(
+        _directoryDisplayName(path),
+        path,
+        GameSource.directory,
+      );
+      return;
+    }
+    await _addDiscoveredGamesAutomatically([
+      for (final path in projects)
+        DiscoveredGame(
+          name: _directoryDisplayName(path),
+          path: path,
+          source: GameSource.directory.name,
+        ),
+    ]);
   }
 
   Future<void> pickPfs() async {
@@ -48,9 +76,14 @@ class LibraryActions {
       // 移动平台：通过原生选择器复制数据，再让每个 base PFS 独立成为项目。
       // 避免 file_selector 在 Android 上返回无法用 dart:io 访问的 content URI。
       if (Platform.isAndroid) {
-        final sandboxDir = await GameImporter.pickDirectoryAndCopy();
-        if (sandboxDir == null || !context.mounted) return;
-        filePaths = GameImporter.discoverBasePfsFiles(sandboxDir);
+        try {
+          final sandboxDir = await GameImporter.pickDirectoryAndCopy();
+          if (sandboxDir == null || !context.mounted) return;
+          filePaths = GameImporter.discoverBasePfsFiles(sandboxDir);
+        } on GameImportException catch (error) {
+          if (context.mounted) notify(context, error.message);
+          return;
+        }
       } else {
         final picked = await GameImporter.pickPfsFilesAndCopy();
         if (picked == null) {
@@ -305,6 +338,11 @@ class LibraryActions {
       .split(Platform.pathSeparator)
       .last
       .replaceAll(RegExp(r'\.pfs$', caseSensitive: false), '');
+
+  String _directoryDisplayName(String path) {
+    final name = path.split(Platform.pathSeparator).last;
+    return name.isEmpty ? path : name;
+  }
 
   String _gameIdForPath(String path) {
     final library = ref.read(libraryProvider);

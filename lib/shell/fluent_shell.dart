@@ -7,6 +7,7 @@ import '../adaptive/feedback.dart';
 import '../controllers/library_actions.dart';
 import '../models/game_entry.dart';
 import '../models/render_backend.dart';
+import '../models/render_quality.dart';
 import '../providers/library_provider.dart';
 import '../providers/settings_provider.dart';
 import '../services/app_info.dart';
@@ -166,6 +167,20 @@ class _FluentSettingsPage extends ConsumerWidget {
                 ],
                 onChanged: (v) {
                   if (v != null) notifier.setBackend(v);
+                },
+              ),
+            ),
+            _FluentSettingRow(
+              label: '渲染质量',
+              caption: settings.renderQuality.label,
+              control: ComboBox<RenderQualityPreset>(
+                value: settings.renderQuality,
+                items: [
+                  for (final q in RenderQualityPreset.values)
+                    ComboBoxItem(value: q, child: Text(q.label)),
+                ],
+                onChanged: (v) {
+                  if (v != null) notifier.setRenderQuality(v);
                 },
               ),
             ),

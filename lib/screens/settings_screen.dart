@@ -7,6 +7,7 @@ import 'about_screen.dart';
 import 'translation_settings_screen.dart';
 import '../models/host_ui_theme.dart';
 import '../models/render_backend.dart';
+import '../models/render_quality.dart';
 import '../providers/settings_provider.dart';
 import '../services/logger.dart';
 
@@ -55,6 +56,22 @@ class SettingsScreen extends ConsumerWidget {
             selected: {settings.backend},
             onSelectionChanged: (v) =>
                 ref.read(settingsProvider.notifier).setBackend(v.first),
+          ),
+        ),
+        ListTile(
+          title: const Text('渲染质量'),
+          subtitle: Text(settings.renderQuality.label),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: SegmentedButton<RenderQualityPreset>(
+            segments: [
+              for (final quality in RenderQualityPreset.values)
+                ButtonSegment(value: quality, label: Text(quality.label)),
+            ],
+            selected: {settings.renderQuality},
+            onSelectionChanged: (v) =>
+                ref.read(settingsProvider.notifier).setRenderQuality(v.first),
           ),
         ),
         ListTile(

@@ -7,6 +7,7 @@ import '../adaptive/feedback.dart';
 import '../controllers/library_actions.dart';
 import '../models/game_entry.dart';
 import '../models/render_backend.dart';
+import '../models/render_quality.dart';
 import '../providers/library_provider.dart';
 import '../providers/settings_provider.dart';
 import '../services/app_info.dart';
@@ -216,6 +217,22 @@ class _CupertinoSettingsScreen extends ConsumerWidget {
                       options: [for (final b in backends) (b.value, b.label)],
                     );
                     if (v != null) notifier.setBackend(v);
+                  },
+                ),
+                CupertinoListTile.notched(
+                  title: const Text('渲染质量'),
+                  subtitle: Text(settings.renderQuality.label),
+                  trailing: const CupertinoListTileChevron(),
+                  onTap: () async {
+                    final v = await _pickOption<RenderQualityPreset>(
+                      context,
+                      title: '渲染质量',
+                      options: [
+                        for (final q in RenderQualityPreset.values)
+                          (q, q.label),
+                      ],
+                    );
+                    if (v != null) notifier.setRenderQuality(v);
                   },
                 ),
               ],
