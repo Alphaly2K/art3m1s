@@ -171,25 +171,27 @@ class _FluentSettingsPage extends ConsumerWidget {
                 },
               ),
             ),
-            _FluentSettingRow(
-              label: '超分输出',
-              caption: renderOutputDescription(
-                settings.renderOutputMode,
-                customWidth: settings.customRenderWidth,
-                customHeight: settings.customRenderHeight,
+            if (supportsSpatialUpscalingSettings(settings.backend))
+              _FluentSettingRow(
+                label: '超分输出',
+                caption: renderOutputDescription(
+                  settings.renderOutputMode,
+                  customWidth: settings.customRenderWidth,
+                  customHeight: settings.customRenderHeight,
+                ),
+                control: ComboBox<RenderOutputMode>(
+                  value: settings.renderOutputMode,
+                  items: [
+                    for (final mode in RenderOutputMode.values)
+                      ComboBoxItem(value: mode, child: Text(mode.label)),
+                  ],
+                  onChanged: (v) {
+                    if (v != null) notifier.setRenderOutputMode(v);
+                  },
+                ),
               ),
-              control: ComboBox<RenderOutputMode>(
-                value: settings.renderOutputMode,
-                items: [
-                  for (final mode in RenderOutputMode.values)
-                    ComboBoxItem(value: mode, child: Text(mode.label)),
-                ],
-                onChanged: (v) {
-                  if (v != null) notifier.setRenderOutputMode(v);
-                },
-              ),
-            ),
-            if (settings.renderOutputMode == RenderOutputMode.custom)
+            if (supportsSpatialUpscalingSettings(settings.backend) &&
+                settings.renderOutputMode == RenderOutputMode.custom)
               _FluentSettingRow(
                 label: '自定义分辨率',
                 caption: '保持游戏宽高比',

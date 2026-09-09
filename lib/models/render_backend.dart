@@ -43,5 +43,22 @@ String backendName(int v) {
   };
 }
 
+/// 设置页是否应展示空间超分选项。目前只有 Apple 原生 Metal 后端实现该能力。
+bool supportsSpatialUpscalingSettings(int backend) {
+  return supportsSpatialUpscalingSettingsFor(
+    backend: backend,
+    isMacOS: Platform.isMacOS,
+    isIOS: Platform.isIOS,
+  );
+}
+
+bool supportsSpatialUpscalingSettingsFor({
+  required int backend,
+  required bool isMacOS,
+  required bool isIOS,
+}) {
+  return backend == 3 && (isMacOS || isIOS);
+}
+
 /// system.ini 启动段的候选值。
 const runtimePlatforms = ['WINDOWS', 'ANDROID', 'IOS', 'WASM'];

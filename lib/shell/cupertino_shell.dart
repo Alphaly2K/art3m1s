@@ -221,29 +221,31 @@ class _CupertinoSettingsScreen extends ConsumerWidget {
                     if (v != null) notifier.setBackend(v);
                   },
                 ),
-                CupertinoListTile.notched(
-                  title: const Text('超分输出'),
-                  subtitle: Text(
-                    renderOutputDescription(
-                      settings.renderOutputMode,
-                      customWidth: settings.customRenderWidth,
-                      customHeight: settings.customRenderHeight,
+                if (supportsSpatialUpscalingSettings(settings.backend))
+                  CupertinoListTile.notched(
+                    title: const Text('超分输出'),
+                    subtitle: Text(
+                      renderOutputDescription(
+                        settings.renderOutputMode,
+                        customWidth: settings.customRenderWidth,
+                        customHeight: settings.customRenderHeight,
+                      ),
                     ),
+                    trailing: const CupertinoListTileChevron(),
+                    onTap: () async {
+                      final v = await _pickOption<RenderOutputMode>(
+                        context,
+                        title: '超分输出',
+                        options: [
+                          for (final mode in RenderOutputMode.values)
+                            (mode, mode.label),
+                        ],
+                      );
+                      if (v != null) notifier.setRenderOutputMode(v);
+                    },
                   ),
-                  trailing: const CupertinoListTileChevron(),
-                  onTap: () async {
-                    final v = await _pickOption<RenderOutputMode>(
-                      context,
-                      title: '超分输出',
-                      options: [
-                        for (final mode in RenderOutputMode.values)
-                          (mode, mode.label),
-                      ],
-                    );
-                    if (v != null) notifier.setRenderOutputMode(v);
-                  },
-                ),
-                if (settings.renderOutputMode == RenderOutputMode.custom)
+                if (supportsSpatialUpscalingSettings(settings.backend) &&
+                    settings.renderOutputMode == RenderOutputMode.custom)
                   CupertinoListTile.notched(
                     title: const Text('自定义分辨率'),
                     subtitle: const Text('保持游戏宽高比'),

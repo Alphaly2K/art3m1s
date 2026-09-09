@@ -268,20 +268,22 @@ class MiuixSettingsBody extends ConsumerWidget {
                 notifier.setBackend(backends[index].value);
               },
             ),
-            MiuixOverlayDropdownPreference(
-              title: '超分输出',
-              summary: renderOutputDescription(
-                settings.renderOutputMode,
-                customWidth: settings.customRenderWidth,
-                customHeight: settings.customRenderHeight,
+            if (supportsSpatialUpscalingSettings(settings.backend))
+              MiuixOverlayDropdownPreference(
+                title: '超分输出',
+                summary: renderOutputDescription(
+                  settings.renderOutputMode,
+                  customWidth: settings.customRenderWidth,
+                  customHeight: settings.customRenderHeight,
+                ),
+                items: [for (final mode in RenderOutputMode.values) mode.label],
+                selectedIndex: settings.renderOutputMode.index,
+                onSelectedIndexChange: (index) {
+                  notifier.setRenderOutputMode(RenderOutputMode.values[index]);
+                },
               ),
-              items: [for (final mode in RenderOutputMode.values) mode.label],
-              selectedIndex: settings.renderOutputMode.index,
-              onSelectedIndexChange: (index) {
-                notifier.setRenderOutputMode(RenderOutputMode.values[index]);
-              },
-            ),
-            if (settings.renderOutputMode == RenderOutputMode.custom)
+            if (supportsSpatialUpscalingSettings(settings.backend) &&
+                settings.renderOutputMode == RenderOutputMode.custom)
               MiuixArrowPreference(
                 title: '自定义分辨率',
                 summary:

@@ -59,29 +59,33 @@ class SettingsScreen extends ConsumerWidget {
                 ref.read(settingsProvider.notifier).setBackend(v.first),
           ),
         ),
-        ListTile(
-          title: const Text('超分输出'),
-          subtitle: Text(
-            renderOutputDescription(
-              settings.renderOutputMode,
-              customWidth: settings.customRenderWidth,
-              customHeight: settings.customRenderHeight,
+        if (supportsSpatialUpscalingSettings(settings.backend))
+          ListTile(
+            title: const Text('超分输出'),
+            subtitle: Text(
+              renderOutputDescription(
+                settings.renderOutputMode,
+                customWidth: settings.customRenderWidth,
+                customHeight: settings.customRenderHeight,
+              ),
+            ),
+            trailing: DropdownButton<RenderOutputMode>(
+              value: settings.renderOutputMode,
+              items: [
+                for (final mode in RenderOutputMode.values)
+                  DropdownMenuItem(value: mode, child: Text(mode.label)),
+              ],
+              onChanged: (value) {
+                if (value != null) {
+                  ref
+                      .read(settingsProvider.notifier)
+                      .setRenderOutputMode(value);
+                }
+              },
             ),
           ),
-          trailing: DropdownButton<RenderOutputMode>(
-            value: settings.renderOutputMode,
-            items: [
-              for (final mode in RenderOutputMode.values)
-                DropdownMenuItem(value: mode, child: Text(mode.label)),
-            ],
-            onChanged: (value) {
-              if (value != null) {
-                ref.read(settingsProvider.notifier).setRenderOutputMode(value);
-              }
-            },
-          ),
-        ),
-        if (settings.renderOutputMode == RenderOutputMode.custom)
+        if (supportsSpatialUpscalingSettings(settings.backend) &&
+            settings.renderOutputMode == RenderOutputMode.custom)
           ListTile(
             title: const Text('自定义分辨率'),
             subtitle: const Text('输出会保持游戏原始宽高比'),

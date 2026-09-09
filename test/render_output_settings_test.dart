@@ -1,9 +1,45 @@
 import 'package:art3m1s/models/render_output.dart';
+import 'package:art3m1s/models/render_backend.dart';
 import 'package:art3m1s/providers/settings_provider.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  test('spatial upscaling settings require Apple native Metal', () {
+    expect(
+      supportsSpatialUpscalingSettingsFor(
+        backend: 3,
+        isMacOS: true,
+        isIOS: false,
+      ),
+      isTrue,
+    );
+    expect(
+      supportsSpatialUpscalingSettingsFor(
+        backend: 3,
+        isMacOS: false,
+        isIOS: true,
+      ),
+      isTrue,
+    );
+    expect(
+      supportsSpatialUpscalingSettingsFor(
+        backend: 1,
+        isMacOS: true,
+        isIOS: false,
+      ),
+      isFalse,
+    );
+    expect(
+      supportsSpatialUpscalingSettingsFor(
+        backend: 3,
+        isMacOS: false,
+        isIOS: false,
+      ),
+      isFalse,
+    );
+  });
+
   test('render output mode and custom extent persist', () async {
     SharedPreferences.setMockInitialValues({
       'render_output_mode': RenderOutputMode.custom.name,

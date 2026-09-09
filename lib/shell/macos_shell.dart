@@ -246,28 +246,30 @@ class _MacosSettingsPage extends ConsumerWidget {
                           },
                         ),
                       ),
-                      _SettingRow(
-                        label: '超分输出',
-                        caption: renderOutputDescription(
-                          settings.renderOutputMode,
-                          customWidth: settings.customRenderWidth,
-                          customHeight: settings.customRenderHeight,
+                      if (supportsSpatialUpscalingSettings(settings.backend))
+                        _SettingRow(
+                          label: '超分输出',
+                          caption: renderOutputDescription(
+                            settings.renderOutputMode,
+                            customWidth: settings.customRenderWidth,
+                            customHeight: settings.customRenderHeight,
+                          ),
+                          control: MacosPopupButton<RenderOutputMode>(
+                            value: settings.renderOutputMode,
+                            items: [
+                              for (final mode in RenderOutputMode.values)
+                                MacosPopupMenuItem(
+                                  value: mode,
+                                  child: Text(mode.label),
+                                ),
+                            ],
+                            onChanged: (v) {
+                              if (v != null) notifier.setRenderOutputMode(v);
+                            },
+                          ),
                         ),
-                        control: MacosPopupButton<RenderOutputMode>(
-                          value: settings.renderOutputMode,
-                          items: [
-                            for (final mode in RenderOutputMode.values)
-                              MacosPopupMenuItem(
-                                value: mode,
-                                child: Text(mode.label),
-                              ),
-                          ],
-                          onChanged: (v) {
-                            if (v != null) notifier.setRenderOutputMode(v);
-                          },
-                        ),
-                      ),
-                      if (settings.renderOutputMode == RenderOutputMode.custom)
+                      if (supportsSpatialUpscalingSettings(settings.backend) &&
+                          settings.renderOutputMode == RenderOutputMode.custom)
                         _SettingRow(
                           label: '自定义分辨率',
                           caption: '保持游戏宽高比',

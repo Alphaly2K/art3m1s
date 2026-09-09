@@ -431,7 +431,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     final physicalSize = View.of(context).physicalSize;
     final settings = ref.read(settingsProvider);
     return resolveRenderOutputExtent(
-      mode: settings.renderOutputMode,
+      mode: _bridge.supportsSpatialUpscaling
+          ? settings.renderOutputMode
+          : RenderOutputMode.original,
       stageWidth: _stageW,
       stageHeight: _stageH,
       physicalViewWidth: physicalSize.width,
