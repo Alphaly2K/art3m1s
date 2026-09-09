@@ -32,10 +32,7 @@ class LibraryNotifier extends StateNotifier<List<GameEntry>> {
     var finalEntry = entry;
     if (GameImporter.needsSandbox) {
       try {
-        final sandboxPath = await GameImporter.importToSandbox(
-          entry.path,
-          gameId: entry.id,
-        );
+        final sandboxPath = await GameImporter.importToSandbox(entry.path);
         if (sandboxPath != entry.path) {
           finalEntry = GameEntry(
             id: entry.id,

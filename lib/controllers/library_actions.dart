@@ -128,7 +128,6 @@ class LibraryActions {
     BlockingProgressController? progress;
     String? sandbox;
     var keep = false;
-    final isolated = <String>[];
     try {
       sandbox = await GameImporter.pickDirectoryAndCopy(
         onProgress: (value) {
@@ -150,40 +149,18 @@ class LibraryActions {
       progress?.update('正在识别游戏文件…');
       await Future<void>.delayed(Duration.zero);
       final found = discover(sandbox);
-      progress?.update('正在整理游戏文件…');
-      final roots = await GameImporter.androidManagedGameRoots();
-      final reserved = GameImporter.listOwnedGameIds(roots);
-      for (final path in found) {
-        var relocated = false;
-        for (var attempt = 0; attempt < 8 && !relocated; attempt++) {
-          final id = _gameIdForPath(path, reservedIds: reserved);
-          try {
-            isolated.add(
-              GameImporter.isolateImportedGameForRoots(path, id, roots: roots),
-            );
-            reserved.add(id);
-            relocated = true;
-          } on StateError {
-            reserved.add(id);
-          }
-        }
-        if (!relocated) {
-          throw const GameImportException('无法为导入的游戏创建独立目录');
-        }
-      }
       progress?.close();
       progress = null;
-      keep = await consume(isolated);
+      keep = await consume(found);
     } on GameImportException catch (error) {
       if (context.mounted) notify(context, error.message);
     } finally {
       progress?.close();
       if (sandbox != null) {
-        await GameImporter.discardAndroidImport(sandbox);
-      }
-      if (!keep) {
-        for (final path in isolated) {
-          await GameImporter.removeImportedGameFiles(path);
+        if (keep) {
+          await GameImporter.markAndroidImportComplete(sandbox);
+        } else {
+          await GameImporter.discardAndroidImport(sandbox);
         }
       }
     }
@@ -410,32 +387,19 @@ class LibraryActions {
     return name.isEmpty ? path : name;
   }
 
-  String _gameIdForPath(String path, {Set<String> reservedIds = const {}}) {
+  String _gameIdForPath(String path) {
     final library = ref.read(libraryProvider);
     for (final game in library) {
       if (GameImporter.isSameLibraryPath(game.path, path)) return game.id;
     }
-    final owned = GameImporter.ownedGameIdFromManagedPath(path);
-    if (owned != null &&
-        owned != GameImporter.ownedIncomingDirName &&
-        !reservedIds.contains(owned) &&
-        !library.any(
-          (game) =>
-              game.id == owned &&
-              !GameImporter.isSameLibraryPath(game.path, path),
-        )) {
-      return owned;
-    }
-    final existing = {...library.map((game) => game.id), ...reservedIds};
+    final existing = library.map((game) => game.id).toSet();
     final random = Random.secure();
     while (true) {
       final id = List.generate(
         8,
         (_) => random.nextInt(16).toRadixString(16),
       ).join();
-      if (id != GameImporter.ownedIncomingDirName && !existing.contains(id)) {
-        return id;
-      }
+      if (!existing.contains(id)) return id;
     }
   }
 
