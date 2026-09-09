@@ -74,6 +74,7 @@ flutter:
 
   assets:
     - assets/branding/art3m1s-logo-v1.png
+    - assets/licenses/rust_third_party.json
 
   # To add assets to your application, add an assets section, like this:
   # assets:
