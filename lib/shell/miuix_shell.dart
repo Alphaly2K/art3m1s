@@ -484,7 +484,7 @@ class MiuixAboutBody extends StatelessWidget {
           children: [
             MiuixBasicComponent(
               title: 'art3m1s-core / asb-interpreter',
-              summary: 'pfs-upk-rust · mlua · Vulkan（原生） · ANGLE（参考）',
+              summary: 'pfs-upk-rust · mlua · ANGLE',
             ),
           ],
         ),

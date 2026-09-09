@@ -93,7 +93,7 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
       return 3; // Metal
     } else {
       if (Platform.isAndroid) {
-        return 2; // Native Vulkan
+        return 1; // OpenGLES
       } else {
         return 2; // Vulkan
       }

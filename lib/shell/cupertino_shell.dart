@@ -447,7 +447,7 @@ class _CupertinoAboutScreen extends StatelessWidget {
                   title: Text('Rust / Native'),
                   subtitle: Text(
                     'art3m1s-core · asb-interpreter · pfs-upk-rust · '
-                    'mlua/Lua 5.1 · Metal（原生） · glow · ANGLE（参考）',
+                    'mlua/Lua 5.1 · glow · ANGLE (Metal)',
                   ),
                 ),
               ],
