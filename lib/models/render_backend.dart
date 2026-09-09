@@ -12,11 +12,13 @@ class BackendOption {
 List<BackendOption> availableBackends() {
   final list = <BackendOption>[];
   if (Platform.isMacOS) {
-    list.add(const BackendOption(3, 'Metal'));
+    list.add(const BackendOption(3, '原生 Metal'));
+    list.add(const BackendOption(6, 'ANGLE / Metal'));
     list.add(const BackendOption(0, 'CGL'));
   }
   if (Platform.isIOS) {
     list.add(const BackendOption(3, 'Metal'));
+    list.add(const BackendOption(6, 'ANGLE / Metal'));
   }
   if (Platform.isLinux) {
     list.add(const BackendOption(2, 'Vulkan'));
@@ -34,8 +36,9 @@ String backendName(int v) {
     0 => 'CGL (macOS Core OpenGL)',
     1 => 'ANGLE / OpenGL ES',
     2 => 'ANGLE / Vulkan',
-    3 => 'ANGLE / Metal',
+    3 => '原生 Metal',
     4 => 'ANGLE / D3D11',
+    6 => 'ANGLE / Metal',
     _ => '未知',
   };
 }

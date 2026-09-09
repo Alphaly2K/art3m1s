@@ -299,7 +299,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
     _bridge.registerFileReader();
     final renderBackend = ref.read(settingsProvider).backend;
+    final renderQuality = ref.read(settingsProvider).renderQuality;
     _bridge.createRuntime(_stageW, _stageH, backend: renderBackend);
+    _bridge.setRenderQualityPreset(renderQuality.ffiValue);
     // 机种上报覆盖（runtime 已建、项目未加载；空串=跟随平台）。
     _bridge.setReportedOs(config.reportedOs);
     if (config.experimentalElunaEnabled && !_bridge.setEmoteBackend(1)) {

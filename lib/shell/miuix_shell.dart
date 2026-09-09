@@ -9,6 +9,7 @@ import '../controllers/library_actions.dart';
 import '../models/game_entry.dart';
 import '../models/host_ui_theme.dart';
 import '../models/render_backend.dart';
+import '../models/render_quality.dart';
 import '../providers/library_provider.dart';
 import '../providers/settings_provider.dart';
 import '../screens/licenses_miuix.dart';
@@ -265,6 +266,15 @@ class MiuixSettingsBody extends ConsumerWidget {
               selectedIndex: selectedBackend < 0 ? 0 : selectedBackend,
               onSelectedIndexChange: (index) {
                 notifier.setBackend(backends[index].value);
+              },
+            ),
+            MiuixOverlayDropdownPreference(
+              title: '渲染质量',
+              summary: settings.renderQuality.label,
+              items: [for (final q in RenderQualityPreset.values) q.label],
+              selectedIndex: settings.renderQuality.index,
+              onSelectedIndexChange: (index) {
+                notifier.setRenderQuality(RenderQualityPreset.values[index]);
               },
             ),
             MiuixArrowPreference(
