@@ -3,6 +3,7 @@ import 'package:flutter/material.dart' show DefaultMaterialLocalizations;
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../adaptive/cupertino_chrome.dart';
 import '../adaptive/feedback.dart';
 import '../controllers/library_actions.dart';
 import '../models/game_entry.dart';
@@ -204,7 +205,7 @@ class _CupertinoSettingsScreen extends ConsumerWidget {
       child: SafeArea(
         child: ListView(
           children: [
-            CupertinoListSection.insetGrouped(
+            CupertinoSymmetricListSection(
               header: const Text('渲染'),
               children: [
                 CupertinoListTile.notched(
@@ -263,7 +264,7 @@ class _CupertinoSettingsScreen extends ConsumerWidget {
                   ),
               ],
             ),
-            CupertinoListSection.insetGrouped(
+            CupertinoSymmetricListSection(
               header: const Text('运行时'),
               children: [
                 CupertinoListTile.notched(
@@ -280,7 +281,7 @@ class _CupertinoSettingsScreen extends ConsumerWidget {
                 ),
               ],
             ),
-            CupertinoListSection.insetGrouped(
+            CupertinoSymmetricListSection(
               header: const Text('控制'),
               children: [
                 CupertinoListTile.notched(
@@ -293,7 +294,7 @@ class _CupertinoSettingsScreen extends ConsumerWidget {
                 ),
               ],
             ),
-            CupertinoListSection.insetGrouped(
+            CupertinoSymmetricListSection(
               header: const Text('调试'),
               children: [
                 CupertinoListTile.notched(
@@ -344,7 +345,7 @@ class _CupertinoSettingsScreen extends ConsumerWidget {
                 ),
               ],
             ),
-            CupertinoListSection.insetGrouped(
+            CupertinoSymmetricListSection(
               header: const Text('显示'),
               children: [
                 CupertinoListTile.notched(
@@ -409,14 +410,14 @@ class _CupertinoAboutScreen extends StatelessWidget {
                 ],
               ),
             ),
-            CupertinoListSection.insetGrouped(
+            CupertinoSymmetricListSection(
               header: const Text('仓库'),
               children: [
                 _CopyTile(title: 'Flutter App', value: _appRepository),
                 _CopyTile(title: 'Rust Core', value: _coreRepository),
               ],
             ),
-            CupertinoListSection.insetGrouped(
+            CupertinoSymmetricListSection(
               header: const Text('许可证'),
               children: [
                 CupertinoListTile.notched(
@@ -433,7 +434,7 @@ class _CupertinoAboutScreen extends StatelessWidget {
                 ),
               ],
             ),
-            CupertinoListSection.insetGrouped(
+            CupertinoSymmetricListSection(
               header: const Text('主要依赖'),
               children: const [
                 CupertinoListTile.notched(

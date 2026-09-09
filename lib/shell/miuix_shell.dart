@@ -106,7 +106,6 @@ class _MiuixHomeState extends ConsumerState<_MiuixHome> {
                       icon: 'folder',
                       value: 0,
                     ),
-                    const MiuixInsetDivider(),
                     option(
                       title: '选择 PFS 归档',
                       summary: '直接读取，不写入磁盘',

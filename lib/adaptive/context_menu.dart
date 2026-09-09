@@ -74,12 +74,7 @@ Future<void> _showMiuixMenu(
           children: [
             MiuixCard(
               child: Column(
-                children: [
-                  for (var i = 0; i < actions.length; i++) ...[
-                    if (i > 0) const MiuixInsetDivider(),
-                    row(actions[i]),
-                  ],
-                ],
+                children: [for (final action in actions) row(action)],
               ),
             ),
             const SizedBox(height: 10),

@@ -1,6 +1,7 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart' show SelectableText;
 
+import '../adaptive/cupertino_chrome.dart';
 import '../widgets/license_data.dart';
 
 /// iOS 风格的第三方许可证列表页。
@@ -28,7 +29,7 @@ class _CupertinoLicensesPageState extends State<CupertinoLicensesPage> {
             }
             return ListView(
               children: [
-                CupertinoListSection.insetGrouped(
+                CupertinoSymmetricListSection(
                   children: [
                     for (final item in data)
                       CupertinoListTile.notched(

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../adaptive/cupertino_chrome.dart';
 import '../models/translation_settings.dart';
 import '../providers/settings_provider.dart';
 import 'translation_font_picker.dart';
@@ -105,7 +106,7 @@ class _CupertinoTranslationSettingsScreenState
 
   List<Widget> _buildSections(TranslationSettings value) {
     return [
-      CupertinoListSection.insetGrouped(
+      CupertinoSymmetricListSection(
         header: const Text('模式'),
         children: [
           CupertinoListTile.notched(
@@ -125,7 +126,7 @@ class _CupertinoTranslationSettingsScreenState
         ],
       ),
       if (value.mode != TranslationMode.off)
-        CupertinoListSection.insetGrouped(
+        CupertinoSymmetricListSection(
           header: const Text('字体'),
           children: [
             CupertinoListTile.notched(
@@ -159,7 +160,7 @@ class _CupertinoTranslationSettingsScreenState
           ],
         ),
       if (value.mode == TranslationMode.online) ...[
-        CupertinoListSection.insetGrouped(
+        CupertinoSymmetricListSection(
           header: const Text('在线服务'),
           children: [
             CupertinoListTile.notched(
@@ -232,7 +233,7 @@ class _CupertinoTranslationSettingsScreenState
               ),
           ],
         ),
-        CupertinoListSection.insetGrouped(
+        CupertinoSymmetricListSection(
           header: const Text('语言'),
           children: [
             CupertinoListTile.notched(

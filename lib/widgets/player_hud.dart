@@ -405,26 +405,24 @@ class _HudPanel extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             _header(context, color: theme.colors.onSurface, onClose: onClose),
-            for (var i = 0; i < _items.length; i++) ...[
-              if (i > 0) const MiuixInsetDivider(),
-              if (_items[i].on != null)
+            for (final item in _items)
+              if (item.on != null)
                 MiuixSwitchPreference(
-                  title: _items[i].label,
-                  value: _items[i].on!,
-                  onChanged: (_) => _items[i].onTap(),
+                  title: item.label,
+                  value: item.on!,
+                  onChanged: (_) => item.onTap(),
                 )
               else
                 MiuixBasicComponent(
-                  title: _items[i].label,
-                  titleColor: _items[i].destructive
+                  title: item.label,
+                  titleColor: item.destructive
                       ? MiuixBasicComponentColors(
                           color: theme.colors.error,
                           disabledColor: theme.colors.disabledOnSurface,
                         )
                       : null,
-                  onClick: _items[i].onTap,
+                  onClick: item.onTap,
                 ),
-            ],
           ],
         ),
       ),

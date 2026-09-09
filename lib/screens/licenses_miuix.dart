@@ -41,8 +41,7 @@ class _MiuixLicensesPageState extends State<MiuixLicensesPage> {
                 MiuixCard(
                   child: Column(
                     children: [
-                      for (var i = 0; i < data.length; i++) ...[
-                        if (i > 0) const MiuixInsetDivider(),
+                      for (var i = 0; i < data.length; i++)
                         MiuixArrowPreference(
                           title: data[i].package,
                           summary: '${data[i].licenses.length} 条许可证',
@@ -55,7 +54,6 @@ class _MiuixLicensesPageState extends State<MiuixLicensesPage> {
                             );
                           },
                         ),
-                      ],
                     ],
                   ),
                 ),
