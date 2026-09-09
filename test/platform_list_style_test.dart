@@ -23,15 +23,16 @@ void main() {
     );
 
     expect(find.byType(CupertinoSymmetricDivider), findsOneWidget);
-    final padding = tester.widget<Padding>(
-      find.descendant(
-        of: find.byType(CupertinoSymmetricDivider),
-        matching: find.byType(Padding),
-      ),
+
+    final tileRect = tester.getRect(find.byType(CupertinoListTile).first);
+    final dividerRect = tester.getRect(find.byType(CupertinoSymmetricDivider));
+    expect(
+      dividerRect.left - tileRect.left,
+      CupertinoSymmetricListSection.dividerInset,
     );
     expect(
-      padding.padding.resolve(TextDirection.ltr),
-      const EdgeInsets.symmetric(horizontal: 16),
+      tileRect.right - dividerRect.right,
+      CupertinoSymmetricListSection.dividerInset,
     );
   });
 
