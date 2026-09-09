@@ -9,7 +9,7 @@ Art3m1s 是使用 Flutter 编写的跨平台 Artemis 视觉小说运行时宿主
 [`art3m1s-core`](https://github.com/Alphaly2K/art3m1s-core) 负责脚本执行、游戏状态和
 离屏图层合成。
 
-当前应用版本为 **1.2.0**，对应 `art3m1s-core 0.3.0` 兼容周期。
+当前应用版本为 **1.3.0**，对应 `art3m1s-core 0.4.0` 兼容周期。
 
 ## 功能
 
@@ -22,15 +22,16 @@ Art3m1s 是使用 Flutter 编写的跨平台 Artemis 视觉小说运行时宿主
 - 移动端可启用相对移动触摸板，以系统箭头光标完成精确点击和长按拖动
 - 播放 BGM、SE、Voice、全屏视频与参与 core 合成的图层视频
 - 将游戏文件与存档隔离到应用可访问的位置，支持通过 iOS 文件 App 导入导出
-- 提供渲染后端、启动 OS、脚本字符集、翻译和调试选项
+- 提供渲染后端、输出分辨率 / MetalFX、启动 OS、脚本字符集、翻译和调试选项
+- 支持 `art3m1s.json` 清单、输入门控、上报机种覆盖和实验性 Eluna 开关
 - 支持本地翻译补丁以及 OpenAI、Anthropic、DeepL、Google、百度和有道在线翻译
-- 提供会话日志、可拖动/缩放的等宽字体调试浮窗、日志导出和关于/许可证页面
+- 提供可停靠的游戏内 HUD、会话日志、调试浮窗、日志导出和关于/许可证页面
 
 ## 架构
 
 ```text
 平台界面
-  macOS / Cupertino / Fluent / Material
+  macOS / Cupertino / Fluent / Material / Miuix
         │
         ├─ LibraryActions
         │   ├─ 原生文件选择器 / 文件 App 可见目录
@@ -87,17 +88,17 @@ Documents/Art3m1s/
 ```
 
 原生 `UIDocumentPicker` 通过 security-scoped URL 复制用户选中的 PFS 分卷。导入时
-会先扫描 table 中的 `gametitle`，找不到时再使用启用环境补丁的 headless runtime
-探测标题。Android
-使用 Storage Access Framework 将选定目录复制到沙箱，从而避免 Dart 无法直接访问
-`content://`，也避免在 Dart 中把整个文件读入内存。
+会先扫描 table 中的 `gametitle` / `["game_title"]`，找不到时再使用启用环境补丁
+的 headless runtime 探测标题。Android 使用 Storage Access Framework 将选定目录
+复制到沙箱，从而避免 Dart 无法直接访问 `content://`，也避免在 Dart 中把整个文件
+读入内存。
 
 ### MediaBridge
 
 `lib/services/media_bridge.dart` 负责实际解码：
 
-- BGM/SE/Voice 使用 `audioplayers`；
-- 全屏视频与图层视频使用 `media_kit`/mpv；
+- BGM/SE/Voice 使用 libmpv；
+- 全屏视频与图层视频使用 `media_kit` / mpv；
 - 全屏视频显示在游戏画面上方并吸收鼠标和触摸输入；
 - 图层视频在 worker isolate 中解码，只保留最新 RGBA8 帧，再将其指针借给 core
   同步上传为 GL 纹理。
@@ -132,10 +133,9 @@ Documents/Art3m1s/
 | Android | Material 3 或 Miuix | 原生 SAF 目录复制 |
 
 设置和关于页面共用相同的数据与功能，但会使用符合目标平台习惯的控件进行渲染。
-Fable 的本轮 macOS UI 更新还加入了原生应用菜单、更加清晰的明暗主题图标状态和紧凑
-的游戏控制面板。
+macOS 使用原生应用菜单；游戏内 HUD 可停靠到侧边。项目编辑页还可以为单个游戏启用
+实验性 Eluna E-Mote 后端，并覆盖上报给脚本的机种。
 
-项目编辑页还可以为单个游戏启用实验性 Eluna E-Mote 后端。
 ## 关键文件
 
 | 路径 | 职责 |
@@ -249,8 +249,9 @@ flutter test
 
 ## 当前限制
 
-- 系统共享纹理不可用时会退回 CPU RGBA 回读；应通过真机日志确认目标设备实际采用的
-  提交路径。
+- Apple 平台默认原生 Metal，可用 MetalFX 将画面放大到显示器或自定义分辨率；不支持
+  时回退 native render。系统共享纹理不可用时仍会退回 CPU RGBA 回读。
+- 原生 Vulkan 为实验选项；Android 默认继续使用 ANGLE / OpenGL ES。
 - Artemis HLSL 和 E-Mote 兼容层只覆盖测试游戏中观察到的变体，并不支持所有私有
   引擎版本。
 - 部分引擎平台事件仍依赖各目标平台的宿主实现。
