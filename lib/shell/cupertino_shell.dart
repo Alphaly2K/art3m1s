@@ -87,43 +87,6 @@ class _CupertinoHome extends StatelessWidget {
 class _CupertinoLibraryScreen extends ConsumerWidget {
   const _CupertinoLibraryScreen();
 
-  void _showAddSheet(BuildContext context, WidgetRef ref) {
-    final actions = LibraryActions(context, ref);
-    showCupertinoModalPopup<void>(
-      context: context,
-      builder: (ctx) => CupertinoActionSheet(
-        title: const Text('添加项目'),
-        actions: [
-          CupertinoActionSheetAction(
-            onPressed: () {
-              Navigator.of(ctx).pop();
-              actions.openIosAppFolderManager();
-            },
-            child: const Text('App 文件夹（Files app）'),
-          ),
-          CupertinoActionSheetAction(
-            onPressed: () {
-              Navigator.of(ctx).pop();
-              actions.pickDirectory();
-            },
-            child: const Text('选择文件夹'),
-          ),
-          CupertinoActionSheetAction(
-            onPressed: () {
-              Navigator.of(ctx).pop();
-              actions.pickPfs();
-            },
-            child: const Text('选择 PFS 归档'),
-          ),
-        ],
-        cancelButton: CupertinoActionSheetAction(
-          onPressed: () => Navigator.of(ctx).pop(),
-          child: const Text('取消'),
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final library = ref.watch(libraryProvider);
@@ -140,8 +103,8 @@ class _CupertinoLibraryScreen extends ConsumerWidget {
             CupertinoButton(
               padding: EdgeInsets.zero,
               sizeStyle: CupertinoButtonSize.small,
-              onPressed: () => _showAddSheet(context, ref),
-              child: const Icon(CupertinoIcons.add),
+              onPressed: actions.scanIosAppFolder,
+              child: const Icon(CupertinoIcons.search),
             ),
           ],
         ),
@@ -150,8 +113,8 @@ class _CupertinoLibraryScreen extends ConsumerWidget {
         child: sorted.isEmpty
             ? LibraryEmptyState(
                 action: CupertinoButton.filled(
-                  onPressed: () => _showAddSheet(context, ref),
-                  child: const Text('添加项目'),
+                  onPressed: actions.scanIosAppFolder,
+                  child: const Text('扫描游戏'),
                 ),
               )
             : GameGrid(
