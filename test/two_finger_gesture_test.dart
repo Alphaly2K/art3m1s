@@ -1,5 +1,4 @@
 import 'package:art3m1s/controllers/two_finger_gesture.dart';
-import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
