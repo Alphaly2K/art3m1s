@@ -196,7 +196,12 @@ class MainActivity : FlutterActivity() {
         val rootId = DocumentsContract.getTreeDocumentId(treeUri)
         val rootUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, rootId)
         val folderName = sanitizeImportedDirectoryName(queryDocumentName(rootUri))
-        val incomingDir = File(filesDir, "games/incoming/${System.currentTimeMillis()}/$folderName")
+        val batchDir = File(filesDir, "games/incoming/${System.currentTimeMillis()}")
+        if (!batchDir.mkdirs()) {
+            throw IllegalStateException("无法创建导入目录")
+        }
+        File(batchDir, ".import-incomplete").writeText("1")
+        val incomingDir = File(batchDir, folderName)
         incomingDir.mkdirs()
 
         lastImportProgressAt = 0L
@@ -209,7 +214,7 @@ class MainActivity : FlutterActivity() {
                 throw IllegalStateException("所选目录为空或无法读取")
             }
         } catch (error: Exception) {
-            incomingDir.deleteRecursively()
+            batchDir.deleteRecursively()
             throw error
         }
         return incomingDir.absolutePath

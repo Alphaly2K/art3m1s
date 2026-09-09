@@ -123,50 +123,6 @@ class GameImporter {
     }
   }
 
-  /// iOS 专用：原生 UIDocumentPicker + security-scoped URL，把用户选中的
-  /// base `.pfs` 和各自的 `.pfs.NNN` 分卷按游戏分组复制进 app sandbox。
-  ///
-  /// 新版原生端返回路径数组；这里仍接受旧版的单个字符串，允许 Dart 与原生壳
-  /// 在升级期间短暂错配。
-  static Future<List<String>?> pickPfsFilesAndCopy() async {
-    if (!Platform.isIOS) return null;
-    try {
-      final raw = await _nativeChannel.invokeMethod<dynamic>(
-        'pickPfsFilesAndCopy',
-      );
-      if (raw is String) {
-        return raw.isEmpty ? const [] : [raw];
-      }
-      if (raw is List) {
-        return raw
-            .whereType<String>()
-            .where((path) => path.isNotEmpty)
-            .toList(growable: false);
-      }
-      return null;
-    } on PlatformException catch (e) {
-      if (e.code == 'PICK_CANCELLED') return null;
-      Log.error('[GameImporter] pickPfsFilesAndCopy 失败: ${e.message}');
-      return null;
-    }
-  }
-
-  /// iOS 专用：打开一个原生管理面板。
-  ///
-  /// 返回值：
-  /// - `scan`: 扫描 Files app 可见的 Art3m1s/Games
-  /// - `pickPfs`: 打开系统 PFS 文件选择器
-  /// - null: 用户关闭
-  static Future<String?> showIosLibraryManager() async {
-    if (!Platform.isIOS) return null;
-    try {
-      return await _nativeChannel.invokeMethod<String>('showIosLibraryManager');
-    } on PlatformException catch (e) {
-      Log.error('[GameImporter] showIosLibraryManager 失败: ${e.message}');
-      return null;
-    }
-  }
-
   static Future<String?> prepareIosAppFolders() async {
     if (!Platform.isIOS) return null;
     try {
@@ -326,6 +282,8 @@ class GameImporter {
     return false;
   }
 
+  static const incompleteImportMarker = '.import-incomplete';
+
   /// 删除 Android 导入到应用存储的游戏文件。iOS 的 Files 可见目录不删。
   static Future<void> removeImportedGameFiles(String path) async {
     if (!Platform.isAndroid) return;
@@ -347,6 +305,83 @@ class GameImporter {
       Log.warn('[GameImporter] 遗留沙箱副本清理失败: $e');
     }
     deleteManagedImport(path, roots);
+  }
+
+  static Future<void> markAndroidImportComplete(String path) async {
+    if (!Platform.isAndroid) return;
+    markAndroidImportCompleteForRoots(path, await _androidManagedGameRoots());
+  }
+
+  static Future<void> discardAndroidImport(String path) async {
+    if (!Platform.isAndroid) return;
+    discardAndroidImportForRoots(path, await _androidManagedGameRoots());
+  }
+
+  static Future<void> pruneIncompleteAndroidImports() async {
+    if (!Platform.isAndroid) return;
+    pruneIncompleteImports(await _androidManagedGameRoots());
+  }
+
+  static Directory? findIncompleteBatchRoot(
+    String path,
+    Iterable<String> roots,
+  ) {
+    var current = Directory(normalizeLibraryPath(path));
+    if (!current.existsSync()) current = current.parent;
+    for (var i = 0; i < 8; i++) {
+      final marker = File(
+        '${current.path}${Platform.pathSeparator}$incompleteImportMarker',
+      );
+      if (marker.existsSync()) return current;
+      final normalized = normalizeLibraryPath(current.path);
+      final inManaged =
+          isManagedImportPath(normalized, roots) ||
+          roots.map(normalizeLibraryPath).contains(normalized);
+      if (!inManaged) return null;
+      current = current.parent;
+    }
+    return null;
+  }
+
+  static void markAndroidImportCompleteForRoots(
+    String path,
+    Iterable<String> roots,
+  ) {
+    final batch = findIncompleteBatchRoot(path, roots);
+    if (batch == null) return;
+    final marker = File(
+      '${batch.path}${Platform.pathSeparator}$incompleteImportMarker',
+    );
+    if (marker.existsSync()) marker.deleteSync();
+  }
+
+  static void discardAndroidImportForRoots(
+    String path,
+    Iterable<String> roots,
+  ) {
+    final batch = findIncompleteBatchRoot(path, roots);
+    final target = batch ?? Directory(normalizeLibraryPath(path));
+    if (batch == null && !isManagedImportPath(target.path, roots)) return;
+    if (target.existsSync()) target.deleteSync(recursive: true);
+    _pruneEmptyParents(target.path, roots);
+  }
+
+  static void pruneIncompleteImports(Iterable<String> roots) {
+    for (final root in roots) {
+      final incoming = Directory(
+        '${normalizeLibraryPath(root)}${Platform.pathSeparator}incoming',
+      );
+      if (!incoming.existsSync()) continue;
+      for (final entity in incoming.listSync(followLinks: false)) {
+        if (entity is! Directory) continue;
+        final marker = File(
+          '${entity.path}${Platform.pathSeparator}$incompleteImportMarker',
+        );
+        if (marker.existsSync()) {
+          entity.deleteSync(recursive: true);
+        }
+      }
+    }
   }
 
   /// 兼容旧调用：仅 Android 会删除导入副本。

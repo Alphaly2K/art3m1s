@@ -27,6 +27,11 @@ class StorageService {
     } catch (_) {
       // 封面归档是兼容迁移，平台目录暂不可用时保留原路径，不阻断资料库加载。
     }
+    try {
+      await GameImporter.pruneIncompleteAndroidImports();
+    } catch (_) {
+      // 未完成的 SAF 拷贝下次启动再清，失败不阻断启动。
+    }
   }
 
   Future<void> _migrateManagedCoverPaths() async {

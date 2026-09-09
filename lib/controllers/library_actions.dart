@@ -30,34 +30,46 @@ class LibraryActions {
   // ── 添加入口 ──────────────────────────────────────────────
 
   Future<void> pickDirectory() async {
-    List<String> projects;
-    try {
-      if (Platform.isAndroid) {
-        // Android 不能用 dart:io 直接读 SAF 目录，先拷进沙箱再识别 system.ini。
-        final imported = await _importAndroidDirectory(
-          GameImporter.discoverUnpackedProjects,
-        );
-        if (imported == null || !context.mounted) return;
-        projects = imported;
-      } else {
-        final path = await getDirectoryPath(confirmButtonText: '选择此目录');
-        if (path == null || !context.mounted) return;
-        projects = GameImporter.discoverUnpackedProjects(path);
-      }
-    } on GameImportException catch (error) {
-      if (context.mounted) notify(context, error.message);
+    if (Platform.isAndroid) {
+      await _importAndroidAndConsume(GameImporter.discoverUnpackedProjects, (
+        projects,
+      ) async {
+        if (projects.isEmpty) {
+          if (context.mounted) notify(context, '所选目录中没有 system.ini');
+          return false;
+        }
+        if (projects.length == 1) {
+          return _editAndAdd(
+            _directoryDisplayName(projects.single),
+            projects.single,
+            GameSource.directory,
+          );
+        }
+        return (await _addDiscoveredGamesAutomatically([
+              for (final path in projects)
+                DiscoveredGame(
+                  name: _directoryDisplayName(path),
+                  path: path,
+                  source: GameSource.directory.name,
+                ),
+            ])) >
+            0;
+      });
       return;
     }
-    if (!context.mounted) return;
+
+    List<String> projects;
+    final path = await getDirectoryPath(confirmButtonText: '选择此目录');
+    if (path == null || !context.mounted) return;
+    projects = GameImporter.discoverUnpackedProjects(path);
     if (projects.isEmpty) {
       notify(context, '所选目录中没有 system.ini');
       return;
     }
     if (projects.length == 1) {
-      final path = projects.single;
       await _editAndAdd(
-        _directoryDisplayName(path),
-        path,
+        _directoryDisplayName(projects.single),
+        projects.single,
         GameSource.directory,
       );
       return;
@@ -73,63 +85,51 @@ class LibraryActions {
   }
 
   Future<void> pickPfs() async {
-    var filePaths = <String>[];
-    if (Platform.isAndroid || Platform.isIOS) {
-      // 移动平台：通过原生选择器复制数据，再让每个 base PFS 独立成为项目。
-      // 避免 file_selector 在 Android 上返回无法用 dart:io 访问的 content URI。
-      if (Platform.isAndroid) {
-        try {
-          final imported = await _importAndroidDirectory(
-            GameImporter.discoverBasePfsFiles,
-          );
-          if (imported == null || !context.mounted) return;
-          filePaths = imported;
-        } on GameImportException catch (error) {
-          if (context.mounted) notify(context, error.message);
-          return;
+    if (Platform.isAndroid) {
+      await _importAndroidAndConsume(GameImporter.discoverBasePfsFiles, (
+        filePaths,
+      ) async {
+        if (filePaths.isEmpty) {
+          if (context.mounted) notify(context, '所选位置中没有 base .pfs 文件');
+          return false;
         }
-      } else {
-        final picked = await GameImporter.pickPfsFilesAndCopy();
-        if (picked == null) {
-          if (context.mounted) notify(context, '请选择 base .pfs 和所有 .pfs.NNN 分卷');
-          return;
+        final games = [
+          for (final path in filePaths)
+            DiscoveredGame(
+              name: _pfsDisplayName(path),
+              path: path,
+              source: GameSource.pfsArchive.name,
+            ),
+        ];
+        if (games.length == 1) {
+          return _addDiscoveredGame(games.single);
         }
-        filePaths = picked;
-      }
-    } else {
-      const typeGroup = XTypeGroup(label: 'PFS 归档', extensions: ['pfs', 'PFS']);
-      final file = await openFile(acceptedTypeGroups: [typeGroup]);
-      if (file != null) filePaths = [file.path];
-    }
-    if (!context.mounted) return;
-    if (filePaths.isEmpty) {
-      notify(context, '所选位置中没有 base .pfs 文件');
+        return (await _addDiscoveredGamesAutomatically(games)) > 0;
+      });
       return;
     }
 
-    final games = filePaths
-        .map(
-          (path) => DiscoveredGame(
-            name: _pfsDisplayName(path),
-            path: path,
-            source: GameSource.pfsArchive.name,
-          ),
-        )
-        .toList(growable: false);
-
-    if (games.length == 1) {
-      await _addDiscoveredGame(games.single);
-    } else {
-      await _addDiscoveredGamesAutomatically(games);
-    }
+    const typeGroup = XTypeGroup(label: 'PFS 归档', extensions: ['pfs', 'PFS']);
+    final file = await openFile(acceptedTypeGroups: [typeGroup]);
+    if (file == null || !context.mounted) return;
+    await _addDiscoveredGame(
+      DiscoveredGame(
+        name: _pfsDisplayName(file.path),
+        path: file.path,
+        source: GameSource.pfsArchive.name,
+      ),
+    );
   }
 
-  Future<List<String>?> _importAndroidDirectory(
+  Future<void> _importAndroidAndConsume(
     List<String> Function(String path) discover,
+    Future<bool> Function(List<String> found) consume,
   ) async {
     BlockingProgressController? progress;
+    String? sandbox;
+    var keep = false;
     try {
-      final sandboxDir = await GameImporter.pickDirectoryAndCopy(
+      sandbox = await GameImporter.pickDirectoryAndCopy(
         onProgress: (value) {
           if (!context.mounted) return;
           progress ??= showBlockingProgress(
@@ -140,7 +140,7 @@ class LibraryActions {
           progress?.update(value.message);
         },
       );
-      if (sandboxDir == null || !context.mounted) return null;
+      if (sandbox == null || !context.mounted) return;
       progress ??= showBlockingProgress(
         context,
         title: '正在导入游戏',
@@ -148,22 +148,21 @@ class LibraryActions {
       );
       progress?.update('正在识别游戏文件…');
       await Future<void>.delayed(Duration.zero);
-      return discover(sandboxDir);
+      final found = discover(sandbox);
+      progress?.close();
+      progress = null;
+      keep = await consume(found);
+    } on GameImportException catch (error) {
+      if (context.mounted) notify(context, error.message);
     } finally {
       progress?.close();
-    }
-  }
-
-  Future<void> openIosAppFolderManager() async {
-    final action = await GameImporter.showIosLibraryManager();
-    if (!context.mounted || action == null) return;
-    switch (action) {
-      case 'scan':
-        await scanIosAppFolder();
-        break;
-      case 'pickPfs':
-        await pickPfs();
-        break;
+      if (sandbox != null) {
+        if (keep) {
+          await GameImporter.markAndroidImportComplete(sandbox);
+        } else {
+          await GameImporter.discardAndroidImport(sandbox);
+        }
+      }
     }
   }
 
@@ -180,7 +179,7 @@ class LibraryActions {
     await _addDiscoveredGamesAutomatically(games);
   }
 
-  Future<void> _addDiscoveredGame(DiscoveredGame game) {
+  Future<bool> _addDiscoveredGame(DiscoveredGame game) {
     return _editAndAdd(
       game.name,
       game.path,
@@ -188,7 +187,7 @@ class LibraryActions {
     );
   }
 
-  Future<void> _addDiscoveredGamesAutomatically(
+  Future<int> _addDiscoveredGamesAutomatically(
     List<DiscoveredGame> games,
   ) async {
     final pending = <DiscoveredGame>[];
@@ -204,12 +203,12 @@ class LibraryActions {
     }
     if (pending.isEmpty) {
       if (context.mounted) notify(context, '扫描到的游戏都已在资料库中');
-      return;
+      return 0;
     }
 
     var added = 0;
     for (var index = 0; index < pending.length; index++) {
-      if (!context.mounted) return;
+      if (!context.mounted) return added;
       final game = pending[index];
       notify(context, '正在添加 ${index + 1}/${pending.length}：${game.name}');
       if (await _addDiscoveredGameAutomatically(game)) added++;
@@ -217,6 +216,7 @@ class LibraryActions {
     if (context.mounted) {
       notify(context, '已添加 $added 个游戏');
     }
+    return added;
   }
 
   Future<bool> _addDiscoveredGameAutomatically(DiscoveredGame game) async {
@@ -263,14 +263,14 @@ class LibraryActions {
     return true;
   }
 
-  Future<void> _editAndAdd(
+  Future<bool> _editAndAdd(
     String defaultName,
     String path,
     GameSource source,
   ) async {
     if (_isAlreadyInLibrary(path)) {
       if (context.mounted) notify(context, '该游戏已在资料库中');
-      return;
+      return false;
     }
     final gameId = _gameIdForPath(path);
     notify(context, '正在读取游戏信息；VNDB 不可用时将离线继续…');
@@ -282,7 +282,7 @@ class LibraryActions {
       gameId,
       manifest,
     );
-    if (metadata == null || !context.mounted) return;
+    if (metadata == null || !context.mounted) return false;
 
     final result = await showGameEditDialog(
       context,
@@ -299,9 +299,9 @@ class LibraryActions {
       initialRuntimePlatform:
           manifest?.runtimePlatform ?? GameManifest.defaultRuntimePlatform,
     );
-    if (result == null || !context.mounted) return;
+    if (result == null || !context.mounted) return false;
     final coverPath = await AppDataPaths.importCover(result.coverPath, gameId);
-    if (!context.mounted) return;
+    if (!context.mounted) return false;
 
     await ref
         .read(libraryProvider.notifier)
@@ -328,6 +328,7 @@ class LibraryActions {
           ),
         );
     Log.info('已添加: ${result.name.isNotEmpty ? result.name : defaultName}');
+    return true;
   }
 
   Future<_ResolvedGameMetadata?> _resolveGameMetadata(

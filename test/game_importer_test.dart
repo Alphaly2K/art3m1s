@@ -225,4 +225,80 @@ void main() {
       isTrue,
     );
   });
+
+  test('incomplete SAF batch is discarded and pruned on next launch', () {
+    final root = Directory.systemTemp.createTempSync('art3m1s_incomplete_');
+    addTearDown(() => root.deleteSync(recursive: true));
+    final batch = Directory(
+      '${root.path}${Platform.pathSeparator}incoming${Platform.pathSeparator}123',
+    )..createSync(recursive: true);
+    File(
+      '${batch.path}${Platform.pathSeparator}${GameImporter.incompleteImportMarker}',
+    ).writeAsStringSync('1');
+    final gameDir = Directory(
+      '${batch.path}${Platform.pathSeparator}MagicalCharming',
+    )..createSync();
+    File(
+      '${gameDir.path}${Platform.pathSeparator}system.ini',
+    ).writeAsStringSync('[boot]');
+
+    expect(
+      GameImporter.findIncompleteBatchRoot(gameDir.path, [root.path])?.path,
+      batch.path,
+    );
+
+    GameImporter.discardAndroidImportForRoots(gameDir.path, [root.path]);
+    expect(batch.existsSync(), isFalse);
+    expect(gameDir.existsSync(), isFalse);
+  });
+
+  test('completed SAF import keeps files after marker is cleared', () {
+    final root = Directory.systemTemp.createTempSync('art3m1s_complete_');
+    addTearDown(() => root.deleteSync(recursive: true));
+    final batch = Directory(
+      '${root.path}${Platform.pathSeparator}incoming${Platform.pathSeparator}456',
+    )..createSync(recursive: true);
+    File(
+      '${batch.path}${Platform.pathSeparator}${GameImporter.incompleteImportMarker}',
+    ).writeAsStringSync('1');
+    final gameDir = Directory('${batch.path}${Platform.pathSeparator}Kept')
+      ..createSync();
+    File(
+      '${gameDir.path}${Platform.pathSeparator}system.ini',
+    ).writeAsStringSync('[boot]');
+
+    GameImporter.markAndroidImportCompleteForRoots(gameDir.path, [root.path]);
+    expect(
+      File(
+        '${batch.path}${Platform.pathSeparator}${GameImporter.incompleteImportMarker}',
+      ).existsSync(),
+      isFalse,
+    );
+    GameImporter.pruneIncompleteImports([root.path]);
+    expect(gameDir.existsSync(), isTrue);
+  });
+
+  test('startup prune only deletes flagged incoming batches', () {
+    final root = Directory.systemTemp.createTempSync('art3m1s_prune_flag_');
+    addTearDown(() => root.deleteSync(recursive: true));
+    final stale = Directory(
+      '${root.path}${Platform.pathSeparator}incoming${Platform.pathSeparator}stale',
+    )..createSync(recursive: true);
+    File(
+      '${stale.path}${Platform.pathSeparator}${GameImporter.incompleteImportMarker}',
+    ).writeAsStringSync('1');
+    File(
+      '${stale.path}${Platform.pathSeparator}system.ini',
+    ).writeAsStringSync('[boot]');
+    final kept = Directory(
+      '${root.path}${Platform.pathSeparator}incoming${Platform.pathSeparator}kept',
+    )..createSync(recursive: true);
+    File(
+      '${kept.path}${Platform.pathSeparator}system.ini',
+    ).writeAsStringSync('[boot]');
+
+    GameImporter.pruneIncompleteImports([root.path]);
+    expect(stale.existsSync(), isFalse);
+    expect(kept.existsSync(), isTrue);
+  });
 }
