@@ -4,7 +4,7 @@ import 'project_charset.dart';
 
 class CaptionTableProbe {
   static final RegExp _gameTitle = RegExp(
-    r'''\bgametitle\s*=\s*(?:"([^"\r\n]*)"|'([^'\r\n]*)')''',
+    r'''(?:\["game_title"\]|\['game_title'\]|\bgame_title\b|\bgametitle\b)\s*=\s*(?:"([^"\r\n]*)"|'([^'\r\n]*)')''',
     caseSensitive: false,
   );
 
