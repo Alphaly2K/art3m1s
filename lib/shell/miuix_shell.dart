@@ -137,18 +137,13 @@ class _MiuixHomeState extends ConsumerState<_MiuixHome> {
     const titles = ['资料库', '设置', '关于'];
 
     return MiuixScaffold(
-      topBar: MiuixTopAppBar(
-        title: titles[_tab],
-        largeTitle: titles[_tab],
-        blurred: true,
-        actions: [
-          if (_tab == 0)
-            miuixBarAction(
-              icon: 'add',
-              onPressed: () => _showAddSheet(actions),
+      topBar: _tab == 0
+          ? MiuixLibraryTopBar(onAdd: () => _showAddSheet(actions))
+          : MiuixTopAppBar(
+              title: titles[_tab],
+              largeTitle: titles[_tab],
+              blurred: true,
             ),
-        ],
-      ),
       bottomBar: MiuixNavigationBar(
         children: [
           MiuixNavigationBarItem(
@@ -183,6 +178,29 @@ class _MiuixHomeState extends ConsumerState<_MiuixHome> {
           _ => MiuixAboutBody(padding: padding),
         };
       },
+    );
+  }
+}
+
+class MiuixLibraryTopBar extends StatelessWidget {
+  const MiuixLibraryTopBar({super.key, required this.onAdd});
+
+  final VoidCallback onAdd;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        const MiuixTopAppBar(title: '资料库', largeTitle: '资料库', blurred: true),
+        Positioned(
+          right: MiuixTopAppBarDefaults.actionIconPadding,
+          bottom: MiuixTopAppBarDefaults.largeTitleBottomPadding,
+          child: MiuixIconButton(
+            onPressed: onAdd,
+            child: miuixNamedIcon('add'),
+          ),
+        ),
+      ],
     );
   }
 }
