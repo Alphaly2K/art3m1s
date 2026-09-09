@@ -131,7 +131,7 @@ void main() {
     );
   });
 
-  test('managed import delete removes sandbox copy and empty parents', () {
+  test('managed import delete removes the whole incoming batch', () {
     final root = Directory.systemTemp.createTempSync('art3m1s_managed_games_');
     addTearDown(() => root.deleteSync(recursive: true));
 
@@ -151,11 +151,12 @@ void main() {
     GameImporter.deleteManagedImport(gameDir.path, [root.path]);
 
     expect(gameDir.existsSync(), isFalse);
-    expect(incoming.existsSync(), isTrue);
+    expect(incoming.existsSync(), isFalse);
     expect(
-      File('${incoming.path}${Platform.pathSeparator}keep.txt').existsSync(),
-      isTrue,
+      Directory('${root.path}${Platform.pathSeparator}incoming').existsSync(),
+      isFalse,
     );
+    expect(root.existsSync(), isTrue);
   });
 
   test('managed import delete prunes empty timestamp folders only', () {
@@ -199,10 +200,13 @@ void main() {
     expect(outside.existsSync(), isTrue);
   });
 
-  test('managed pfs delete also removes sibling volumes', () {
+  test('managed pfs delete removes the whole imported directory', () {
     final root = Directory.systemTemp.createTempSync('art3m1s_pfs_import_');
     addTearDown(() => root.deleteSync(recursive: true));
-    final dir = Directory('${root.path}${Platform.pathSeparator}incoming')
+    final batch = Directory(
+      '${root.path}${Platform.pathSeparator}incoming${Platform.pathSeparator}789',
+    )..createSync(recursive: true);
+    final dir = Directory('${batch.path}${Platform.pathSeparator}Game')
       ..createSync();
     final base = File('${dir.path}${Platform.pathSeparator}game.pfs')
       ..writeAsBytesSync([1]);
@@ -211,19 +215,55 @@ void main() {
     ).writeAsBytesSync([2]);
     File(
       '${dir.path}${Platform.pathSeparator}readme.txt',
-    ).writeAsStringSync('keep');
+    ).writeAsStringSync('extra');
 
     GameImporter.deleteManagedImport(base.path, [root.path]);
 
     expect(base.existsSync(), isFalse);
+    expect(dir.existsSync(), isFalse);
+    expect(batch.existsSync(), isFalse);
     expect(
-      File('${dir.path}${Platform.pathSeparator}game.pfs.000').existsSync(),
+      Directory('${root.path}${Platform.pathSeparator}incoming').existsSync(),
       isFalse,
     );
+  });
+
+  test('shared incoming batch keeps other library games', () {
+    final root = Directory.systemTemp.createTempSync('art3m1s_pfs_shared_');
+    addTearDown(() => root.deleteSync(recursive: true));
+    final batch = Directory(
+      '${root.path}${Platform.pathSeparator}incoming${Platform.pathSeparator}321',
+    )..createSync(recursive: true);
+    final dir = Directory('${batch.path}${Platform.pathSeparator}Pack')
+      ..createSync();
+    final first = File('${dir.path}${Platform.pathSeparator}gameA.pfs')
+      ..writeAsBytesSync([1]);
+    File(
+      '${dir.path}${Platform.pathSeparator}gameA.pfs.000',
+    ).writeAsBytesSync([2]);
+    final second = File('${dir.path}${Platform.pathSeparator}gameB.pfs')
+      ..writeAsBytesSync([3]);
+    File(
+      '${dir.path}${Platform.pathSeparator}readme.txt',
+    ).writeAsStringSync('shared');
+
+    GameImporter.deleteManagedImport(
+      first.path,
+      [root.path],
+      retainedPaths: [second.path],
+    );
+
+    expect(first.existsSync(), isFalse);
+    expect(
+      File('${dir.path}${Platform.pathSeparator}gameA.pfs.000').existsSync(),
+      isFalse,
+    );
+    expect(second.existsSync(), isTrue);
     expect(
       File('${dir.path}${Platform.pathSeparator}readme.txt').existsSync(),
       isTrue,
     );
+    expect(batch.existsSync(), isTrue);
   });
 
   test('incomplete SAF batch is discarded and pruned on next launch', () {

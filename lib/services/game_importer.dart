@@ -284,8 +284,47 @@ class GameImporter {
 
   static const incompleteImportMarker = '.import-incomplete';
 
+  /// SAF 导入批次：`<games>/incoming/<timestamp>/`。
+  static Directory? findManagedIncomingBatch(
+    String path,
+    Iterable<String> roots,
+  ) {
+    final normalized = normalizeLibraryPath(path);
+    for (final root in roots) {
+      final prefix = '${normalizeLibraryPath(root)}/incoming/';
+      if (!normalized.startsWith(prefix)) continue;
+      final rest = normalized.substring(prefix.length);
+      if (rest.isEmpty) return null;
+      final batchId = rest.split('/').first;
+      if (batchId.isEmpty || batchId == '.' || batchId == '..') continue;
+      return Directory('$prefix$batchId');
+    }
+    return null;
+  }
+
+  static bool _isUnderNormalized(String path, String parent) {
+    return path == parent || path.startsWith('$parent/');
+  }
+
+  static bool _batchHasRetainedGames(
+    Directory batch,
+    String deletingPath,
+    Iterable<String> retainedPaths,
+  ) {
+    final batchPath = normalizeLibraryPath(batch.path);
+    final deleting = normalizeLibraryPath(deletingPath);
+    return retainedPaths.any((item) {
+      final normalized = normalizeLibraryPath(item);
+      if (normalized == deleting) return false;
+      return _isUnderNormalized(normalized, batchPath);
+    });
+  }
+
   /// 删除 Android 导入到应用存储的游戏文件。iOS 的 Files 可见目录不删。
-  static Future<void> removeImportedGameFiles(String path) async {
+  static Future<void> removeImportedGameFiles(
+    String path, {
+    Iterable<String> retainedPaths = const [],
+  }) async {
     if (!Platform.isAndroid) return;
     final roots = await _androidManagedGameRoots();
     try {
@@ -304,7 +343,7 @@ class GameImporter {
     } catch (e) {
       Log.warn('[GameImporter] 遗留沙箱副本清理失败: $e');
     }
-    deleteManagedImport(path, roots);
+    deleteManagedImport(path, roots, retainedPaths: retainedPaths);
   }
 
   static Future<void> markAndroidImportComplete(String path) async {
@@ -398,9 +437,23 @@ class GameImporter {
     return roots.map(normalizeLibraryPath).toList(growable: false);
   }
 
-  /// 删除位于托管根目录下的导入路径，并收掉空的 timestamp 父目录。
-  static void deleteManagedImport(String path, Iterable<String> roots) {
+  /// 删除位于托管根目录下的导入路径。
+  ///
+  /// SAF 一次导入对应 `incoming/<timestamp>/` 整个批次。资料库里该批次
+  /// 没有其他条目时，删除整个导入目录，而不是只删 `.pfs`。同一批次还有
+  /// 其他资料库条目时，只删当前游戏自己的文件。
+  static void deleteManagedImport(
+    String path,
+    Iterable<String> roots, {
+    Iterable<String> retainedPaths = const [],
+  }) {
     if (!isManagedImportPath(path, roots)) return;
+    final batch = findManagedIncomingBatch(path, roots);
+    if (batch != null && !_batchHasRetainedGames(batch, path, retainedPaths)) {
+      if (batch.existsSync()) batch.deleteSync(recursive: true);
+      _pruneEmptyParents(batch.path, roots);
+      return;
+    }
     final directory = Directory(path);
     final file = File(path);
     if (directory.existsSync()) {

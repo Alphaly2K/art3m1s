@@ -77,7 +77,13 @@ class LibraryNotifier extends StateNotifier<List<GameEntry>> {
   Future<void> remove(String path) async {
     // Android 导入副本随项目一起删；iOS 只移除资料库条目，不删 Files 里的游戏。
     try {
-      await GameImporter.removeImportedGameFiles(path);
+      final retainedPaths = state
+          .where((game) => !GameImporter.isSameLibraryPath(game.path, path))
+          .map((game) => game.path);
+      await GameImporter.removeImportedGameFiles(
+        path,
+        retainedPaths: retainedPaths,
+      );
     } catch (e) {
       debugPrint('[Library] 导入文件清理失败: $e');
     }
