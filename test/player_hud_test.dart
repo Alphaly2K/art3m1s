@@ -1,5 +1,5 @@
 import 'package:art3m1s/widgets/player_hud.dart';
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -63,4 +63,41 @@ void main() {
     expect(ball.dx, size.width - PlayerHudGeometry.peek);
     expect(ball.dy, 322);
   });
+
+  testWidgets('HUD starts docked and mostly hidden', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              PlayerHud(
+                title: 'test',
+                showFps: false,
+                keyboardShown: false,
+                touchpadEnabled: false,
+                showTouchpadToggle: false,
+                showKeyboardToggle: false,
+                onShowFpsChanged: _noopBool,
+                onToggleKeyboard: _noop,
+                onTouchpadChanged: _noopBool,
+                onExit: _noop,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    final positioned = tester.widget<AnimatedPositioned>(
+      find.byType(AnimatedPositioned),
+    );
+    expect(
+      positioned.left,
+      -(PlayerHudGeometry.ballSize - PlayerHudGeometry.peek),
+    );
+  });
 }
+
+void _noop() {}
+
+void _noopBool(bool _) {}

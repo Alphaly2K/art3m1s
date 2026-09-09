@@ -134,7 +134,8 @@ class PlayerHud extends StatefulWidget {
 
 class _PlayerHudState extends State<PlayerHud> {
   Offset _pos = const Offset(16, 60);
-  PlayerHudDock _dock = PlayerHudDock.none;
+  // 首次进入游戏时贴到左侧，仅露出把手；点击后仍可展开或拖到任意位置。
+  PlayerHudDock _dock = PlayerHudDock.left;
   bool _panelOpen = false;
   bool _dragging = false;
   Timer? _panelTimer;
