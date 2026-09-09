@@ -6,7 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/host_ui_theme.dart';
 import '../models/translation_settings.dart';
-import '../models/render_quality.dart';
+import '../models/render_output.dart';
 import '../services/logger.dart';
 
 final settingsProvider = StateNotifierProvider<SettingsNotifier, SettingsState>(
@@ -23,7 +23,9 @@ class SettingsState {
   final bool showFps;
   final bool mobileTouchpadEnabled;
   final int backend; // 3 = native Metal, 0 = CGL, 1 = GL/ANGLE
-  final RenderQualityPreset renderQuality;
+  final RenderOutputMode renderOutputMode;
+  final int customRenderWidth;
+  final int customRenderHeight;
   final HostUiTheme hostUiTheme;
   final TranslationSettings translation;
 
@@ -35,7 +37,9 @@ class SettingsState {
     this.showFps = false,
     this.mobileTouchpadEnabled = false,
     this.backend = 0,
-    this.renderQuality = RenderQualityPreset.native,
+    this.renderOutputMode = RenderOutputMode.matchDisplay,
+    this.customRenderWidth = 2560,
+    this.customRenderHeight = 1440,
     this.hostUiTheme = HostUiTheme.material,
     this.translation = const TranslationSettings(),
   });
@@ -48,7 +52,9 @@ class SettingsState {
     bool? showFps,
     bool? mobileTouchpadEnabled,
     int? backend,
-    RenderQualityPreset? renderQuality,
+    RenderOutputMode? renderOutputMode,
+    int? customRenderWidth,
+    int? customRenderHeight,
     HostUiTheme? hostUiTheme,
     TranslationSettings? translation,
   }) {
@@ -61,7 +67,9 @@ class SettingsState {
       mobileTouchpadEnabled:
           mobileTouchpadEnabled ?? this.mobileTouchpadEnabled,
       backend: backend ?? this.backend,
-      renderQuality: renderQuality ?? this.renderQuality,
+      renderOutputMode: renderOutputMode ?? this.renderOutputMode,
+      customRenderWidth: customRenderWidth ?? this.customRenderWidth,
+      customRenderHeight: customRenderHeight ?? this.customRenderHeight,
       hostUiTheme: hostUiTheme ?? this.hostUiTheme,
       translation: translation ?? this.translation,
     );
@@ -152,11 +160,20 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
         backend:
             prefs.getInt('gfx_backend') ??
             getDefaultBackend(), // default: ANGLE Vulkan
-        renderQuality:
-            RenderQualityPreset.values[(prefs.getInt('render_quality_preset') ??
-                    0)
-                .clamp(0, 3)
-                .toInt()],
+        renderOutputMode:
+            RenderOutputMode.values
+                .where(
+                  (value) =>
+                      value.name == prefs.getString('render_output_mode'),
+                )
+                .firstOrNull ??
+            RenderOutputMode.matchDisplay,
+        customRenderWidth: (prefs.getInt('custom_render_width') ?? 2560)
+            .clamp(1, 16384)
+            .toInt(),
+        customRenderHeight: (prefs.getInt('custom_render_height') ?? 1440)
+            .clamp(1, 16384)
+            .toInt(),
         hostUiTheme: HostUiTheme.byName(prefs.getString('host_ui_theme')),
         translation: TranslationSettings(
           mode: mode ?? TranslationMode.off,
@@ -236,10 +253,24 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
     state = state.copyWith(backend: v);
   }
 
-  Future<void> setRenderQuality(RenderQualityPreset v) async {
+  Future<void> setRenderOutputMode(RenderOutputMode value) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt('render_quality_preset', v.ffiValue);
-    state = state.copyWith(renderQuality: v);
+    await prefs.setString('render_output_mode', value.name);
+    state = state.copyWith(renderOutputMode: value);
+  }
+
+  Future<void> setCustomRenderSize(int width, int height) async {
+    width = width.clamp(1, 16384).toInt();
+    height = height.clamp(1, 16384).toInt();
+    final prefs = await SharedPreferences.getInstance();
+    await Future.wait([
+      prefs.setInt('custom_render_width', width),
+      prefs.setInt('custom_render_height', height),
+    ]);
+    state = state.copyWith(
+      customRenderWidth: width,
+      customRenderHeight: height,
+    );
   }
 
   Future<void> setHostUiTheme(HostUiTheme v) async {

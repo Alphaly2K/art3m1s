@@ -9,7 +9,7 @@ import '../controllers/library_actions.dart';
 import '../models/game_entry.dart';
 import '../models/host_ui_theme.dart';
 import '../models/render_backend.dart';
-import '../models/render_quality.dart';
+import '../models/render_output.dart';
 import '../providers/library_provider.dart';
 import '../providers/settings_provider.dart';
 import '../screens/licenses_miuix.dart';
@@ -18,6 +18,7 @@ import '../services/app_info.dart';
 import '../services/logger.dart';
 import '../widgets/debug_overlay_host.dart';
 import '../widgets/game_grid.dart';
+import '../widgets/render_resolution_dialog.dart';
 
 /// Android Miuix 壳：用 flutter_miuix 的主题与组件替换 Material 资料库/设置。
 class MiuixShellApp extends StatelessWidget {
@@ -269,14 +270,34 @@ class MiuixSettingsBody extends ConsumerWidget {
               },
             ),
             MiuixOverlayDropdownPreference(
-              title: '渲染质量',
-              summary: settings.renderQuality.label,
-              items: [for (final q in RenderQualityPreset.values) q.label],
-              selectedIndex: settings.renderQuality.index,
+              title: '超分输出',
+              summary: renderOutputDescription(
+                settings.renderOutputMode,
+                customWidth: settings.customRenderWidth,
+                customHeight: settings.customRenderHeight,
+              ),
+              items: [for (final mode in RenderOutputMode.values) mode.label],
+              selectedIndex: settings.renderOutputMode.index,
               onSelectedIndexChange: (index) {
-                notifier.setRenderQuality(RenderQualityPreset.values[index]);
+                notifier.setRenderOutputMode(RenderOutputMode.values[index]);
               },
             ),
+            if (settings.renderOutputMode == RenderOutputMode.custom)
+              MiuixArrowPreference(
+                title: '自定义分辨率',
+                summary:
+                    '${settings.customRenderWidth}×${settings.customRenderHeight} · 保持游戏宽高比',
+                onClick: () async {
+                  final size = await showRenderResolutionDialog(
+                    context,
+                    width: settings.customRenderWidth,
+                    height: settings.customRenderHeight,
+                  );
+                  if (size != null) {
+                    notifier.setCustomRenderSize(size.width, size.height);
+                  }
+                },
+              ),
             MiuixArrowPreference(
               title: '文本翻译',
               summary: settings.translation.mode.label,

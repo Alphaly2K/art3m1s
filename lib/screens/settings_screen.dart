@@ -7,9 +7,10 @@ import 'about_screen.dart';
 import 'translation_settings_screen.dart';
 import '../models/host_ui_theme.dart';
 import '../models/render_backend.dart';
-import '../models/render_quality.dart';
+import '../models/render_output.dart';
 import '../providers/settings_provider.dart';
 import '../services/logger.dart';
+import '../widgets/render_resolution_dialog.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key, this.embedded = false});
@@ -59,21 +60,47 @@ class SettingsScreen extends ConsumerWidget {
           ),
         ),
         ListTile(
-          title: const Text('渲染质量'),
-          subtitle: Text(settings.renderQuality.label),
-        ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: SegmentedButton<RenderQualityPreset>(
-            segments: [
-              for (final quality in RenderQualityPreset.values)
-                ButtonSegment(value: quality, label: Text(quality.label)),
+          title: const Text('超分输出'),
+          subtitle: Text(
+            renderOutputDescription(
+              settings.renderOutputMode,
+              customWidth: settings.customRenderWidth,
+              customHeight: settings.customRenderHeight,
+            ),
+          ),
+          trailing: DropdownButton<RenderOutputMode>(
+            value: settings.renderOutputMode,
+            items: [
+              for (final mode in RenderOutputMode.values)
+                DropdownMenuItem(value: mode, child: Text(mode.label)),
             ],
-            selected: {settings.renderQuality},
-            onSelectionChanged: (v) =>
-                ref.read(settingsProvider.notifier).setRenderQuality(v.first),
+            onChanged: (value) {
+              if (value != null) {
+                ref.read(settingsProvider.notifier).setRenderOutputMode(value);
+              }
+            },
           ),
         ),
+        if (settings.renderOutputMode == RenderOutputMode.custom)
+          ListTile(
+            title: const Text('自定义分辨率'),
+            subtitle: const Text('输出会保持游戏原始宽高比'),
+            trailing: Text(
+              '${settings.customRenderWidth}×${settings.customRenderHeight}',
+            ),
+            onTap: () async {
+              final size = await showRenderResolutionDialog(
+                context,
+                width: settings.customRenderWidth,
+                height: settings.customRenderHeight,
+              );
+              if (size != null) {
+                ref
+                    .read(settingsProvider.notifier)
+                    .setCustomRenderSize(size.width, size.height);
+              }
+            },
+          ),
         ListTile(
           leading: const Icon(Icons.translate),
           title: const Text('文本翻译'),

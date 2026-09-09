@@ -7,7 +7,7 @@ import '../adaptive/feedback.dart';
 import '../controllers/library_actions.dart';
 import '../models/game_entry.dart';
 import '../models/render_backend.dart';
-import '../models/render_quality.dart';
+import '../models/render_output.dart';
 import '../providers/library_provider.dart';
 import '../providers/settings_provider.dart';
 import '../services/app_info.dart';
@@ -16,6 +16,7 @@ import '../screens/translation_settings_screen.dart';
 import '../widgets/debug_overlay_host.dart';
 import '../widgets/game_grid.dart';
 import '../widgets/license_data.dart';
+import '../widgets/render_resolution_dialog.dart';
 
 /// Windows 壳：fluent_ui（WinUI 风格 NavigationView + Fluent 控件）。
 class FluentShellApp extends StatelessWidget {
@@ -171,19 +172,43 @@ class _FluentSettingsPage extends ConsumerWidget {
               ),
             ),
             _FluentSettingRow(
-              label: '渲染质量',
-              caption: settings.renderQuality.label,
-              control: ComboBox<RenderQualityPreset>(
-                value: settings.renderQuality,
+              label: '超分输出',
+              caption: renderOutputDescription(
+                settings.renderOutputMode,
+                customWidth: settings.customRenderWidth,
+                customHeight: settings.customRenderHeight,
+              ),
+              control: ComboBox<RenderOutputMode>(
+                value: settings.renderOutputMode,
                 items: [
-                  for (final q in RenderQualityPreset.values)
-                    ComboBoxItem(value: q, child: Text(q.label)),
+                  for (final mode in RenderOutputMode.values)
+                    ComboBoxItem(value: mode, child: Text(mode.label)),
                 ],
                 onChanged: (v) {
-                  if (v != null) notifier.setRenderQuality(v);
+                  if (v != null) notifier.setRenderOutputMode(v);
                 },
               ),
             ),
+            if (settings.renderOutputMode == RenderOutputMode.custom)
+              _FluentSettingRow(
+                label: '自定义分辨率',
+                caption: '保持游戏宽高比',
+                control: Button(
+                  onPressed: () async {
+                    final size = await showRenderResolutionDialog(
+                      context,
+                      width: settings.customRenderWidth,
+                      height: settings.customRenderHeight,
+                    );
+                    if (size != null) {
+                      notifier.setCustomRenderSize(size.width, size.height);
+                    }
+                  },
+                  child: Text(
+                    '${settings.customRenderWidth}×${settings.customRenderHeight}',
+                  ),
+                ),
+              ),
           ],
         ),
         _FluentSection(

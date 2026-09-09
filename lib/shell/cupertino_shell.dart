@@ -7,7 +7,7 @@ import '../adaptive/feedback.dart';
 import '../controllers/library_actions.dart';
 import '../models/game_entry.dart';
 import '../models/render_backend.dart';
-import '../models/render_quality.dart';
+import '../models/render_output.dart';
 import '../providers/library_provider.dart';
 import '../providers/settings_provider.dart';
 import '../services/app_info.dart';
@@ -16,6 +16,7 @@ import '../screens/translation_settings_screen.dart';
 import '../services/logger.dart';
 import '../widgets/debug_overlay_host.dart';
 import '../widgets/game_grid.dart';
+import '../widgets/render_resolution_dialog.dart';
 
 /// iOS 壳：CupertinoApp，导航栏 + ActionSheet + 分组设置页。
 class CupertinoShellApp extends StatelessWidget {
@@ -220,21 +221,46 @@ class _CupertinoSettingsScreen extends ConsumerWidget {
                   },
                 ),
                 CupertinoListTile.notched(
-                  title: const Text('渲染质量'),
-                  subtitle: Text(settings.renderQuality.label),
+                  title: const Text('超分输出'),
+                  subtitle: Text(
+                    renderOutputDescription(
+                      settings.renderOutputMode,
+                      customWidth: settings.customRenderWidth,
+                      customHeight: settings.customRenderHeight,
+                    ),
+                  ),
                   trailing: const CupertinoListTileChevron(),
                   onTap: () async {
-                    final v = await _pickOption<RenderQualityPreset>(
+                    final v = await _pickOption<RenderOutputMode>(
                       context,
-                      title: '渲染质量',
+                      title: '超分输出',
                       options: [
-                        for (final q in RenderQualityPreset.values)
-                          (q, q.label),
+                        for (final mode in RenderOutputMode.values)
+                          (mode, mode.label),
                       ],
                     );
-                    if (v != null) notifier.setRenderQuality(v);
+                    if (v != null) notifier.setRenderOutputMode(v);
                   },
                 ),
+                if (settings.renderOutputMode == RenderOutputMode.custom)
+                  CupertinoListTile.notched(
+                    title: const Text('自定义分辨率'),
+                    subtitle: const Text('保持游戏宽高比'),
+                    additionalInfo: Text(
+                      '${settings.customRenderWidth}×${settings.customRenderHeight}',
+                    ),
+                    trailing: const CupertinoListTileChevron(),
+                    onTap: () async {
+                      final size = await showRenderResolutionDialog(
+                        context,
+                        width: settings.customRenderWidth,
+                        height: settings.customRenderHeight,
+                      );
+                      if (size != null) {
+                        notifier.setCustomRenderSize(size.width, size.height);
+                      }
+                    },
+                  ),
               ],
             ),
             CupertinoListSection.insetGrouped(

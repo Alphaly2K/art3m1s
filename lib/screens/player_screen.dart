@@ -12,7 +12,7 @@ import '../controllers/mobile_touchpad.dart';
 import '../controllers/two_finger_gesture.dart';
 import '../models/game_entry.dart';
 import '../models/input_gate.dart';
-import '../models/render_quality.dart';
+import '../models/render_output.dart';
 import '../providers/settings_provider.dart';
 import '../services/app_data_paths.dart';
 import '../services/core_bridge.dart';
@@ -310,9 +310,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
     _bridge.registerFileReader();
     final renderBackend = ref.read(settingsProvider).backend;
-    final renderQuality = ref.read(settingsProvider).renderQuality;
     _bridge.createRuntime(_stageW, _stageH, backend: renderBackend);
-    _bridge.setRenderQualityPreset(renderQuality.ffiValue);
     // 机种上报覆盖（runtime 已建、项目未加载；空串=跟随平台）。
     _bridge.setReportedOs(config.reportedOs);
     if (config.experimentalElunaEnabled && !_bridge.setEmoteBackend(1)) {
@@ -334,13 +332,15 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     _touchpadPointer.updateStageSize(_stageW, _stageH);
     _touchpadCursorPosition.value = _touchpadPointer.position;
 
-    // 移动端和 MetalANGLE 直接把 core 的最终 FBO 提交给 Flutter 外部纹理。
+    // 移动端和 macOS native/ANGLE 把 core 的最终输出提交给 Flutter 外部纹理。
     // macOS CGL 保留原 RGBA 回读路径，旧 core/旧宿主也会自动回退。
     if (Platform.isAndroid ||
         Platform.isIOS ||
         (Platform.isMacOS && renderBackend != 0)) {
       _sharedTextureRequested = true;
       await _syncSharedTextureExtent();
+    } else {
+      _bridge.setRenderQualityPreset(0);
     }
 
     if (!mounted || _closing) {
@@ -427,11 +427,40 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
   ({int width, int height}) _desiredSharedTextureExtent() {
     final physicalSize = View.of(context).physicalSize;
+    final settings = ref.read(settingsProvider);
     return resolveRenderOutputExtent(
+      mode: settings.renderOutputMode,
       stageWidth: _stageW,
       stageHeight: _stageH,
       physicalViewWidth: physicalSize.width,
       physicalViewHeight: physicalSize.height,
+      customWidth: settings.customRenderWidth,
+      customHeight: settings.customRenderHeight,
+    );
+  }
+
+  void _configureRenderOutput(({int width, int height}) extent) {
+    final hasLargerTarget = extent.width > _stageW && extent.height > _stageH;
+    if (!_bridge.hasActiveSharedTexture ||
+        !hasLargerTarget ||
+        !_bridge.supportsSpatialUpscaling) {
+      _bridge.setRenderQualityPreset(0);
+      return;
+    }
+    final renderScale = authoredSceneRenderScale(
+      stageWidth: _stageW,
+      stageHeight: _stageH,
+      outputWidth: extent.width,
+      outputHeight: extent.height,
+    );
+    if (!_bridge.configureSpatialUpscale(renderScale)) {
+      Log.warn('[MetalFX] spatial 配置失败，回退 native render');
+      _bridge.setRenderQualityPreset(0);
+      return;
+    }
+    Log.info(
+      '[MetalFX] Host target=${extent.width}x${extent.height} '
+      'source=${_stageW}x$_stageH scale=${renderScale.toStringAsFixed(4)}',
     );
   }
 
@@ -467,6 +496,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
           outputWidth: extent.width,
           outputHeight: extent.height,
         );
+        _configureRenderOutput(extent);
         // The external texture ID changes on every recreation. Rebuild now;
         // visibility is restored only after Core presents its first new frame.
         if (mounted && !_closing) setState(() {});

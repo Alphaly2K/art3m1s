@@ -283,6 +283,9 @@ typedef RuntimeCreateNative =
     Pointer<Void> Function(Uint32 w, Uint32 h, Int32 backend);
 typedef RuntimeSetEmoteBackendNative =
     Int32 Function(Pointer<Void> rt, Int32 backend);
+typedef RuntimeBackendCapabilitiesNative = Uint64 Function(Pointer<Void> rt);
+typedef RuntimeConfigureSpatialUpscaleNative =
+    Int32 Function(Pointer<Void> rt, Float renderScale, Float sharpness);
 typedef RuntimeLoadProjectNative =
     Int32 Function(Pointer<Void> rt, Pointer<Utf8> ini, Pointer<Utf8> platform);
 typedef RuntimeLoadProjectBytesNative =
@@ -404,6 +407,8 @@ class CoreBridge {
   RuntimeAdvancePresent? _advancePresent;
   RuntimeSetProfilerEnabled? _setProfilerEnabled;
   RuntimeProfilerSnapshot? _profilerSnapshot;
+  int? _backendCapabilities;
+  bool _backendCapabilitiesUnavailable = false;
   bool _profilerSymbolsUnavailable = false;
   bool _fontOverrideSymbolsUnavailable = false;
   bool _sharedTextureSymbolsUnavailable = false;
@@ -1056,6 +1061,8 @@ class CoreBridge {
     if (_lib == null) return;
     _stageWidth = stageW;
     _stageHeight = stageH;
+    _backendCapabilities = null;
+    _backendCapabilitiesUnavailable = false;
 
     final fn = _lib!
         .lookupFunction<
@@ -1094,6 +1101,43 @@ class CoreBridge {
       return fn(_runtime!, preset) != 0;
     } catch (error) {
       Log.warn('[CoreBridge] 渲染质量设置不可用: $error');
+      return false;
+    }
+  }
+
+  int backendCapabilities() {
+    if (_runtime == null || _lib == null || _backendCapabilitiesUnavailable) {
+      return 0;
+    }
+    final cached = _backendCapabilities;
+    if (cached != null) return cached;
+    try {
+      final fn = _lib!
+          .lookupFunction<
+            RuntimeBackendCapabilitiesNative,
+            int Function(Pointer<Void>)
+          >('art3m1s_runtime_backend_capabilities');
+      return _backendCapabilities = fn(_runtime!);
+    } catch (error) {
+      _backendCapabilitiesUnavailable = true;
+      Log.warn('[CoreBridge] GPU capabilities 查询不可用: $error');
+      return 0;
+    }
+  }
+
+  bool get supportsSpatialUpscaling => backendCapabilities() & (1 << 6) != 0;
+
+  bool configureSpatialUpscale(double renderScale, {double sharpness = 0}) {
+    if (_runtime == null || _lib == null) return false;
+    try {
+      final fn = _lib!
+          .lookupFunction<
+            RuntimeConfigureSpatialUpscaleNative,
+            int Function(Pointer<Void>, double, double)
+          >('art3m1s_runtime_configure_spatial_upscale');
+      return fn(_runtime!, renderScale, sharpness) != 0;
+    } catch (error) {
+      Log.warn('[CoreBridge] spatial upscale 配置不可用: $error');
       return false;
     }
   }
@@ -1501,6 +1545,8 @@ class CoreBridge {
     _sharedTextureWidth = 0;
     _sharedTextureHeight = 0;
     _runtime = null;
+    _backendCapabilities = null;
+    _backendCapabilitiesUnavailable = false;
     _initialized = false;
     _uploadVideoLayerFrame = null;
     _advanceWithoutRender = null;

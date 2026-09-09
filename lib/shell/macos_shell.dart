@@ -12,7 +12,7 @@ import '../adaptive/feedback.dart';
 import '../controllers/library_actions.dart';
 import '../models/game_entry.dart';
 import '../models/render_backend.dart';
-import '../models/render_quality.dart';
+import '../models/render_output.dart';
 import '../providers/library_provider.dart';
 import '../providers/settings_provider.dart';
 import '../services/app_info.dart';
@@ -24,6 +24,7 @@ import '../widgets/debug_overlay_host.dart';
 import '../widgets/game_grid.dart';
 import '../widgets/inset_scrollbar.dart';
 import '../widgets/macos_circle_button.dart';
+import '../widgets/render_resolution_dialog.dart';
 
 /// macOS 壳：MacosApp + 侧栏（资料库 / 设置 / 关于）。
 class MacosShellApp extends StatelessWidget {
@@ -246,22 +247,51 @@ class _MacosSettingsPage extends ConsumerWidget {
                         ),
                       ),
                       _SettingRow(
-                        label: '渲染质量',
-                        caption: settings.renderQuality.label,
-                        control: MacosPopupButton<RenderQualityPreset>(
-                          value: settings.renderQuality,
+                        label: '超分输出',
+                        caption: renderOutputDescription(
+                          settings.renderOutputMode,
+                          customWidth: settings.customRenderWidth,
+                          customHeight: settings.customRenderHeight,
+                        ),
+                        control: MacosPopupButton<RenderOutputMode>(
+                          value: settings.renderOutputMode,
                           items: [
-                            for (final q in RenderQualityPreset.values)
+                            for (final mode in RenderOutputMode.values)
                               MacosPopupMenuItem(
-                                value: q,
-                                child: Text(q.label),
+                                value: mode,
+                                child: Text(mode.label),
                               ),
                           ],
                           onChanged: (v) {
-                            if (v != null) notifier.setRenderQuality(v);
+                            if (v != null) notifier.setRenderOutputMode(v);
                           },
                         ),
                       ),
+                      if (settings.renderOutputMode == RenderOutputMode.custom)
+                        _SettingRow(
+                          label: '自定义分辨率',
+                          caption: '保持游戏宽高比',
+                          control: PushButton(
+                            controlSize: ControlSize.regular,
+                            secondary: true,
+                            onPressed: () async {
+                              final size = await showRenderResolutionDialog(
+                                context,
+                                width: settings.customRenderWidth,
+                                height: settings.customRenderHeight,
+                              );
+                              if (size != null) {
+                                notifier.setCustomRenderSize(
+                                  size.width,
+                                  size.height,
+                                );
+                              }
+                            },
+                            child: Text(
+                              '${settings.customRenderWidth}×${settings.customRenderHeight}',
+                            ),
+                          ),
+                        ),
                     ],
                   ),
                   _Section(
