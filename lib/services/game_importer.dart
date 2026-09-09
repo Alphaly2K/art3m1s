@@ -294,21 +294,124 @@ class GameImporter {
     return _resolvePath(sourcePath, isFile, targetDir);
   }
 
-  /// 删除沙箱里的游戏副本（从库中移除项目时调用）。
-  static Future<void> removeFromSandbox(String originalPath) async {
-    final appSupport = await getApplicationSupportDirectory();
-    final gamesDir = Directory(
-      '${appSupport.path}${Platform.pathSeparator}games',
-    );
-    if (!gamesDir.existsSync()) return;
+  /// 资料库路径比较：去掉尾部分隔符，并把 iOS 的 `/private/var` 折成 `/var`。
+  static String normalizeLibraryPath(String path) {
+    var normalized = path.trim().replaceAll('\\', '/');
+    while (normalized.length > 1 && normalized.endsWith('/')) {
+      normalized = normalized.substring(0, normalized.length - 1);
+    }
+    if (normalized.startsWith('/private/var/') ||
+        normalized.startsWith('/private/tmp/')) {
+      normalized = normalized.substring('/private'.length);
+    }
+    return normalized;
+  }
 
-    final isFile = _isFileLikePath(originalPath);
-    final gameId = _computeGameId(originalPath, isFile);
-    final targetDir = Directory(
-      '${gamesDir.path}${Platform.pathSeparator}$gameId',
-    );
-    if (targetDir.existsSync()) {
-      targetDir.deleteSync(recursive: true);
+  static bool isSameLibraryPath(String a, String b) =>
+      normalizeLibraryPath(a) == normalizeLibraryPath(b);
+
+  static bool libraryContainsPath(Iterable<String> existing, String path) {
+    return existing.any((item) => isSameLibraryPath(item, path));
+  }
+
+  static bool isManagedImportPath(String path, Iterable<String> roots) {
+    final normalized = normalizeLibraryPath(path);
+    if (normalized.isEmpty) return false;
+    for (final root in roots) {
+      final prefix = normalizeLibraryPath(root);
+      if (prefix.isEmpty) continue;
+      if (normalized == prefix) return false;
+      if (normalized.startsWith('$prefix/')) return true;
+    }
+    return false;
+  }
+
+  /// 删除 Android 导入到应用存储的游戏文件。iOS 的 Files 可见目录不删。
+  static Future<void> removeImportedGameFiles(String path) async {
+    if (!Platform.isAndroid) return;
+    final roots = await _androidManagedGameRoots();
+    try {
+      if (File(path).existsSync() || Directory(path).existsSync()) {
+        final appSupport = await getApplicationSupportDirectory();
+        final gameId = _computeGameId(path, _isFileLikePath(path));
+        final legacy = Directory(
+          '${appSupport.path}${Platform.pathSeparator}games${Platform.pathSeparator}$gameId',
+        );
+        if (legacy.existsSync() &&
+            !isSameLibraryPath(legacy.path, path) &&
+            isManagedImportPath(legacy.path, roots)) {
+          legacy.deleteSync(recursive: true);
+        }
+      }
+    } catch (e) {
+      Log.warn('[GameImporter] 遗留沙箱副本清理失败: $e');
+    }
+    deleteManagedImport(path, roots);
+  }
+
+  /// 兼容旧调用：仅 Android 会删除导入副本。
+  static Future<void> removeFromSandbox(String originalPath) {
+    return removeImportedGameFiles(originalPath);
+  }
+
+  static Future<List<String>> _androidManagedGameRoots() async {
+    final roots = <String>{};
+    final support = await getApplicationSupportDirectory();
+    roots.add('${support.path}${Platform.pathSeparator}games');
+    final documents = await getApplicationDocumentsDirectory();
+    roots.add('${documents.path}${Platform.pathSeparator}games');
+    return roots.map(normalizeLibraryPath).toList(growable: false);
+  }
+
+  /// 删除位于托管根目录下的导入路径，并收掉空的 timestamp 父目录。
+  static void deleteManagedImport(String path, Iterable<String> roots) {
+    if (!isManagedImportPath(path, roots)) return;
+    final directory = Directory(path);
+    final file = File(path);
+    if (directory.existsSync()) {
+      directory.deleteSync(recursive: true);
+    } else if (file.existsSync()) {
+      _deleteImportedFile(file);
+    }
+    _pruneEmptyParents(path, roots);
+  }
+
+  static void _deleteImportedFile(File base) {
+    final parent = base.parent;
+    final name = _basename(base.path);
+    if (_isBasePfsName(name) && parent.existsSync()) {
+      final baseNameNoExt = name.replaceAll(
+        RegExp(r'\.pfs$', caseSensitive: false),
+        '',
+      );
+      final volumePattern = RegExp(
+        '^${RegExp.escape(baseNameNoExt)}\\.pfs\\.\\d{3}\$',
+        caseSensitive: false,
+      );
+      for (final vol in parent.listSync().whereType<File>()) {
+        if (volumePattern.hasMatch(_basename(vol.path))) {
+          vol.deleteSync();
+        }
+      }
+    }
+    if (base.existsSync()) base.deleteSync();
+  }
+
+  static void _pruneEmptyParents(String path, Iterable<String> roots) {
+    final rootSet = roots.map(normalizeLibraryPath).toSet();
+    var current = Directory(normalizeLibraryPath(path));
+    if (!current.existsSync()) current = current.parent;
+    while (true) {
+      final normalized = normalizeLibraryPath(current.path);
+      if (rootSet.contains(normalized)) return;
+      if (!rootSet.any((root) => normalized.startsWith('$root/'))) return;
+      if (!current.existsSync()) {
+        current = current.parent;
+        continue;
+      }
+      if (current.listSync(followLinks: false).isNotEmpty) return;
+      current.deleteSync();
+      current = current.parent;
     }
   }
 

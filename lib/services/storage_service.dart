@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/game_entry.dart';
 import 'app_data_paths.dart';
+import 'game_importer.dart';
 
 class StorageService {
   static const _libraryKey = 'game_library';
@@ -102,14 +103,16 @@ class StorageService {
 
   Future<void> addToLibrary(GameEntry entry) async {
     final library = getLibrary();
-    library.removeWhere((g) => g.path == entry.path);
+    library.removeWhere(
+      (g) => GameImporter.isSameLibraryPath(g.path, entry.path),
+    );
     library.add(entry);
     await _saveLibrary(library);
   }
 
   Future<void> removeFromLibrary(String path) async {
     final library = getLibrary();
-    library.removeWhere((g) => g.path == path);
+    library.removeWhere((g) => GameImporter.isSameLibraryPath(g.path, path));
     await _saveLibrary(library);
   }
 
@@ -123,7 +126,10 @@ class StorageService {
   }
 
   bool isInLibrary(String path) {
-    return getLibrary().any((g) => g.path == path);
+    return GameImporter.libraryContainsPath(
+      getLibrary().map((g) => g.path),
+      path,
+    );
   }
 
   Future<void> saveLibrary(List<GameEntry> library) async {

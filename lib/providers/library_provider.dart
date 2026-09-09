@@ -75,13 +75,11 @@ class LibraryNotifier extends StateNotifier<List<GameEntry>> {
   }
 
   Future<void> remove(String path) async {
-    // 清理沙箱副本（如果存在）。
-    if (GameImporter.needsSandbox) {
-      try {
-        await GameImporter.removeFromSandbox(path);
-      } catch (e) {
-        debugPrint('[Library] 沙箱清理失败: $e');
-      }
+    // Android 导入副本随项目一起删；iOS 只移除资料库条目，不删 Files 里的游戏。
+    try {
+      await GameImporter.removeImportedGameFiles(path);
+    } catch (e) {
+      debugPrint('[Library] 导入文件清理失败: $e');
     }
     await _storage.removeFromLibrary(path);
     state = _storage.getLibrary();

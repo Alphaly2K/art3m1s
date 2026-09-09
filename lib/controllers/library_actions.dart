@@ -191,13 +191,17 @@ class LibraryActions {
   Future<void> _addDiscoveredGamesAutomatically(
     List<DiscoveredGame> games,
   ) async {
-    final existingPaths = ref
-        .read(libraryProvider)
-        .map((entry) => entry.path)
-        .toSet();
-    final pending = games
-        .where((game) => !existingPaths.contains(game.path))
-        .toList(growable: false);
+    final pending = <DiscoveredGame>[];
+    for (final game in games) {
+      if (_isAlreadyInLibrary(game.path)) continue;
+      if (GameImporter.libraryContainsPath(
+        pending.map((item) => item.path),
+        game.path,
+      )) {
+        continue;
+      }
+      pending.add(game);
+    }
     if (pending.isEmpty) {
       if (context.mounted) notify(context, '扫描到的游戏都已在资料库中');
       return;
@@ -264,6 +268,10 @@ class LibraryActions {
     String path,
     GameSource source,
   ) async {
+    if (_isAlreadyInLibrary(path)) {
+      if (context.mounted) notify(context, '该游戏已在资料库中');
+      return;
+    }
     final gameId = _gameIdForPath(path);
     notify(context, '正在读取游戏信息；VNDB 不可用时将离线继续…');
     final manifest = await GameManifest.loadForProject(path, source);
@@ -381,7 +389,7 @@ class LibraryActions {
   String _gameIdForPath(String path) {
     final library = ref.read(libraryProvider);
     for (final game in library) {
-      if (game.path == path) return game.id;
+      if (GameImporter.isSameLibraryPath(game.path, path)) return game.id;
     }
     final existing = library.map((game) => game.id).toSet();
     final random = Random.secure();
@@ -435,11 +443,21 @@ class LibraryActions {
         );
   }
 
+  bool _isAlreadyInLibrary(String path) {
+    return GameImporter.libraryContainsPath(
+      ref.read(libraryProvider).map((entry) => entry.path),
+      path,
+    );
+  }
+
   Future<void> confirmDelete(GameEntry entry) async {
+    final message = Platform.isAndroid
+        ? '确定从库中移除「${entry.displayNameOrName}」并删除应用内已导入的游戏文件吗？'
+        : '确定从库中移除「${entry.displayNameOrName}」吗？';
     final confirmed = await showAdaptiveConfirm(
       context,
       title: '移除项目',
-      message: '确定从库中移除「${entry.displayNameOrName}」吗？',
+      message: message,
       confirmLabel: '移除',
       destructive: true,
     );
