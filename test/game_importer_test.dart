@@ -341,4 +341,104 @@ void main() {
     expect(stale.existsSync(), isFalse);
     expect(kept.existsSync(), isTrue);
   });
+
+  test('isolate unpacked games into save-id folders', () {
+    final root = Directory.systemTemp.createTempSync('art3m1s_owned_dir_');
+    addTearDown(() => root.deleteSync(recursive: true));
+    final incoming = Directory(
+      '${root.path}${Platform.pathSeparator}incoming${Platform.pathSeparator}123${Platform.pathSeparator}MagicalCharming',
+    )..createSync(recursive: true);
+    File(
+      '${incoming.path}${Platform.pathSeparator}system.ini',
+    ).writeAsStringSync('[boot]');
+    File(
+      '${incoming.path}${Platform.pathSeparator}GameInfo',
+    ).writeAsStringSync('caption');
+
+    final isolated = GameImporter.isolateImportedGameForRoots(
+      incoming.path,
+      'a1b2c3d4',
+      roots: [root.path],
+    );
+
+    expect(isolated, '${root.path}${Platform.pathSeparator}a1b2c3d4');
+    expect(incoming.existsSync(), isFalse);
+    expect(
+      File('$isolated${Platform.pathSeparator}system.ini').readAsStringSync(),
+      '[boot]',
+    );
+    expect(
+      File('$isolated${Platform.pathSeparator}GameInfo').readAsStringSync(),
+      'caption',
+    );
+    expect(
+      GameImporter.ownedGameIdFromManagedPath(isolated, [root.path]),
+      'a1b2c3d4',
+    );
+  });
+
+  test('isolate pfs games into save-id folders with volumes', () {
+    final root = Directory.systemTemp.createTempSync('art3m1s_owned_pfs_');
+    addTearDown(() => root.deleteSync(recursive: true));
+    final incoming = Directory(
+      '${root.path}${Platform.pathSeparator}incoming${Platform.pathSeparator}123${Platform.pathSeparator}Pack',
+    )..createSync(recursive: true);
+    final base = File('${incoming.path}${Platform.pathSeparator}game.pfs')
+      ..writeAsBytesSync([1]);
+    File(
+      '${incoming.path}${Platform.pathSeparator}game.pfs.000',
+    ).writeAsBytesSync([2]);
+    File(
+      '${incoming.path}${Platform.pathSeparator}game.pfs.art3m1s.json',
+    ).writeAsStringSync('{}');
+    File(
+      '${incoming.path}${Platform.pathSeparator}other.pfs',
+    ).writeAsBytesSync([9]);
+
+    final isolated = GameImporter.isolateImportedGameForRoots(
+      base.path,
+      'deadbeef',
+      roots: [root.path],
+    );
+
+    expect(
+      isolated,
+      '${root.path}${Platform.pathSeparator}deadbeef${Platform.pathSeparator}game.pfs',
+    );
+    expect(File(isolated).existsSync(), isTrue);
+    expect(
+      File(
+        '${root.path}${Platform.pathSeparator}deadbeef${Platform.pathSeparator}game.pfs.000',
+      ).existsSync(),
+      isTrue,
+    );
+    expect(
+      File(
+        '${root.path}${Platform.pathSeparator}deadbeef${Platform.pathSeparator}game.pfs.art3m1s.json',
+      ).existsSync(),
+      isTrue,
+    );
+    expect(
+      File('${incoming.path}${Platform.pathSeparator}other.pfs').existsSync(),
+      isTrue,
+    );
+    expect(base.existsSync(), isFalse);
+  });
+
+  test('deleting an owned pfs game removes the whole save-id folder', () {
+    final root = Directory.systemTemp.createTempSync('art3m1s_owned_delete_');
+    addTearDown(() => root.deleteSync(recursive: true));
+    final folder = Directory('${root.path}${Platform.pathSeparator}cafebabe')
+      ..createSync();
+    final base = File('${folder.path}${Platform.pathSeparator}game.pfs')
+      ..writeAsBytesSync([1]);
+    File(
+      '${folder.path}${Platform.pathSeparator}readme.txt',
+    ).writeAsStringSync('x');
+
+    GameImporter.deleteManagedImport(base.path, [root.path]);
+
+    expect(folder.existsSync(), isFalse);
+    expect(root.existsSync(), isTrue);
+  });
 }

@@ -207,17 +207,32 @@ class GameImporter {
   ///
   /// - `sourcePath` 是 `.pfs` 文件（自动连带 `.pfs.NNN` 分卷）或目录。
   /// - 返回沙箱内的目标路径（目录或 base .pfs 文件）。
+  /// - Android 使用与存档目录相同的游戏 ID 作为独立文件夹名。
   /// - 如果已导入过（同名 + 同大小），直接返回已有路径，不重复复制。
-  static Future<String> importToSandbox(String sourcePath) async {
+  static Future<String> importToSandbox(
+    String sourcePath, {
+    String? gameId,
+  }) async {
+    if (Platform.isIOS && await _isInIosVisibleGamesFolder(sourcePath)) {
+      return sourcePath;
+    }
+    if (Platform.isAndroid) {
+      final roots = await _androidManagedGameRoots();
+      if (ownedGameIdFromManagedPath(sourcePath, roots) != null) {
+        return sourcePath;
+      }
+      final id = sanitizeOwnedGameId(gameId ?? '');
+      if (id.isNotEmpty) {
+        return isolateImportedGameForRoots(sourcePath, id, roots: roots);
+      }
+    }
+
     final appSupport = await getApplicationSupportDirectory();
     final gamesPrefix =
         '${appSupport.path}${Platform.pathSeparator}games${Platform.pathSeparator}';
 
     // 已在沙箱内（例如刚通过 pickDirectoryAndCopy 拷贝的）→ 直接返回。
     if (sourcePath.startsWith(gamesPrefix)) {
-      return sourcePath;
-    }
-    if (Platform.isIOS && await _isInIosVisibleGamesFolder(sourcePath)) {
       return sourcePath;
     }
 
@@ -227,9 +242,9 @@ class GameImporter {
     if (!gamesDir.existsSync()) gamesDir.createSync(recursive: true);
 
     final isFile = _isFileLikePath(sourcePath);
-    final gameId = _computeGameId(sourcePath, isFile);
+    final legacyId = _computeGameId(sourcePath, isFile);
     final targetDir = Directory(
-      '${gamesDir.path}${Platform.pathSeparator}$gameId',
+      '${gamesDir.path}${Platform.pathSeparator}$legacyId',
     );
 
     // 已导入且大小一致 → 直接复用。
@@ -283,6 +298,212 @@ class GameImporter {
   }
 
   static const incompleteImportMarker = '.import-incomplete';
+  static const ownedIncomingDirName = 'incoming';
+
+  static String sanitizeOwnedGameId(String gameId) {
+    return gameId.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '');
+  }
+
+  /// 已按存档 ID 隔离的目录：`<games>/<gameId>/...`，不含 `incoming` 批次。
+  static String? ownedGameIdFromManagedPath(
+    String path, [
+    Iterable<String>? roots,
+  ]) {
+    final normalized = normalizeLibraryPath(path);
+    if (roots != null && roots.isNotEmpty) {
+      for (final root in roots) {
+        final prefix = '${normalizeLibraryPath(root)}/';
+        if (!normalized.startsWith(prefix)) continue;
+        final rest = normalized.substring(prefix.length);
+        if (rest.isEmpty) return null;
+        final id = rest.split('/').first;
+        if (id.isEmpty || id == ownedIncomingDirName) return null;
+        return id;
+      }
+      return null;
+    }
+    final parts = normalized.split('/');
+    for (var i = 0; i < parts.length - 1; i++) {
+      if (parts[i] != 'games') continue;
+      final id = parts[i + 1];
+      if (id.isEmpty || id == ownedIncomingDirName) continue;
+      return id;
+    }
+    return null;
+  }
+
+  static Set<String> listOwnedGameIds(Iterable<String> roots) {
+    final ids = <String>{};
+    for (final root in roots) {
+      final directory = Directory(normalizeLibraryPath(root));
+      if (!directory.existsSync()) continue;
+      for (final entity in directory.listSync(followLinks: false)) {
+        if (entity is! Directory) continue;
+        final name = _basename(entity.path);
+        if (name.isEmpty ||
+            name == ownedIncomingDirName ||
+            name.startsWith('.')) {
+          continue;
+        }
+        ids.add(name);
+      }
+    }
+    return ids;
+  }
+
+  static Directory? findOwnedGameFolder(String path, Iterable<String> roots) {
+    final id = ownedGameIdFromManagedPath(path, roots);
+    if (id == null) return null;
+    final normalized = normalizeLibraryPath(path);
+    for (final root in roots) {
+      final folder = Directory('${normalizeLibraryPath(root)}/$id');
+      final folderPath = normalizeLibraryPath(folder.path);
+      if (_isUnderNormalized(normalized, folderPath)) return folder;
+    }
+    return null;
+  }
+
+  static Future<List<String>> androidManagedGameRoots() {
+    return _androidManagedGameRoots();
+  }
+
+  /// 把一个已发现的游戏放到 `<games>/<gameId>/`，目录和 PFS 都是一游戏一文件夹。
+  static String isolateImportedGameForRoots(
+    String sourcePath,
+    String gameId, {
+    required Iterable<String> roots,
+  }) {
+    final id = sanitizeOwnedGameId(gameId);
+    if (id.isEmpty || id == ownedIncomingDirName) {
+      throw ArgumentError.value(gameId, 'gameId', 'invalid owned game id');
+    }
+    final existing = ownedGameIdFromManagedPath(sourcePath, roots);
+    if (existing == id) return sourcePath;
+    if (existing != null) return sourcePath;
+
+    final rootPath = _destinationGamesRoot(sourcePath, roots);
+    final target = Directory('$rootPath/$id');
+    if (isSameLibraryPath(target.path, sourcePath)) return sourcePath;
+    if (target.existsSync()) {
+      throw StateError('owned game folder already exists: $id');
+    }
+
+    final move = isManagedImportPath(sourcePath, roots);
+    final directory = Directory(sourcePath);
+    final file = File(sourcePath);
+    if (directory.existsSync()) {
+      _relocateDirectory(directory, target, move: move);
+      return target.path;
+    }
+    if (file.existsSync()) {
+      target.createSync(recursive: true);
+      _relocatePfsGroup(file, target, move: move);
+      return '${target.path}/${_basename(file.path)}';
+    }
+    throw FileSystemException('路径既不是文件也不是目录', sourcePath);
+  }
+
+  static String _destinationGamesRoot(
+    String sourcePath,
+    Iterable<String> roots,
+  ) {
+    final normalized = normalizeLibraryPath(sourcePath);
+    for (final root in roots) {
+      final prefix = normalizeLibraryPath(root);
+      if (normalized == prefix || normalized.startsWith('$prefix/')) {
+        return prefix;
+      }
+    }
+    return normalizeLibraryPath(roots.first);
+  }
+
+  static void _relocateDirectory(
+    Directory source,
+    Directory target, {
+    required bool move,
+  }) {
+    target.parent.createSync(recursive: true);
+    if (move) {
+      try {
+        source.renameSync(target.path);
+        return;
+      } on FileSystemException {
+        // 跨文件系统时退回复制。
+      }
+    }
+    _copyDirectorySync(source, target);
+    if (move && source.existsSync()) {
+      source.deleteSync(recursive: true);
+    }
+  }
+
+  static void _copyDirectorySync(Directory src, Directory dst) {
+    dst.createSync(recursive: true);
+    for (final entity in src.listSync(followLinks: false)) {
+      final name = _basename(entity.path);
+      if (entity is File) {
+        entity.copySync('${dst.path}${Platform.pathSeparator}$name');
+      } else if (entity is Directory) {
+        _copyDirectorySync(
+          entity,
+          Directory('${dst.path}${Platform.pathSeparator}$name'),
+        );
+      }
+    }
+  }
+
+  static void _relocatePfsGroup(
+    File base,
+    Directory target, {
+    required bool move,
+  }) {
+    target.createSync(recursive: true);
+    for (final file in _pfsGroupFiles(base)) {
+      final dest = File(
+        '${target.path}${Platform.pathSeparator}${_basename(file.path)}',
+      );
+      if (move) {
+        _moveFile(file, dest);
+      } else {
+        dest.parent.createSync(recursive: true);
+        file.copySync(dest.path);
+      }
+    }
+  }
+
+  static List<File> _pfsGroupFiles(File base) {
+    final files = <File>[base];
+    final parent = base.parent;
+    if (!parent.existsSync()) return files;
+    final baseName = _basename(base.path);
+    final baseNameNoExt = baseName.replaceAll(
+      RegExp(r'\.pfs\$', caseSensitive: false),
+      '',
+    );
+    final volumePattern = RegExp(
+      '^${RegExp.escape(baseNameNoExt)}\\.pfs\\.\\d{3}\$',
+      caseSensitive: false,
+    );
+    for (final file in parent.listSync().whereType<File>()) {
+      final name = _basename(file.path);
+      if (isSameLibraryPath(file.path, base.path)) continue;
+      if (volumePattern.hasMatch(name) ||
+          name.toLowerCase().startsWith('${baseName.toLowerCase()}.')) {
+        files.add(file);
+      }
+    }
+    return files;
+  }
+
+  static void _moveFile(File source, File target) {
+    target.parent.createSync(recursive: true);
+    try {
+      source.renameSync(target.path);
+    } on FileSystemException {
+      source.copySync(target.path);
+      if (source.existsSync()) source.deleteSync();
+    }
+  }
 
   /// SAF 导入批次：`<games>/incoming/<timestamp>/`。
   static Directory? findManagedIncomingBatch(
@@ -448,6 +669,12 @@ class GameImporter {
     Iterable<String> retainedPaths = const [],
   }) {
     if (!isManagedImportPath(path, roots)) return;
+    final owned = findOwnedGameFolder(path, roots);
+    if (owned != null && !_batchHasRetainedGames(owned, path, retainedPaths)) {
+      if (owned.existsSync()) owned.deleteSync(recursive: true);
+      _pruneEmptyParents(owned.path, roots);
+      return;
+    }
     final batch = findManagedIncomingBatch(path, roots);
     if (batch != null && !_batchHasRetainedGames(batch, path, retainedPaths)) {
       if (batch.existsSync()) batch.deleteSync(recursive: true);
