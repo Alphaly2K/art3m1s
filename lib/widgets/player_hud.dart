@@ -405,7 +405,7 @@ class _HudPanel extends StatelessWidget {
           children: [
             _header(context, color: theme.colors.onSurface, onClose: onClose),
             for (var i = 0; i < _items.length; i++) ...[
-              if (i > 0) const MiuixHorizontalDivider(),
+              if (i > 0) const MiuixInsetDivider(),
               if (_items[i].on != null)
                 MiuixSwitchPreference(
                   title: _items[i].label,

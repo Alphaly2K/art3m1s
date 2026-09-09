@@ -76,7 +76,7 @@ Future<void> _showMiuixMenu(
               child: Column(
                 children: [
                   for (var i = 0; i < actions.length; i++) ...[
-                    if (i > 0) const MiuixHorizontalDivider(),
+                    if (i > 0) const MiuixInsetDivider(),
                     row(actions[i]),
                   ],
                 ],

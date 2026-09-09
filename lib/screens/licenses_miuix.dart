@@ -42,11 +42,7 @@ class _MiuixLicensesPageState extends State<MiuixLicensesPage> {
                   child: Column(
                     children: [
                       for (var i = 0; i < data.length; i++) ...[
-                        if (i > 0)
-                          const Padding(
-                            padding: EdgeInsetsDirectional.only(start: 16),
-                            child: MiuixHorizontalDivider(),
-                          ),
+                        if (i > 0) const MiuixInsetDivider(),
                         MiuixArrowPreference(
                           title: data[i].package,
                           summary: '${data[i].licenses.length} 条许可证',

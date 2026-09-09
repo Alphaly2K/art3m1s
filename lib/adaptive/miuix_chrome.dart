@@ -25,6 +25,19 @@ Widget miuixBarAction({required VoidCallback onPressed, required String icon}) {
   );
 }
 
+/// Miuix 卡片列表项之间的分割线。双侧保持相同内缩，避免一端贴住卡片边缘。
+class MiuixInsetDivider extends StatelessWidget {
+  const MiuixInsetDivider({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const Padding(
+      padding: EdgeInsetsDirectional.symmetric(horizontal: 16),
+      child: MiuixHorizontalDivider(),
+    );
+  }
+}
+
 class MiuixSettingsGroup extends StatelessWidget {
   const MiuixSettingsGroup({
     super.key,
@@ -45,11 +58,7 @@ class MiuixSettingsGroup extends StatelessWidget {
           child: Column(
             children: [
               for (var i = 0; i < children.length; i++) ...[
-                if (i > 0)
-                  const Padding(
-                    padding: EdgeInsetsDirectional.only(start: 16),
-                    child: MiuixHorizontalDivider(),
-                  ),
+                if (i > 0) const MiuixInsetDivider(),
                 children[i],
               ],
             ],
