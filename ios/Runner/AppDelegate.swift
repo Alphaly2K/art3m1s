@@ -4,8 +4,8 @@ import IOSurface
 import Metal
 import UIKit
 
-@main
-@objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
+@objc(Art3m1sRuntimeDelegate)
+class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
   private var sharedTextureRegistry: FlutterTextureRegistry?
   private var sharedTexture: Art3m1sSharedTexture?
   private var sharedTextureId: Int64?

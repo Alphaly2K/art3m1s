@@ -10,6 +10,7 @@ import 'services/app_info.dart';
 import 'services/app_data_paths.dart';
 import 'services/logger.dart';
 import 'services/storage_service.dart';
+import 'services/startup_diagnostics.dart';
 import 'models/host_ui_theme.dart';
 import 'providers/settings_provider.dart';
 import 'shell/cupertino_shell.dart';
@@ -52,10 +53,18 @@ void main(List<String> args) async {
       offset: const Offset(54, 14),
     );
   }
-  MediaKit.ensureInitialized(libmpv: _bundledMpvLibraryPath());
-  await AppDataPaths.ensureInitialized();
-  await StorageService.ensureInitialized();
-  await AppInfo.init();
+  await StartupDiagnostics.step('media-kit', () {
+    MediaKit.ensureInitialized(libmpv: _bundledMpvLibraryPath());
+  });
+  await StartupDiagnostics.step(
+    'data-directories',
+    AppDataPaths.ensureInitialized,
+  );
+  await StartupDiagnostics.step(
+    'preferences',
+    StorageService.ensureInitialized,
+  );
+  await StartupDiagnostics.step('app-info', AppInfo.init);
   Log.info('Art3m1s 启动');
   runApp(const ProviderScope(child: Art3m1sApp()));
 }

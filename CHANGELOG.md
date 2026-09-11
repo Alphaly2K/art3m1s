@@ -2,6 +2,17 @@
 
 本文档记录 Art3m1s Flutter 前端的重要变更。
 
+## [Unreleased]
+
+### 修复
+
+- 移除未使用的 `flutter_file_dialog`。
+- 所有 iOS 构建统一使用原生窗口入口，随后按依赖顺序加载 Flutter；不再等待每库 150 ms。
+- 修复原生导航页向 Flutter 全屏页交接时的生命周期顺序，避免冷启动后必须打开控制中心才能操作。
+- 补充 Mpv 所需系统框架链接；启动失败可在下次打开时通过原生恢复页导出日志。
+- 启动日志限定当前进程，Release 关闭逐库和正常 Dart 启动阶段日志，成功进入 Flutter 后停止启动诊断。
+- iOS 打包对选定产物的副本执行 ad-hoc 签名并保留匹配 dSYM，不额外注入 `platform-application` 或 Unsandbox 权限。
+
 ## [1.3.0] - 2026-09-09
 
 ### 变更

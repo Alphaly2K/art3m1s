@@ -13,6 +13,7 @@ class Log {
   static bool _debugEnabled = false;
   static bool _runtimeSessionActive = false;
   static bool _hasRuntimeSession = false;
+  static bool _fileStarted = false;
   static bool overlayVisible = false;
   static VoidCallback? _onOverlayToggle;
 
@@ -83,7 +84,9 @@ class Log {
     try {
       final dir = await getApplicationDocumentsDirectory();
       final file = File('${dir.path}/art3m1s.log');
-      final sink = file.openWrite(mode: FileMode.append);
+      final sink = file.openWrite(
+        mode: _fileStarted ? FileMode.append : FileMode.write,
+      );
       try {
         for (final entry in batch) {
           sink.writeln(
@@ -91,6 +94,7 @@ class Log {
           );
         }
         await sink.flush();
+        _fileStarted = true;
       } finally {
         await sink.close();
       }

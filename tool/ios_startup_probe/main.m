@@ -9,6 +9,10 @@ static NSString *logPath;
 static int logFD = -1;
 static uint32_t recordedImages;
 
+#ifndef ART_LAUNCH_RUNNER
+#define ART_LAUNCH_RUNNER 0
+#endif
+
 static void Record(NSString *message) {
   NSData *data = [[NSString stringWithFormat:@"%@ %@\n", NSDate.date, message]
       dataUsingEncoding:NSUTF8StringEncoding];
@@ -60,7 +64,7 @@ static void RecordImages(void) {
 @implementation ProbeController
 - (void)viewDidLoad {
   [super viewDidLoad];
-  self.title = @"Art3m1s Probe";
+  self.title = ART_LAUNCH_RUNNER ? @"Art3m1s Trace" : @"Art3m1s Probe";
   self.view.backgroundColor = UIColor.systemBackgroundColor;
   self.runButton = [[UIBarButtonItem alloc]
       initWithBarButtonSystemItem:UIBarButtonSystemItemPlay
@@ -101,6 +105,9 @@ static void RecordImages(void) {
 
 - (void)viewDidAppear:(BOOL)animated {
   [super viewDidAppear:animated];
+  self.output.text = [NSString stringWithContentsOfFile:logPath
+      encoding:NSUTF8StringEncoding error:nil] ?: @"";
+  [self.output scrollRangeToVisible:NSMakeRange(self.output.text.length, 0)];
   NSArray<NSString *> *arguments = NSProcessInfo.processInfo.arguments;
   if ([arguments containsObject:@"--probe-run"] && self.runButton.enabled) {
     self.bindingMode.selectedSegmentIndex = [arguments containsObject:@"--probe-now"] ? 1 : 0;
@@ -136,7 +143,11 @@ static void RecordImages(void) {
 
 - (void)nextStep {
   if (self.stepIndex == self.steps.count) {
+#if ART_LAUNCH_RUNNER
+    [self launchRunner];
+#else
     [self finish:@"COMPLETE: all required libraries loaded; Dart and Runner plugins were not started"];
+#endif
     return;
   }
   NSDictionary *step = self.steps[self.stepIndex++];
@@ -175,6 +186,29 @@ static void RecordImages(void) {
   });
 }
 
+#if ART_LAUNCH_RUNNER
+- (void)launchRunner {
+  [self append:@"BEGIN RUNNER_APPLICATION_START"];
+  UIViewController *(*start)(UIWindow *) = dlsym(RTLD_DEFAULT, "Art3m1sStartApplication");
+  if (!start) {
+    [self finish:@"FAILED: application bridge entry point not found"];
+    return;
+  }
+  UIViewController *flutter = start(self.view.window);
+  if (!flutter) {
+    [self finish:@"FAILED: application bridge returned no view controller"];
+    return;
+  }
+  flutter.title = @"Art3m1s";
+  flutter.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc]
+      initWithBarButtonSystemItem:UIBarButtonSystemItemAction
+      target:self action:@selector(shareLog)];
+  [self append:@"BEGIN FLUTTER_VIEW_PRESENTATION"];
+  [self.navigationController pushViewController:flutter animated:YES];
+  [self finish:@"FLUTTER_VIEW_ATTACHED"];
+}
+#endif
+
 - (void)finish:(NSString *)message {
   [self append:message];
   self.running = NO;
@@ -186,8 +220,10 @@ static void RecordImages(void) {
   fsync(logFD);
   UIActivityViewController *sheet = [[UIActivityViewController alloc]
       initWithActivityItems:@[[NSURL fileURLWithPath:logPath]] applicationActivities:nil];
-  sheet.popoverPresentationController.barButtonItem = self.shareButton;
-  [self presentViewController:sheet animated:YES completion:nil];
+  UIViewController *presenter = self.navigationController.topViewController ?: self;
+  sheet.popoverPresentationController.barButtonItem = presenter == self
+      ? self.shareButton : presenter.navigationItem.rightBarButtonItem;
+  [presenter presentViewController:sheet animated:YES completion:nil];
 }
 @end
 
@@ -213,7 +249,8 @@ int main(int argc, char **argv) {
         NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
     [NSFileManager.defaultManager createDirectoryAtPath:documents
         withIntermediateDirectories:YES attributes:nil error:nil];
-    logPath = [documents stringByAppendingPathComponent:@"startup-probe.log"];
+    logPath = [documents stringByAppendingPathComponent:
+        ART_LAUNCH_RUNNER ? @"startup-trace.log" : @"startup-probe.log"];
     logFD = open(logPath.fileSystemRepresentation, O_WRONLY | O_CREAT | O_APPEND, 0600);
     if (logFD < 0) return 1;
     dup2(logFD, STDOUT_FILENO);

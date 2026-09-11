@@ -110,3 +110,21 @@ post_install do |installer|
     end
   end
 end
+
+# CocoaPods owns Runner's embedding phases and search paths. Only the runtime
+# links its aggregate library; keep this true after every pod install.
+post_integrate do |installer|
+  installer.aggregate_targets.map(&:user_project).uniq.each do |project|
+    runner = project.targets.find { |target| target.name == 'Runner' }
+    runtime = project.targets.find { |target| target.name == 'Art3m1sRuntime' }
+    next unless runner && runtime
+
+    runner.frameworks_build_phase.files.to_a.each do |file|
+      next unless file.file_ref&.path == 'Pods_Runner.framework'
+
+      runtime.frameworks_build_phase.add_file_reference(file.file_ref, true)
+      file.remove_from_project
+    end
+    project.save
+  end
+end

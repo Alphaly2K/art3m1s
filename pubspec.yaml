@@ -37,7 +37,6 @@ dependencies:
   shared_preferences: ^2.3.4
   ffi: ^2.1.4
   file_selector: ^1.0.3
-  flutter_file_dialog: ^3.0.2
   media_kit: ^1.2.6
   media_kit_video: ^2.0.1
   media_kit_libs_video: ^1.0.7

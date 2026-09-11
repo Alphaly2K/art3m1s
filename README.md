@@ -170,12 +170,26 @@ macOS 使用原生应用菜单；游戏内 HUD 可停靠到侧边。项目编辑
 
 ```bash
 dart run tool/build.dart [all|ios|macos|android|windows|linux] \
-  [--release|--debug] [--device-only]
+  [--release|--profile|--debug] [--device-only] [--sign-only]
 ```
 
 `all` 表示当前宿主能够原生构建的全部目标：macOS 构建 iOS、macOS 和 Android，
 Windows 构建 Windows 和 Android，Linux 构建 Linux 和 Android。iOS 默认同时生成真机与
-Apple Silicon 模拟器切片；发布真机包可加 `--device-only`。iOS 输出默认不签名。
+Apple Silicon 模拟器切片；发布真机包可加 `--device-only`。iOS 会先用
+`--no-codesign` 构建，再对选定构建的副本及其 framework/dylib 做 ad-hoc 签名，
+打包为 `build/ios/Art3m1s-trollstore.ipa`，同时保存匹配的 dSYM。
+采用已成功 Trace 的普通容器签名，不额外注入 `platform-application` 或 Unsandbox 权限。
+`--sign-only` 只打包指定配置的已有原生入口产物，不重签其他历史构建。
+
+iOS 的 Debug、Profile、Release 均使用原生窗口先启动、随后加载 Flutter 的路径。
+不包含 Probe 的人工逐步等待；Release 不记录逐库及 Dart 启动阶段日志。
+结构、日志恢复及验证方式见[原生入口说明](doc/ios-native-launcher-assessment-2026-09-11.md)。
+
+巨魔（TrollStore，不是普通越狱）安装注意：
+
+- 不要开启 Unsandbox，也不要自行添加 `no-container` / `no-sandbox`
+- 不要用 Finder 压缩 `Runner.app`（会带上 `__MACOSX`，且 Profile 默认未签名）
+- iOS 14 请安装 `dart run tool/build.dart ios --release --device-only` 产出的签名 IPA
 
 可通过 `CORE_SRC`、`PFS_SRC`、`FLUTTER_ROOT` 和 `VCPKG_ROOT` 指定依赖位置。Darwin
 脚本在未设置 `VCPKG_ROOT` 时会把 vcpkg 引导到 `.build/vcpkg`。Windows 沿用发布链

@@ -1,0 +1,3 @@
+// Vendored Mpv uses flat-namespace AVAudioSession, CV and EAGL imports.
+// Keep their providers in the launch dependency graph, even with dead stripping.
+OTHER_LDFLAGS = $(inherited) -Wl,-needed_framework,AVFoundation -Wl,-needed_framework,CoreVideo -Wl,-needed_framework,OpenGLES

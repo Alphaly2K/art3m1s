@@ -38,24 +38,31 @@ final class BuildOptions {
     required this.target,
     required this.profile,
     required this.deviceOnly,
+    required this.signOnly,
   });
 
   final String target;
   final String profile;
   final bool deviceOnly;
+  final bool signOnly;
 
   static BuildOptions parse(List<String> arguments) {
     var target = 'all';
     var profile = 'release';
     var deviceOnly = false;
+    var signOnly = false;
     for (final argument in arguments) {
       switch (argument) {
         case '--debug':
           profile = 'debug';
+        case '--profile':
+          profile = 'profile';
         case '--release':
           profile = 'release';
         case '--device-only':
           deviceOnly = true;
+        case '--sign-only':
+          signOnly = true;
         case 'all':
         case 'ios':
         case 'macos':
@@ -68,7 +75,7 @@ final class BuildOptions {
           stdout.writeln(
             'Usage: dart run tool/build.dart '
             '[all|ios|macos|android|windows|linux] '
-            '[--release|--debug] [--device-only]',
+            '[--release|--profile|--debug] [--device-only] [--sign-only]',
           );
           exit(0);
         default:
@@ -79,6 +86,7 @@ final class BuildOptions {
       target: target,
       profile: profile,
       deviceOnly: deviceOnly,
+      signOnly: signOnly,
     );
   }
 }
@@ -171,6 +179,10 @@ Future<void> _buildIos(
   BuildMetadata metadata,
   BuildOptions options,
 ) async {
+  if (options.signOnly) {
+    await _signIosAppForTrollStore(project, profile: options.profile);
+    return;
+  }
   final args = <String>[options.profile == 'release' ? '--release' : '--debug'];
   if (options.deviceOnly) args.add('--device-only');
   await _run(
@@ -186,6 +198,7 @@ Future<void> _buildIos(
     '--no-codesign',
     ...metadata.dartDefines,
   ], workingDirectory: project);
+  await _signIosAppForTrollStore(project, profile: options.profile);
 }
 
 Future<void> _buildMacos(
@@ -336,6 +349,40 @@ Directory _findDirectory(Directory root, String basename) {
   }
   matches.sort((a, b) => a.path.length.compareTo(b.path.length));
   return matches.first;
+}
+
+List<Directory> _iosAppCandidates(Directory project, String profile) {
+  final ordered = <String>[
+    if (profile == 'profile')
+      '${project.path}/build/ios/Profile-iphoneos/Runner.app'
+    else if (profile == 'debug')
+      '${project.path}/build/ios/Debug-iphoneos/Runner.app'
+    else
+      '${project.path}/build/ios/Release-iphoneos/Runner.app',
+    '${project.path}/build/ios/iphoneos/Runner.app',
+  ];
+  final seen = <String>{};
+  return [
+    for (final path in ordered)
+      if (seen.add(path) && Directory(path).existsSync()) Directory(path),
+  ];
+}
+
+Future<void> _signIosAppForTrollStore(
+  Directory project, {
+  required String profile,
+}) async {
+  final apps = _iosAppCandidates(project, profile);
+  if (apps.isEmpty) {
+    throw StateError(
+      'No $profile Runner.app found under ${project.path}/build/ios',
+    );
+  }
+  await _run('/usr/bin/python3', <String>[
+    '${project.path}/tool/package_ios_native.py',
+    apps.first.path,
+    '${project.path}/build/ios/Art3m1s-trollstore.ipa',
+  ], workingDirectory: project);
 }
 
 Future<void> _run(
