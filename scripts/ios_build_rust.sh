@@ -45,6 +45,9 @@ TARGET_DIR_SUFFIX="debug"
 if [[ "$PROFILE" == "release" ]]; then
   CARGO_FLAGS=(--release)
   TARGET_DIR_SUFFIX="release"
+else
+  CARGO_FLAGS=(--debug)
+  TARGET_DIR_SUFFIX="debug"
 fi
 
 # ── 工具检测 ────────────────────────────────────────────────────────────
@@ -159,9 +162,15 @@ make_framework() {
   fi
 
   echo "  -> $IOS_DEVICE_TARGET"
-  cargo build "${CARGO_FLAGS[@]}" --lib \
-    --manifest-path "$src_dir/Cargo.toml" \
-    --target "$IOS_DEVICE_TARGET"
+  if [[ "$CARGO_FLAGS[@]" == "--release" ]]; then
+    cargo build "${CARGO_FLAGS[@]}" --lib \
+      --manifest-path "$src_dir/Cargo.toml" \
+      --target "$IOS_DEVICE_TARGET"
+  else
+    cargo build --lib \
+          --manifest-path "$src_dir/Cargo.toml" \
+          --target "$IOS_DEVICE_TARGET"
+  fi
 
   if [[ "$BUILD_SIM" == "1" ]]; then
     echo "  -> $IOS_SIM_ARM64_TARGET"
