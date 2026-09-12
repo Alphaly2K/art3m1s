@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
 
+import '../models/game_engine.dart';
 import '../models/game_entry.dart';
 import '../models/input_gate.dart';
 import 'logger.dart';
@@ -23,6 +24,7 @@ import 'pfs_bridge.dart';
 /// {
 ///   "name": "NekoMiko",
 ///   "vndbId": "v23658",
+///   "engine": "art3m1s",
 ///   "translationEnabled": true,
 ///   "translationPatchPath": "patch/zh.json",
 ///   "environmentPatchEnabled": true,
@@ -35,6 +37,7 @@ class GameManifest {
   const GameManifest({
     this.name,
     this.vndbId,
+    this.engine,
     this.translationEnabled,
     this.translationPatchPath,
     this.environmentPatchEnabled,
@@ -52,6 +55,9 @@ class GameManifest {
 
   /// VNDB ID（如 `v23658`），导入时用于精确查询标题/封面。
   final String? vndbId;
+
+  /// 项目使用的底层引擎。缺省时保持旧版 Artemis core。
+  final GameEngineKind? engine;
 
   /// 默认功能开关。
   final bool? translationEnabled;
@@ -100,6 +106,9 @@ class GameManifest {
     return GameManifest(
       name: optionalString('name'),
       vndbId: optionalString('vndbId'),
+      engine: json['engine'] == null
+          ? null
+          : GameEngineKind.fromId(json['engine']),
       translationEnabled: optionalBool('translationEnabled'),
       translationPatchPath: optionalString('translationPatchPath'),
       environmentPatchEnabled: optionalBool('environmentPatchEnabled'),
@@ -118,6 +127,7 @@ class GameManifest {
   Map<String, dynamic> toJson() => {
     if (name != null && name!.isNotEmpty) 'name': name,
     if (vndbId != null && vndbId!.isNotEmpty) 'vndbId': vndbId,
+    if (engine != null) 'engine': engine!.id,
     if (translationEnabled != null) 'translationEnabled': translationEnabled,
     if (translationPatchPath != null && translationPatchPath!.isNotEmpty)
       'translationPatchPath': translationPatchPath,
@@ -137,6 +147,7 @@ class GameManifest {
   factory GameManifest.fromGameEntry(GameEntry entry) => GameManifest(
     name: entry.displayNameOrName,
     vndbId: entry.vndbId.isEmpty ? null : entry.vndbId,
+    engine: entry.engine,
     translationEnabled: entry.translationEnabled,
     translationPatchPath: entry.translationPatchPath,
     environmentPatchEnabled: entry.environmentPatchEnabled,
@@ -159,6 +170,7 @@ class GameManifest {
         experimentalElunaEnabled ?? entry.experimentalElunaEnabled,
     inputGate: inputGate ?? entry.inputGate,
     vndbId: vndbId ?? entry.vndbId,
+    engine: engine ?? entry.engine,
     fontOverridePath: fontOverride ?? entry.fontOverridePath,
     reportedOs: reportedOs ?? entry.reportedOs,
     runtimePlatform: runtimePlatform ?? entry.runtimePlatform,

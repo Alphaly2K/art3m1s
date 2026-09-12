@@ -9,6 +9,7 @@ import 'package:flutter/widgets.dart';
 import 'package:media_kit/media_kit.dart' as media_kit;
 import 'package:media_kit_video/media_kit_video.dart' as media_kit_video;
 
+import '../engine/engine_runtime.dart';
 import 'file_provider.dart';
 import 'logger.dart';
 
@@ -22,7 +23,7 @@ typedef VideoLayerFrameUploader =
       int rgbaLen,
     );
 
-class MediaBridge {
+class MediaBridge implements EngineMediaHost {
   MediaBridge({
     required MediaFinishedCallback onVideoFinished,
     required MediaFinishedCallback onSoundFinished,
@@ -35,8 +36,10 @@ class MediaBridge {
   final MediaFinishedCallback _videoFinishedCallback;
   final MediaFinishedCallback _soundFinishedCallback;
   final VideoLayerFrameUploader uploadVideoLayerFrame;
-  final ValueNotifier<VideoPlayback?> videoPlayback =
-      ValueNotifier<VideoPlayback?>(null);
+  @override
+  final ValueNotifier<EngineVideoPlayback?> videoPlayback =
+      ValueNotifier<EngineVideoPlayback?>(null);
+  @override
   final ValueNotifier<bool> fullscreenVideoBlocking = ValueNotifier<bool>(
     false,
   );
@@ -65,6 +68,7 @@ class MediaBridge {
   bool _fullscreenVideoBlocking = false;
   bool _disposed = false;
 
+  @override
   bool get isFullscreenVideoBlocking => _fullscreenVideoBlocking;
 
   void handleCommand(String kind, Map<String, dynamic> payload) {
@@ -617,6 +621,7 @@ class MediaBridge {
     await _stopVideo(notify: true);
   }
 
+  @override
   Future<void> skipVideo() async {
     if (!_videoSkippable) return;
     await _stopVideo(notify: true);
@@ -767,21 +772,7 @@ class MediaBridge {
   }
 }
 
-class VideoPlayback {
-  const VideoPlayback({
-    required this.id,
-    required this.view,
-    required this.aspectRatio,
-    required this.skippable,
-  });
-
-  final String? id;
-  final Widget view;
-  final double aspectRatio;
-  final bool skippable;
-
-  bool get isFullscreen => id == null;
-}
+typedef VideoPlayback = EngineVideoPlayback;
 
 class _AudioHandle {
   _AudioHandle({

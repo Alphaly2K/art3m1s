@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../services/core_bridge.dart';
+import '../engine/engine_runtime.dart';
 
 class EngineDialogResult {
   const EngineDialogResult({required this.accepted, required this.text});

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:art3m1s/models/game_engine.dart';
 import 'package:art3m1s/models/game_entry.dart';
 import 'package:art3m1s/models/input_gate.dart';
 import 'package:art3m1s/services/game_manifest.dart';
@@ -14,6 +15,7 @@ void main() {
           jsonEncode({
             'name': 'NekoMiko',
             'vndbId': 'v23658',
+            'engine': 'rfvp',
             'translationEnabled': true,
             'translationPatchPath': 'patch/zh.json',
             'environmentPatchEnabled': true,
@@ -29,6 +31,7 @@ void main() {
       )!;
       expect(manifest.name, 'NekoMiko');
       expect(manifest.vndbId, 'v23658');
+      expect(manifest.engine, GameEngineKind.rfvp);
       expect(manifest.translationEnabled, isTrue);
       expect(manifest.translationPatchPath, 'patch/zh.json');
       expect(manifest.environmentPatchEnabled, isTrue);
@@ -211,12 +214,14 @@ void main() {
         vndbId: 'v23658',
         fontOverridePath: 'font/cjk.ttf',
         reportedOs: 'switch',
+        engine: GameEngineKind.rfvp,
         inputGate: InputGatePolicy.touchOnly,
       );
       final restored = GameEntry.fromJson(entry.toJson());
       expect(restored.vndbId, 'v23658');
       expect(restored.fontOverridePath, 'font/cjk.ttf');
       expect(restored.reportedOs, 'switch');
+      expect(restored.engine, GameEngineKind.rfvp);
       expect(restored.inputGate.knownProfile, InputGateProfile.touchOnly);
     });
 

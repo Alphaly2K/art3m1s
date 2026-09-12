@@ -17,6 +17,7 @@
 {
   "name": "Magical Charming!",
   "vndbId": "v12851",
+  "engine": "art3m1s",
   "translationEnabled": true,
   "translationPatchPath": "patch/zh.json",
   "environmentPatchEnabled": true,
@@ -38,6 +39,7 @@
 | --- | --- | --- |
 | `name` | 字符串 | 游戏名。导入时预填资料库显示名（优先于从目录名/标题的猜测）。 |
 | `vndbId` | 字符串 | VNDB 编号（如 `v23658`）。导入时按 ID 精确查询官方标题与封面；不写则用名字模糊搜索。 |
+| `engine` | 字符串 | 底层引擎：`art3m1s` 或 `rfvp`；缺省保持 `art3m1s`。 |
 | `translationEnabled` | 布尔 | 默认是否开启文本翻译。 |
 | `translationPatchPath` | 字符串 | 翻译对照文件的**游戏内相对路径**（离线译文包）。 |
 | `environmentPatchEnabled` | 布尔 | 默认是否启用环境兼容补丁（屏蔽特定渠道/平台校验脚本）。 |

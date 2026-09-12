@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:art3m1s/models/game_engine.dart';
 import 'package:art3m1s/models/game_entry.dart';
 import 'package:art3m1s/models/translation_settings.dart';
 import 'package:art3m1s/providers/settings_provider.dart';
@@ -64,6 +65,7 @@ void main() {
       expect(entry.translationPatchPath, isEmpty);
       expect(entry.environmentPatchEnabled, isFalse);
       expect(entry.experimentalElunaEnabled, isFalse);
+      expect(entry.engine, GameEngineKind.art3m1s);
       expect(entry.id, startsWith('legacy_'));
     });
 
@@ -78,6 +80,7 @@ void main() {
         translationPatchPath: '/patches/translated.jsonl',
         environmentPatchEnabled: true,
         experimentalElunaEnabled: true,
+        engine: GameEngineKind.rfvp,
       );
 
       final restored = GameEntry.fromJson(entry.toJson());
@@ -85,6 +88,7 @@ void main() {
       expect(restored.translationPatchPath, '/patches/translated.jsonl');
       expect(restored.environmentPatchEnabled, isTrue);
       expect(restored.experimentalElunaEnabled, isTrue);
+      expect(restored.engine, GameEngineKind.rfvp);
       expect(restored.id, 'a1b2c3d4');
     });
 

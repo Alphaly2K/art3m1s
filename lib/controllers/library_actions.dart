@@ -8,11 +8,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../adaptive/dialogs.dart';
 import '../adaptive/feedback.dart';
+import '../engine/engine_runtime_factory.dart';
+import '../models/game_engine.dart';
 import '../models/game_entry.dart';
 import '../models/input_gate.dart';
 import '../navigation/player_page_route.dart';
 import '../providers/library_provider.dart';
-import '../services/core_bridge.dart';
 import '../screens/player_screen.dart';
 import '../services/app_data_paths.dart';
 import '../services/game_importer.dart';
@@ -242,6 +243,7 @@ class LibraryActions {
             name: game.name,
             path: game.path,
             source: source,
+            engine: manifest?.engine ?? GameEngineKind.art3m1s,
             addedAt: DateTime.now(),
             displayName: metadata.name == game.name ? null : metadata.name,
             coverPath: metadata.coverPath,
@@ -311,6 +313,7 @@ class LibraryActions {
             name: defaultName,
             path: path,
             source: source,
+            engine: manifest?.engine ?? GameEngineKind.art3m1s,
             addedAt: DateTime.now(),
             displayName: result.name.isNotEmpty ? result.name : null,
             coverPath: coverPath,
@@ -347,7 +350,8 @@ class LibraryActions {
       if (!context.mounted) return null;
     }
     if (info == null) {
-      final caption = await CoreBridge().probeCaption(
+      final caption = await EngineRuntimeFactory.probeCaption(
+        engine: manifest?.engine ?? GameEngineKind.art3m1s,
         projectPath: path,
         isPfsArchive: source == GameSource.pfsArchive,
         platform:
@@ -485,6 +489,7 @@ class LibraryActions {
             gameId: configured.id,
             projectPath: configured.path,
             source: configured.source,
+            engine: configured.engine,
             translationEnabled: configured.translationEnabled,
             translationPatchPath: configured.translationPatchPath,
             environmentPatchEnabled: configured.environmentPatchEnabled,

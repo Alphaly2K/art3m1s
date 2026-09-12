@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
 
+import 'game_engine.dart';
 import 'input_gate.dart';
 
 class GameEntry {
@@ -10,6 +11,7 @@ class GameEntry {
   final String name;
   final String path;
   final GameSource source;
+  final GameEngineKind engine;
   final DateTime addedAt;
   final DateTime? lastPlayedAt;
   final String? displayName;
@@ -45,6 +47,7 @@ class GameEntry {
     required this.name,
     required this.path,
     required this.source,
+    this.engine = GameEngineKind.art3m1s,
     required this.addedAt,
     this.lastPlayedAt,
     this.displayName,
@@ -68,6 +71,7 @@ class GameEntry {
     'name': name,
     'path': path,
     'source': source.name,
+    'engine': engine.id,
     'addedAt': addedAt.toIso8601String(),
     'lastPlayedAt': lastPlayedAt?.toIso8601String(),
     'displayName': displayName,
@@ -90,6 +94,7 @@ class GameEntry {
     name: json['name'] as String,
     path: json['path'] as String,
     source: GameSource.values.byName(json['source'] as String),
+    engine: GameEngineKind.fromId(json['engine']),
     addedAt: DateTime.parse(json['addedAt'] as String),
     lastPlayedAt: json['lastPlayedAt'] != null
         ? DateTime.parse(json['lastPlayedAt'] as String)
@@ -117,6 +122,7 @@ class GameEntry {
     DateTime? lastPlayedAt,
     String? displayName,
     String? coverPath,
+    GameEngineKind? engine,
     bool? translationEnabled,
     String? translationPatchPath,
     bool? environmentPatchEnabled,
@@ -132,6 +138,7 @@ class GameEntry {
     name: name,
     path: path,
     source: source,
+    engine: engine ?? this.engine,
     addedAt: addedAt,
     lastPlayedAt: lastPlayedAt ?? this.lastPlayedAt,
     displayName: displayName ?? this.displayName,

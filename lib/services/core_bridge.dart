@@ -8,6 +8,7 @@ import 'package:ffi/ffi.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+import '../engine/engine_runtime.dart';
 import '../services/logger.dart';
 import '../models/input_gate.dart';
 import 'caption_table_probe.dart';
@@ -16,6 +17,9 @@ import 'media_bridge.dart';
 import 'profiler_snapshot.dart';
 import 'project_charset.dart';
 import 'text_translation_service.dart';
+
+export '../engine/engine_runtime.dart'
+    show AvoidOverlay, EngineDialogRequest, EngineVideoPlayback;
 
 typedef LogCallbackNative =
     Int32 Function(Pointer<Int8> level, Pointer<Int8> msg);
@@ -237,44 +241,6 @@ int _textInjectCallback(
     Log.error('[Translation] 注入回调失败: $error');
     return -1;
   }
-}
-
-class EngineDialogRequest {
-  const EngineDialogRequest({
-    required this.title,
-    required this.message,
-    required this.hasCancel,
-    required this.hasTextField,
-    required this.textFieldSize,
-    required this.initialText,
-  });
-
-  factory EngineDialogRequest.fromJson(Map<String, dynamic> json) {
-    return EngineDialogRequest(
-      title: json['title']?.toString() ?? '',
-      message: json['message']?.toString() ?? '',
-      hasCancel: json['hasCancel'] == true,
-      hasTextField: json['textfield'] == true,
-      textFieldSize: switch (json['textfieldSize']) {
-        final num value when value > 0 => value.toInt(),
-        _ => null,
-      },
-      initialText: json['initialText']?.toString() ?? '',
-    );
-  }
-
-  final String title;
-  final String message;
-  final bool hasCancel;
-  final bool hasTextField;
-  final int? textFieldSize;
-  final String initialText;
-}
-
-/// 紧急回避覆盖状态（[avoid] 触发）。`file` 为覆盖图资源名（null 表示纯黑遮罩）。
-class AvoidOverlay {
-  const AvoidOverlay({this.file});
-  final String? file;
 }
 
 // ── Core FFI type definitions ───────────────────────────────────

@@ -11,12 +11,14 @@ import 'package:flutter/services.dart';
 import '../controllers/mobile_touchpad.dart';
 import '../controllers/two_finger_gesture.dart';
 import '../controllers/wheel_input.dart';
+import '../engine/engine_runtime.dart';
+import '../engine/engine_runtime_factory.dart';
+import '../models/game_engine.dart';
 import '../models/game_entry.dart';
 import '../models/input_gate.dart';
 import '../models/render_output.dart';
 import '../providers/settings_provider.dart';
 import '../services/app_data_paths.dart';
-import '../services/core_bridge.dart';
 import '../services/file_provider.dart';
 import '../services/game_manifest.dart';
 import '../services/logger.dart';
@@ -33,6 +35,7 @@ class PlayerScreen extends ConsumerStatefulWidget {
   final String gameId;
   final String projectPath;
   final GameSource source;
+  final GameEngineKind engine;
   final bool translationEnabled;
   final String translationPatchPath;
   final bool environmentPatchEnabled;
@@ -57,6 +60,7 @@ class PlayerScreen extends ConsumerStatefulWidget {
     required this.gameId,
     required this.projectPath,
     required this.source,
+    this.engine = GameEngineKind.art3m1s,
     required this.translationEnabled,
     required this.translationPatchPath,
     required this.environmentPatchEnabled,
@@ -74,7 +78,7 @@ class PlayerScreen extends ConsumerStatefulWidget {
 
 class _PlayerScreenState extends ConsumerState<PlayerScreen>
     with WidgetsBindingObserver, SingleTickerProviderStateMixin {
-  late final CoreBridge _bridge;
+  late final EngineRuntime _bridge;
   late final Ticker _gameTicker;
   ui.Image? _frameImage;
   bool _sharedTextureReady = false;
@@ -127,7 +131,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   void initState() {
     super.initState();
     Log.startRuntimeSession();
-    _bridge = CoreBridge(onDialogRequested: _showEngineDialog);
+    _bridge = EngineRuntimeFactory.create(
+      engine: widget.engine,
+      onDialogRequested: _showEngineDialog,
+    );
     _gameTicker = createTicker(_onGameTick);
     _bridge.media.fullscreenVideoBlocking.addListener(_syncGameTicker);
     _touchpadPointer = MobileTouchpadPointer(
@@ -202,7 +209,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(const SnackBar(content: Text('Core 库加载失败')));
+        ).showSnackBar(
+          SnackBar(content: Text('引擎初始化失败（${_bridge.kind.label}）')),
+        );
       }
       return;
     }
@@ -328,7 +337,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       return;
     }
 
-    // 从 CoreBridge 获取实际的舞台尺寸（Rust 端解析 INI 后的准确值）
+    // 从引擎适配层获取实际舞台尺寸（native 端解析 INI 后的准确值）。
     _stageW = _bridge.stageWidth;
     _stageH = _bridge.stageHeight;
     _touchpadPointer.updateStageSize(_stageW, _stageH);
@@ -342,7 +351,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       _sharedTextureRequested = true;
       await _syncSharedTextureExtent();
     } else {
-      _bridge.setRenderQualityPreset(0);
+      _bridge.setRenderQuality(EngineRenderQuality.native);
     }
 
     if (!mounted || _closing) {
@@ -448,7 +457,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     if (!_bridge.hasActiveSharedTexture ||
         !hasLargerTarget ||
         !_bridge.supportsSpatialUpscaling) {
-      _bridge.setRenderQualityPreset(0);
+      _bridge.setRenderQuality(EngineRenderQuality.native);
       return;
     }
     final renderScale = authoredSceneRenderScale(
@@ -459,7 +468,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     );
     if (!_bridge.configureSpatialUpscale(renderScale)) {
       Log.warn('[MetalFX] spatial 配置失败，回退 native render');
-      _bridge.setRenderQualityPreset(0);
+      _bridge.setRenderQuality(EngineRenderQuality.native);
       return;
     }
     Log.info(
