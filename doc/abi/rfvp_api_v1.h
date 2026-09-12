@@ -37,6 +37,7 @@ typedef int32_t RfvpStatusV1;
 enum {
     RFVP_STATUS_OK = 0,
     RFVP_STATUS_NO_FRAME = 1,
+    RFVP_STATUS_NO_COMMAND = 2,
     RFVP_STATUS_INVALID_ARGUMENT = -1,
     RFVP_STATUS_INVALID_HANDLE = -2,
     RFVP_STATUS_INVALID_STATE = -3,
@@ -173,6 +174,33 @@ typedef enum RfvpVolumeChannelV1 {
     RFVP_VOLUME_VOICE = 4
 } RfvpVolumeChannelV1;
 
+typedef enum RfvpAudioCommandKindV1 {
+    RFVP_AUDIO_LOAD_ENCODED = 1,
+    RFVP_AUDIO_CREATE_STREAM = 2,
+    RFVP_AUDIO_SUBMIT_I16 = 3,
+    RFVP_AUDIO_SUBMIT_F32 = 4,
+    RFVP_AUDIO_PLAY = 5,
+    RFVP_AUDIO_STOP = 6,
+    RFVP_AUDIO_PAUSE = 7,
+    RFVP_AUDIO_RESUME = 8,
+    RFVP_AUDIO_SET_PARAMS = 9,
+    RFVP_AUDIO_DESTROY_STREAM = 10,
+    RFVP_AUDIO_MASTER_VOLUME = 11
+} RfvpAudioCommandKindV1;
+
+typedef enum RfvpAudioSampleFormatV1 {
+    RFVP_AUDIO_SAMPLE_I16 = 1,
+    RFVP_AUDIO_SAMPLE_F32 = 2
+} RfvpAudioSampleFormatV1;
+
+typedef enum RfvpAudioEncodedKindV1 {
+    RFVP_AUDIO_ENCODED_UNKNOWN = 0,
+    RFVP_AUDIO_ENCODED_WAV = 1,
+    RFVP_AUDIO_ENCODED_OGG = 2,
+    RFVP_AUDIO_ENCODED_MP3 = 3,
+    RFVP_AUDIO_ENCODED_FLAC = 4
+} RfvpAudioEncodedKindV1;
+
 enum {
     RFVP_DRAW_FLAG_HAS_CLIP = 1u << 0,
     RFVP_DRAW_FLAG_HAS_MESH = 1u << 1,
@@ -195,7 +223,8 @@ enum {
     RFVP_CAPABILITY_HIT_PROXIES = UINT64_C(1) << 6,
     RFVP_CAPABILITY_TEXT_REPLACEMENTS = UINT64_C(1) << 7,
     RFVP_CAPABILITY_TEXT_TRANSLATION = UINT64_C(1) << 8,
-    RFVP_CAPABILITY_NATIVE_SURFACE = UINT64_C(1) << 9
+    RFVP_CAPABILITY_NATIVE_SURFACE = UINT64_C(1) << 9,
+    RFVP_CAPABILITY_AUDIO_COMMANDS = UINT64_C(1) << 10
 };
 
 #define RFVP_TEXTURE_ID_WHITE UINT32_MAX
@@ -242,6 +271,32 @@ typedef struct RfvpInputEventV1 {
     uint32_t modifiers;
     uint64_t id;
 } RfvpInputEventV1;
+
+/*
+ * Audio commands are copied into the caller-provided structure by
+ * rfvp_runtime_poll_audio_command(). payload points at RFVP-owned storage and
+ * remains valid until the next poll call or runtime destruction.
+ *
+ * stream_id is the RFVP logical stream id: BGM slots are 0..255 and SE slots
+ * start at 0x1000. The host maps these ids to its own audio backend.
+ */
+typedef struct RfvpAudioCommandV1 {
+    uint32_t struct_size;
+    uint32_t kind;          /* RfvpAudioCommandKindV1 */
+    uint32_t stream_id;
+    uint32_t sample_format; /* RfvpAudioSampleFormatV1 */
+    uint32_t encoded_kind;  /* RfvpAudioEncodedKindV1 */
+    uint32_t sample_rate;
+    uint32_t channels;
+    uint32_t repeat;
+    uint32_t fade_ms;
+    float volume;
+    float pan;
+    size_t sample_count;
+    const uint8_t* payload;
+    size_t payload_size;
+    uint64_t reserved[2];
+} RfvpAudioCommandV1;
 
 typedef struct RfvpColorV1 {
     float r;
@@ -463,6 +518,10 @@ typedef int32_t (*RfvpRuntimeSetVolumeFn)(
     uint32_t channel,
     float value);
 
+typedef int32_t (*RfvpRuntimePollAudioCommandFn)(
+    uint64_t runtime,
+    RfvpAudioCommandV1* out_command);
+
 typedef uint64_t (*RfvpRuntimeCapabilitiesFn)(uint64_t runtime);
 
 typedef int32_t (*RfvpRuntimeAcquireFrameFn)(
@@ -530,6 +589,7 @@ typedef struct RfvpApiV1 {
     RfvpRuntimeSetMediaEnabledFn runtime_set_media_enabled;
     RfvpRuntimeNotifyLifecycleFn runtime_notify_lifecycle;
     RfvpRuntimeSetVolumeFn runtime_set_volume;
+    RfvpRuntimePollAudioCommandFn runtime_poll_audio_command;
     RfvpRuntimeCapabilitiesFn runtime_capabilities;
 
     RfvpRuntimeAcquireFrameFn runtime_acquire_frame;
