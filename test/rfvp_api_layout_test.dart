@@ -11,6 +11,6 @@ void main() {
 
     expect(CoreRfvpApiV1.inputEventSize, 40);
     expect(CoreRfvpApiV1.audioCommandSize, 88);
-    expect(CoreRfvpApiV1.apiTableSize, 128);
+    expect(CoreRfvpApiV1.apiTableSize, 136);
   });
 }

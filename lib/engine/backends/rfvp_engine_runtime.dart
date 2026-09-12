@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
 import 'dart:math' as math;
@@ -38,6 +39,7 @@ class RfvpEngineRuntime implements EngineRuntime {
 
   DynamicLibrary? _library;
   CoreRfvpApiV1? _api;
+  NativeCallable<RfvpLogCallbackNative>? _logCallable;
   int _runtime = 0;
   bool _initialized = false;
   bool _exitRequested = false;
@@ -93,7 +95,12 @@ class RfvpEngineRuntime implements EngineRuntime {
       if (api == null) {
         throw StateError('art3m1s-core 未导出 RFVP API v1');
       }
+      final logCallable = NativeCallable<RfvpLogCallbackNative>.isolateLocal(
+        _handleNativeLog,
+      );
+      api.setLogCallback(logCallable.nativeFunction, nullptr);
       _api = api;
+      _logCallable = logCallable;
       _initialized = true;
       Log.info('[RfvpEngineRuntime] 使用 art3m1s_rfvp_get_api_v1');
     } catch (error) {
@@ -604,6 +611,8 @@ class RfvpEngineRuntime implements EngineRuntime {
   void _shutdownNative() {
     final api = _api;
     final runtime = _runtime;
+    final logCallable = _logCallable;
+    _logCallable = null;
     _detachSharedTexture();
     if (_sharedTextureId != null) {
       unawaited(_sharedTextureChannel.invokeMethod<void>('release'));
@@ -619,11 +628,43 @@ class RfvpEngineRuntime implements EngineRuntime {
     _sharedTextureKind = null;
     _sharedTextureWidth = 0;
     _sharedTextureHeight = 0;
-    if (api != null && runtime > 0) {
-      api.destroyRuntime(runtime);
+    try {
+      if (api != null && runtime > 0) {
+        api.destroyRuntime(runtime);
+      }
+    } finally {
+      api?.setLogCallback(nullptr, nullptr);
+      logCallable?.close();
     }
     _api = null;
     _library = null;
+  }
+
+  void _handleNativeLog(
+    int level,
+    Pointer<Uint8> message,
+    int messageLength,
+    Pointer<Void> userData,
+  ) {
+    if (messageLength <= 0) return;
+    try {
+      final text =
+          '[RFVP] ${utf8.decode(message.asTypedList(messageLength), allowMalformed: true)}';
+      switch (String.fromCharCode(level)) {
+        case 'E':
+          Log.error(text);
+        case 'W':
+          Log.warn(text);
+        case 'D':
+          Log.debug(text);
+        case 'T':
+          Log.debug(text);
+        default:
+          Log.info(text);
+      }
+    } catch (_) {
+      // Never let callback decoding errors cross back into native code.
+    }
   }
 
   static DynamicLibrary _openCoreLibrary() {

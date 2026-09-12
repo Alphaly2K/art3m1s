@@ -61,6 +61,20 @@ typedef _RuntimeAdvanceAndRenderNative =
     Uint32 Function(Uint64, Uint32, Pointer<Uint8>, Uint32);
 typedef _RuntimeAdvanceAndRenderDart =
     int Function(int, int, Pointer<Uint8>, int);
+typedef RfvpLogCallbackNative =
+    Void Function(Uint32, Pointer<Uint8>, UintPtr, Pointer<Void>);
+typedef RfvpLogCallbackDart =
+    void Function(int, Pointer<Uint8>, int, Pointer<Void>);
+typedef _RuntimeSetLogCallbackNative =
+    Void Function(
+      Pointer<NativeFunction<RfvpLogCallbackNative>>,
+      Pointer<Void>,
+    );
+typedef _RuntimeSetLogCallbackDart =
+    void Function(
+      Pointer<NativeFunction<RfvpLogCallbackNative>>,
+      Pointer<Void>,
+    );
 
 const int art3m1sRfvpStatusOk = 0;
 const int art3m1sRfvpStatusNoFrame = 1;
@@ -212,6 +226,8 @@ final class _Art3m1sRfvpApiV1 extends Struct {
   runtimeAdvanceAndPresent;
   external Pointer<NativeFunction<_RuntimeAdvanceAndRenderNative>>
   runtimeAdvanceAndRender;
+  external Pointer<NativeFunction<_RuntimeSetLogCallbackNative>>
+  runtimeSetLogCallback;
 }
 
 class RfvpCoreInputEvent {
@@ -369,6 +385,16 @@ class CoreRfvpApiV1 {
 
   int pixelBufferSize(int runtime) => _pointer.ref.runtimePixelBufferSize
       .asFunction<_RuntimePixelBufferSizeDart>()(runtime);
+
+  void setLogCallback(
+    Pointer<NativeFunction<RfvpLogCallbackNative>> callback,
+    Pointer<Void> userData,
+  ) {
+    _pointer.ref.runtimeSetLogCallback.asFunction<_RuntimeSetLogCallbackDart>()(
+      callback,
+      userData,
+    );
+  }
 
   int feedInput(int runtime, List<RfvpCoreInputEvent> events) {
     if (events.isEmpty) return art3m1sRfvpStatusOk;
