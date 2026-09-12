@@ -442,15 +442,15 @@
 				"$(TARGET_BUILD_DIR)/$(EXECUTABLE_FOLDER_PATH)/libpfs_upk.dylib",
 				"$(TARGET_BUILD_DIR)/$(EXECUTABLE_FOLDER_PATH)/libEGL.dylib",
 				"$(TARGET_BUILD_DIR)/$(EXECUTABLE_FOLDER_PATH)/libGLESv2.dylib",
-				"$(TARGET_BUILD_DIR)/$(EXECUTABLE_FOLDER_PATH)/libavcodec.62.dylib",
-				"$(TARGET_BUILD_DIR)/$(EXECUTABLE_FOLDER_PATH)/libavformat.62.dylib",
-				"$(TARGET_BUILD_DIR)/$(EXECUTABLE_FOLDER_PATH)/libavutil.60.dylib",
-				"$(TARGET_BUILD_DIR)/$(EXECUTABLE_FOLDER_PATH)/libswresample.6.dylib",
-				"$(TARGET_BUILD_DIR)/$(EXECUTABLE_FOLDER_PATH)/libswscale.9.dylib",
+				"$(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)/libavcodec.62.dylib",
+				"$(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)/libavformat.62.dylib",
+				"$(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)/libavutil.60.dylib",
+				"$(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)/libswresample.6.dylib",
+				"$(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)/libswscale.9.dylib",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-				shellScript = "set -e\nCORE_SOURCE=\"${SRCROOT}/../libart3m1s_core.dylib\"\nPFS_SOURCE=\"${SRCROOT}/../libpfs_upk.dylib\"\nEGL_SOURCE=\"${SRCROOT}/../libEGL.dylib\"\nGLES_SOURCE=\"${SRCROOT}/../libGLESv2.dylib\"\nAVCODEC_SOURCE=\"${SRCROOT}/../libavcodec.62.dylib\"\nAVFORMAT_SOURCE=\"${SRCROOT}/../libavformat.62.dylib\"\nAVUTIL_SOURCE=\"${SRCROOT}/../libavutil.60.dylib\"\nSWRESAMPLE_SOURCE=\"${SRCROOT}/../libswresample.6.dylib\"\nSWSCALE_SOURCE=\"${SRCROOT}/../libswscale.9.dylib\"\nDEST_DIR=\"${TARGET_BUILD_DIR}/${EXECUTABLE_FOLDER_PATH}\"\nfor SOURCE in \"${CORE_SOURCE}\" \"${PFS_SOURCE}\" \"${EGL_SOURCE}\" \"${GLES_SOURCE}\" \"${AVCODEC_SOURCE}\" \"${AVFORMAT_SOURCE}\" \"${AVUTIL_SOURCE}\" \"${SWRESAMPLE_SOURCE}\" \"${SWSCALE_SOURCE}\"; do\n  if [ ! -f \"${SOURCE}\" ]; then\n    echo \"error: Missing ${SOURCE}. Build and copy the runtime libraries before building the app.\" >&2\n    exit 1\n  fi\n  DEST=\"${DEST_DIR}/$(basename \"${SOURCE}\")\"\n  /bin/cp -f \"${SOURCE}\" \"${DEST}\"\n  SIGN_IDENTITY=\"${EXPANDED_CODE_SIGN_IDENTITY}\"\n  if [ -z \"${SIGN_IDENTITY}\" ]; then\n    SIGN_IDENTITY=\"-\"\n  fi\n  /usr/bin/codesign --force --sign \"${SIGN_IDENTITY}\" --timestamp=none \"${DEST}\"\ndone\n";
+				shellScript = "set -e\nCORE_SOURCE=\"${SRCROOT}/../libart3m1s_core.dylib\"\nPFS_SOURCE=\"${SRCROOT}/../libpfs_upk.dylib\"\nEGL_SOURCE=\"${SRCROOT}/../libEGL.dylib\"\nGLES_SOURCE=\"${SRCROOT}/../libGLESv2.dylib\"\nAVCODEC_SOURCE=\"${SRCROOT}/../libavcodec.62.dylib\"\nAVFORMAT_SOURCE=\"${SRCROOT}/../libavformat.62.dylib\"\nAVUTIL_SOURCE=\"${SRCROOT}/../libavutil.60.dylib\"\nSWRESAMPLE_SOURCE=\"${SRCROOT}/../libswresample.6.dylib\"\nSWSCALE_SOURCE=\"${SRCROOT}/../libswscale.9.dylib\"\nEXECUTABLE_DEST=\"${TARGET_BUILD_DIR}/${EXECUTABLE_FOLDER_PATH}\"\nFRAMEWORKS_DEST=\"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH:-Contents/Frameworks}\"\nmkdir -p \"${EXECUTABLE_DEST}\" \"${FRAMEWORKS_DEST}\"\ncopy_and_sign() {\n  SOURCE=\"$1\"\n  DEST_DIR=\"$2\"\n  if [ ! -f \"${SOURCE}\" ]; then\n    echo \"error: Missing ${SOURCE}. Build and copy the runtime libraries before building the app.\" >&2\n    exit 1\n  fi\n  DEST=\"${DEST_DIR}/$(basename \"${SOURCE}\")\"\n  /bin/cp -f \"${SOURCE}\" \"${DEST}\"\n  SIGN_IDENTITY=\"${EXPANDED_CODE_SIGN_IDENTITY}\"\n  if [ -z \"${SIGN_IDENTITY}\" ]; then\n    SIGN_IDENTITY=\"-\"\n  fi\n  /usr/bin/codesign --force --sign \"${SIGN_IDENTITY}\" --timestamp=none \"${DEST}\"\n}\nfor SOURCE in \"${CORE_SOURCE}\" \"${PFS_SOURCE}\" \"${EGL_SOURCE}\" \"${GLES_SOURCE}\"; do\n  copy_and_sign \"${SOURCE}\" \"${EXECUTABLE_DEST}\"\ndone\nfor SOURCE in \"${AVCODEC_SOURCE}\" \"${AVFORMAT_SOURCE}\" \"${AVUTIL_SOURCE}\" \"${SWRESAMPLE_SOURCE}\" \"${SWSCALE_SOURCE}\"; do\n  copy_and_sign \"${SOURCE}\" \"${FRAMEWORKS_DEST}\"\ndone\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
