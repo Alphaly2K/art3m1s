@@ -493,7 +493,7 @@ class MiuixAboutBody extends StatelessWidget {
           children: [
             MiuixBasicComponent(
               title: 'flutter_miuix / flutter_riverpod / yaru',
-              summary: 'macos_ui · fluent_ui · media_kit · shared_preferences',
+              summary: 'macos_ui · fluent_ui · audioplayers · shared_preferences',
             ),
           ],
         ),

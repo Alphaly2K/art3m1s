@@ -578,7 +578,7 @@ class _MacosAboutPage extends StatelessWidget {
                         label: 'Flutter',
                         caption:
                             'flutter_riverpod · path_provider · shared_preferences · ffi · '
-                            'file_selector · audioplayers · media_kit · macos_ui',
+                            'file_selector · audioplayers · macos_ui',
                         control: const SizedBox.shrink(),
                       ),
                       _SettingRow(

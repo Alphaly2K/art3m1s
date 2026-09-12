@@ -4,7 +4,6 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:macos_window_utils/macos/ns_window_button_type.dart';
 import 'package:macos_window_utils/macos_window_utils.dart';
-import 'package:media_kit/media_kit.dart';
 
 import 'services/app_info.dart';
 import 'services/app_data_paths.dart';
@@ -53,9 +52,6 @@ void main(List<String> args) async {
       offset: const Offset(54, 14),
     );
   }
-  await StartupDiagnostics.step('media-kit', () {
-    MediaKit.ensureInitialized(libmpv: _bundledMpvLibraryPath());
-  });
   await StartupDiagnostics.step(
     'data-directories',
     AppDataPaths.ensureInitialized,
@@ -67,28 +63,6 @@ void main(List<String> args) async {
   await StartupDiagnostics.step('app-info', AppInfo.init);
   Log.info('Art3m1s 启动');
   runApp(const ProviderScope(child: Art3m1sApp()));
-}
-
-String? _bundledMpvLibraryPath() {
-  if (!Platform.isMacOS && !Platform.isIOS) return null;
-
-  final executable = File(Platform.resolvedExecutable);
-  final bundleRoot = Platform.isMacOS
-      ? executable.parent.parent
-      : executable.parent;
-  final candidates = Platform.isMacOS
-      ? [
-          File(
-            '${bundleRoot.path}/Frameworks/'
-            'Mpv.framework/Versions/A/Mpv',
-          ),
-          File('${bundleRoot.path}/Frameworks/Mpv.framework/Mpv'),
-        ]
-      : [File('${bundleRoot.path}/Frameworks/Mpv.framework/Mpv')];
-  for (final candidate in candidates) {
-    if (candidate.existsSync()) return candidate.resolveSymbolicLinksSync();
-  }
-  return null;
 }
 
 /// 按平台选壳：macOS 原生风（macos_ui）、iOS Cupertino、

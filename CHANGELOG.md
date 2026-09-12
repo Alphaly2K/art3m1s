@@ -6,10 +6,13 @@
 
 ### 修复
 
+- CoreBridge 只接受 `art3m1s_get_api_v1` 版本化函数表；core 不再导出旧平铺 `art3m1s_*` 符号。
+- CoreBridge 为每个 runtime 创建并绑定独立的 `HostResources` 句柄，文件挂载、覆盖和存档根随 runtime 生命周期释放。
+- CoreBridge 优先使用 callback-free host events v1；新 core 下不再注册日志、media、UI、字体、窗口和文本注入的 `NativeCallable`，并移除 iOS 启动阶段的 FFI callback 自检。
 - 移除未使用的 `flutter_file_dialog`。
 - 所有 iOS 构建统一使用原生窗口入口，随后按依赖顺序加载 Flutter；不再等待每库 150 ms。
 - 修复原生导航页向 Flutter 全屏页交接时的生命周期顺序，避免冷启动后必须打开控制中心才能操作。
-- 补充 Mpv 所需系统框架链接；启动失败可在下次打开时通过原生恢复页导出日志。
+- 宿主音频后端由 media_kit/mpv 切换为 audioplayers 平台通道；视频解码和合成继续由 runtime FFmpeg 负责。
 - 启动日志限定当前进程，Release 关闭逐库和正常 Dart 启动阶段日志，成功进入 Flutter 后停止启动诊断。
 - iOS 打包对选定产物的副本执行 ad-hoc 签名并保留匹配 dSYM，不额外注入 `platform-application` 或 Unsandbox 权限。
 

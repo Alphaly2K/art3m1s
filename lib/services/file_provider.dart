@@ -5,27 +5,9 @@ import 'dart:typed_data';
 import 'package:ffi/ffi.dart';
 
 import '../services/logger.dart';
+import 'core_api.dart';
 import 'environment_patch.dart';
 import 'pfs_bridge.dart';
-
-typedef FileReaderNative =
-    Int32 Function(
-      Pointer<Utf8> path,
-      Pointer<Uint8> buf,
-      Int32 bufSize,
-      Int64 offset,
-    );
-typedef RegisterFileReaderNative =
-    Void Function(Pointer<NativeFunction<FileReaderNative>>);
-
-typedef FileWriterNative =
-    Int32 Function(Pointer<Utf8> path, Pointer<Uint8> buf, Int32 len);
-typedef RegisterFileWriterNative =
-    Void Function(Pointer<NativeFunction<FileWriterNative>>);
-
-typedef FileDeleteNative = Int32 Function(Pointer<Utf8> path);
-typedef RegisterFileDeleteNative =
-    Void Function(Pointer<NativeFunction<FileDeleteNative>>);
 
 final class _PfsResource {
   const _PfsResource(this.archive, this.entryPath, this.size);
@@ -48,9 +30,11 @@ final class _IndexedResource {
 class FileProvider {
   static final PfsBridge _pfs = PfsBridge();
   static final List<Pointer<Void>> _archives = [];
-  static NativeCallable<FileReaderNative>? _readerCallable;
-  static NativeCallable<FileWriterNative>? _writerCallable;
-  static NativeCallable<FileDeleteNative>? _deleteCallable;
+  static CoreApiV1? _coreApi;
+  static Pointer<Void>? _resources;
+  static bool _ownsResources = false;
+  static String? _archivePath;
+  static String _archiveEncoding = 'Shift_JIS';
   static String? _directory;
   static bool _environmentPatchEnabled = false;
   static final Map<String, Uint8List> _environmentPatchCache = {};
@@ -71,6 +55,16 @@ class FileProvider {
 
   static void setSaveDir(String dir) {
     _saveDir = dir;
+    final api = _coreApi;
+    final resources = _resources;
+    if (api != null && resources != null) {
+      final ptr = dir.toNativeUtf8();
+      try {
+        api.fsSetSaveDir(resources, ptr);
+      } finally {
+        malloc.free(ptr);
+      }
+    }
   }
 
   static void openPfs(
@@ -79,6 +73,8 @@ class FileProvider {
     bool environmentPatchEnabled = false,
   }) {
     close();
+    _archivePath = archivePath;
+    _archiveEncoding = archiveEncoding;
     _environmentPatchEnabled = environmentPatchEnabled;
     _pfs.initialize();
 
@@ -115,6 +111,7 @@ class FileProvider {
     bool environmentPatchEnabled = false,
   }) {
     close();
+    _archivePath = null;
     _directory = root;
     _environmentPatchEnabled = environmentPatchEnabled;
     _buildDirectoryResourceIndex(root);
@@ -173,10 +170,22 @@ class FileProvider {
   }
 
   static void close() {
+    final api = _coreApi;
+    final resources = _resources;
+    if (api != null && resources != null && resources != nullptr) {
+      api.fsClear(resources);
+      if (_ownsResources) {
+        api.destroyResources(resources);
+      }
+    }
+    _coreApi = null;
+    _resources = null;
+    _ownsResources = false;
     for (final h in _archives) {
       _pfs.close(h);
     }
     _archives.clear();
+    _archivePath = null;
     _directory = null;
     _saveDir = null;
     _environmentPatchEnabled = false;
@@ -207,6 +216,10 @@ class FileProvider {
   }
 
   static Uint8List? _lookupResource(String path) {
+    if (_archivePath != null) {
+      final sidecar = _readArchiveSidecar(path);
+      if (sidecar != null) return sidecar;
+    }
     final indexed = _resourceIndex[_indexKey(path)];
     if (indexed == null) return _readDirectoryFileLive(path);
     if (indexed.pfs case final resource?) {
@@ -229,82 +242,27 @@ class FileProvider {
     return file.existsSync() ? file.readAsBytesSync() : null;
   }
 
+  /// PFS 归档旁的散装资源。部分游戏把视频等大文件放在归档同目录，且这些
+  /// 文件应覆盖归档内同名条目；路径仍限制在归档父目录内。
+  static Uint8List? _readArchiveSidecar(String path) {
+    final archivePath = _archivePath;
+    if (archivePath == null) return null;
+    final relative = _normalizeRelativePath(path);
+    if (relative == null) return null;
+    final root = File(archivePath).parent;
+    final file = File(
+      '${root.path}${Platform.pathSeparator}'
+      '${relative.replaceAll('/', Platform.pathSeparator)}',
+    );
+    return file.existsSync() ? file.readAsBytesSync() : null;
+  }
+
   /// 索引未建成时的目录活读回退。
   static Uint8List? _readDirectoryFileLive(String path) {
     final root = _directory;
     if (root == null || !_directoryFallbackActive) return null;
     final file = File('$root${Platform.pathSeparator}$path');
     return file.existsSync() ? file.readAsBytesSync() : null;
-  }
-
-  static int _callback(
-    Pointer<Utf8> pathPtr,
-    Pointer<Uint8> buf,
-    int bufSize,
-    int offset,
-  ) {
-    final path = pathPtr.toDartString();
-    if (buf == nullptr || bufSize <= 0) {
-      final sz = _querySize(path);
-      if (sz <= 0) Log.debug('MISS: $path');
-      return sz;
-    }
-    final result = _readData(path, buf, bufSize, offset);
-    if (result <= 0) Log.debug('MISS: $path read');
-    return result;
-  }
-
-  static int _querySize(String path) {
-    final saveFile = _saveFile(path);
-    if (saveFile != null && saveFile.existsSync()) {
-      return saveFile.lengthSync();
-    }
-    final patched = _patchedResource(path);
-    if (patched != null) return patched.length;
-    final indexed = _resourceIndex[_indexKey(path)];
-    if (indexed != null) {
-      if (indexed.pfs != null) return indexed.pfs!.size;
-      final file = indexed.file!;
-      return file.existsSync() ? file.lengthSync() : -1;
-    }
-    if (_directoryFallbackActive) {
-      final file = File('$_directory${Platform.pathSeparator}$path');
-      if (file.existsSync()) return file.lengthSync();
-    }
-    return -1;
-  }
-
-  static int _readData(
-    String path,
-    Pointer<Uint8> buf,
-    int bufSize,
-    int offset,
-  ) {
-    final saveFile = _saveFile(path);
-    if (saveFile != null) {
-      final r = _readFromFile(saveFile, buf, bufSize, offset);
-      if (r >= 0) return r;
-    }
-    final patched = _patchedResource(path);
-    if (patched != null) {
-      return _readFromBytes(patched, buf, bufSize, offset);
-    }
-    final indexed = _resourceIndex[_indexKey(path)];
-    if (indexed != null) {
-      if (indexed.pfs case final resource?) {
-        return _pfs.read(resource.archive, resource.entryPath, offset, buf, bufSize);
-      }
-      return _readFromFile(indexed.file!, buf, bufSize, offset);
-    }
-    if (_directoryFallbackActive) {
-      return _readFromFile(
-        File('$_directory${Platform.pathSeparator}$path'),
-        buf,
-        bufSize,
-        offset,
-      );
-    }
-    return -1;
   }
 
   static Uint8List? _patchedResource(String path) {
@@ -333,50 +291,6 @@ class FileProvider {
     return transformed;
   }
 
-  static int _readFromBytes(
-    Uint8List data,
-    Pointer<Uint8> buf,
-    int bufSize,
-    int offset,
-  ) {
-    if (offset == -1) return data.length;
-    if (offset < 0 || offset >= data.length) {
-      return offset == data.length ? 0 : -1;
-    }
-    final count = bufSize < data.length - offset
-        ? bufSize
-        : data.length - offset;
-    buf.asTypedList(count).setRange(0, count, data, offset);
-    return count;
-  }
-
-  static int _readFromFile(
-    File file,
-    Pointer<Uint8> buf,
-    int bufSize,
-    int offset,
-  ) {
-    try {
-      if (offset == -1) {
-        return file.existsSync() ? file.lengthSync() : -1;
-      }
-      if (!file.existsSync()) return -1;
-      final raf = file.openSync(mode: FileMode.read);
-      try {
-        raf.setPositionSync(offset);
-        final remaining = raf.lengthSync() - offset;
-        final toRead = bufSize < remaining ? bufSize : remaining;
-        final data = raf.readSync(toRead);
-        buf.asTypedList(data.length).setRange(0, data.length, data);
-        return data.length;
-      } finally {
-        raf.closeSync();
-      }
-    } catch (_) {
-      return -1;
-    }
-  }
-
   /// 把 core 传来的脚本相对路径解析为沙箱内的存档文件。
   static File? _saveFile(String path) {
     if (_saveDir == null) return null;
@@ -402,75 +316,87 @@ class FileProvider {
     return parts.isEmpty ? null : parts.join('/');
   }
 
-  static int _writeCallback(
-    Pointer<Utf8> pathPtr,
-    Pointer<Uint8> buf,
-    int len,
-  ) {
-    try {
-      final path = pathPtr.toDartString();
-      final file = _saveFile(path);
-      if (file == null) {
-        Log.warn('[FileProvider] writer: saveDir 未设置, 丢弃 $path');
-        return -1;
+  static Map<String, Uint8List> _coreOverrides() {
+    if (!_environmentPatchEnabled) return const {};
+    final overrides = EnvironmentPatch.virtualFiles();
+    final original = _lookupResource('system/first.iet');
+    if (original != null) {
+      final transformed = EnvironmentPatch.transform(
+        'system/first.iet',
+        original,
+      );
+      if (!identical(transformed, original)) {
+        overrides['system/first.iet'] = transformed;
       }
-      file.parent.createSync(recursive: true);
-      final data = len > 0 ? buf.asTypedList(len) : Uint8List(0);
-      file.writeAsBytesSync(data, flush: true);
-      return len;
-    } catch (e) {
-      Log.error('[FileProvider] writer 失败: $e');
-      return -1;
     }
+    return overrides;
   }
 
-  static int _deleteCallback(Pointer<Utf8> pathPtr) {
-    try {
-      final path = pathPtr.toDartString();
-      final file = _saveFile(path);
-      if (file == null) return -1;
-      if (file.existsSync()) file.deleteSync();
-      return 0;
-    } catch (e) {
-      Log.error('[FileProvider] delete 失败: $e');
-      return -1;
+  static void mountCore(
+    DynamicLibrary lib, {
+    CoreApiV1? coreApi,
+    Pointer<Void>? resources,
+  }) {
+    final api = coreApi ?? CoreApiV1.tryLoad(lib);
+    if (api == null) {
+      throw StateError('core 缺少 art3m1s_get_api_v1，拒绝使用旧文件 ABI');
     }
-  }
-
-  static void register(DynamicLibrary lib) {
-    final registerFn = lib
-        .lookupFunction<
-          RegisterFileReaderNative,
-          void Function(Pointer<NativeFunction<FileReaderNative>>)
-        >('art3m1s_register_file_reader');
-    _readerCallable ??= NativeCallable<FileReaderNative>.isolateLocal(
-      _callback,
-      exceptionalReturn: -1,
-    );
-    registerFn(_readerCallable!.nativeFunction);
-
-    // 写文件回调（存档落盘）
-    final registerWriter = lib
-        .lookupFunction<
-          RegisterFileWriterNative,
-          void Function(Pointer<NativeFunction<FileWriterNative>>)
-        >('art3m1s_register_file_writer');
-    _writerCallable ??= NativeCallable<FileWriterNative>.isolateLocal(
-      _writeCallback,
-      exceptionalReturn: -1,
-    );
-    registerWriter(_writerCallable!.nativeFunction);
-
-    // 删除文件回调（删档）
-    final registerDelete = lib
-        .lookupFunction<
-          RegisterFileDeleteNative,
-          void Function(Pointer<NativeFunction<FileDeleteNative>>)
-        >('art3m1s_register_file_delete');
-    _deleteCallable ??= NativeCallable<FileDeleteNative>.isolateLocal(
-      _deleteCallback,
-      exceptionalReturn: -1,
-    );
-    registerDelete(_deleteCallable!.nativeFunction);
+    final ownsResources = resources == null;
+    final resourceHandle = resources ?? api.createResources();
+    if (resourceHandle == nullptr) {
+      throw StateError('core 创建资源句柄失败');
+    }
+    api.fsClear(resourceHandle);
+    if (_directory case final root?) {
+      final path = root.toNativeUtf8();
+      try {
+        if (api.fsMountDirectory(resourceHandle, path) == 0) {
+          throw StateError('mount directory failed: $root');
+        }
+      } finally {
+        malloc.free(path);
+      }
+    } else if (_archivePath case final archive?) {
+      final path = archive.toNativeUtf8();
+      final encoding = _archiveEncoding.toNativeUtf8();
+      try {
+        if (api.fsMountPfs(resourceHandle, path, encoding) == 0) {
+          throw StateError('mount PFS failed: $archive');
+        }
+      } finally {
+        malloc.free(path);
+        malloc.free(encoding);
+      }
+    } else {
+      throw StateError('FileProvider has no mounted resource root');
+    }
+    api.fsClearOverrides(resourceHandle);
+    for (final entry in _coreOverrides().entries) {
+      final path = entry.key.toNativeUtf8();
+      final data = entry.value;
+      final bytes = malloc.allocate<Uint8>(data.length);
+      try {
+        bytes.asTypedList(data.length).setAll(0, data);
+        if (api.fsSetOverride(resourceHandle, path, bytes, data.length) == 0) {
+          throw StateError('set core override failed: ${entry.key}');
+        }
+      } finally {
+        malloc.free(path);
+        malloc.free(bytes);
+      }
+    }
+    if (_saveDir case final saveDir?) {
+      final path = saveDir.toNativeUtf8();
+      try {
+        if (api.fsSetSaveDir(resourceHandle, path) == 0) {
+          throw StateError('set core save directory failed: $saveDir');
+        }
+      } finally {
+        malloc.free(path);
+      }
+    }
+    _coreApi = api;
+    _resources = resourceHandle;
+    _ownsResources = ownsResources;
   }
 }

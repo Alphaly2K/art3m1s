@@ -3,11 +3,10 @@
 #
 
 list(APPEND FLUTTER_PLUGIN_LIST
+  audioplayers_linux
   dynamic_color
   file_selector_linux
   gtk
-  media_kit_libs_linux
-  media_kit_video
   screen_retriever_linux
   window_manager
   yaru_window_linux

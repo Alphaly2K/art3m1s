@@ -30,6 +30,25 @@ class TextTranslationService {
   Timer? _cacheWriteTimer;
   bool _disposed = false;
 
+  bool get hostTranslationEnabled =>
+      !_disposed && settings.mode != TranslationMode.off;
+
+  bool get hostOnlineEnabled =>
+      !_disposed && settings.mode == TranslationMode.online;
+
+  Map<String, String> get hostReplacementTable {
+    final replacements = <String, String>{};
+    for (final entry in _cache.entries) {
+      final separator = entry.key.lastIndexOf('\u0000');
+      final source = separator < 0
+          ? entry.key
+          : entry.key.substring(separator + 1);
+      if (source.isNotEmpty) replacements[source] = entry.value;
+    }
+    replacements.addAll(_patch);
+    return replacements;
+  }
+
   int get _maxConcurrent => switch (settings.provider) {
     TranslationProvider.baidu || TranslationProvider.youdao => 2,
     TranslationProvider.openAi || TranslationProvider.anthropic => 3,

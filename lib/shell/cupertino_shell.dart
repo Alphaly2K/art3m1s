@@ -406,7 +406,7 @@ class _CupertinoAboutScreen extends StatelessWidget {
                   title: Text('Flutter'),
                   subtitle: Text(
                     'flutter_riverpod · path_provider · ffi · file_selector · '
-                    'audioplayers · media_kit',
+                    'audioplayers',
                   ),
                 ),
                 CupertinoListTile.notched(

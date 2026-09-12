@@ -95,13 +95,11 @@ Documents/Art3m1s/
 
 ### MediaBridge
 
-`lib/services/media_bridge.dart` 负责实际解码：
+`lib/services/media_bridge.dart` 负责宿主侧媒体接线：
 
-- BGM/SE/Voice 使用 libmpv；
-- 全屏视频与图层视频使用 `media_kit` / mpv；
-- 全屏视频显示在游戏画面上方并吸收鼠标和触摸输入；
-- 图层视频在 worker isolate 中解码，只保留最新 RGBA8 帧，再将其指针借给 core
-  同步上传为 GL 纹理。
+- BGM/SE/Voice 通过 `audioplayers` 的宿主平台后端播放；
+- 全屏视频与图层视频由 core 的 runtime FFmpeg session 解码和合成；
+- 宿主不再创建 libmpv/media_kit 的 Dart FFI callback。
 
 视频解码节奏与游戏帧循环相互独立，因此 24 FPS 视频不会把 runtime 一同限制在
 24 FPS。
@@ -161,7 +159,6 @@ macOS 使用原生应用菜单；游戏内 HUD 可停靠到侧边。项目编辑
 - 对应目标平台的 SDK
 - 为目标平台编译的 `art3m1s-core` native library
 - 与 core 固定版本一致的 `pfs-upk-rust` native library
-- 当前平台所需的 mpv/media_kit 运行时依赖
 
 ### 统一构建入口
 

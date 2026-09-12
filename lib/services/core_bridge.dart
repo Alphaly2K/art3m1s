@@ -12,6 +12,7 @@ import '../engine/engine_runtime.dart';
 import '../services/logger.dart';
 import '../models/input_gate.dart';
 import 'caption_table_probe.dart';
+import 'core_api.dart';
 import 'file_provider.dart';
 import 'media_bridge.dart';
 import 'profiler_snapshot.dart';
@@ -21,75 +22,58 @@ import 'text_translation_service.dart';
 export '../engine/engine_runtime.dart'
     show AvoidOverlay, EngineDialogRequest, EngineVideoPlayback;
 
-typedef LogCallbackNative =
-    Int32 Function(Pointer<Int8> level, Pointer<Int8> msg);
-typedef RegisterLogCallbackNative =
-    Void Function(Pointer<NativeFunction<LogCallbackNative>>);
-typedef MediaCommandCallbackNative =
-    Void Function(Pointer<Int8> kind, Pointer<Int8> payloadJson);
-typedef RegisterMediaCommandCallbackNative =
-    Void Function(Pointer<NativeFunction<MediaCommandCallbackNative>>);
-typedef UiCommandCallbackNative =
-    Void Function(Pointer<Int8> kind, Pointer<Int8> payloadJson);
-typedef RegisterUiCommandCallbackNative =
-    Void Function(Pointer<NativeFunction<UiCommandCallbackNative>>);
-typedef TextInjectCallbackNative =
-    Int32 Function(Pointer<Int8> text, Pointer<Uint8> output, Int32 capacity);
-typedef RegisterTextInjectCallbackNative =
-    Void Function(Pointer<NativeFunction<TextInjectCallbackNative>>);
-
-// var system=get_font：core 传入 monospace/vertical 偏好，宿主把换行分隔的字体名
-// 写入 buf（≤cap 字节），返回写入字节数；容量不足或无字体返回 0。
-typedef FontQueryCallbackNative =
+typedef HostEventsEnableNative = Void Function(Pointer<Void>, Int32);
+typedef HostEventsEnable = void Function(Pointer<Void> events, int enabled);
+typedef HostEventsNextNative = UintPtr Function(Pointer<Void>);
+typedef HostEventsNext = int Function(Pointer<Void> events);
+typedef HostEventsPollNative =
+    UintPtr Function(
+      Pointer<Void> events,
+      Pointer<Uint8> output,
+      UintPtr capacity,
+      Pointer<Uint32> count,
+    );
+typedef HostEventsPoll =
+    int Function(
+      Pointer<Void> events,
+      Pointer<Uint8> output,
+      int capacity,
+      Pointer<Uint32> count,
+    );
+typedef HostSetFontListNative =
     Int32 Function(
+      Pointer<Void> events,
       Int32 monospace,
       Int32 vertical,
-      Pointer<Uint8> buf,
-      Int32 cap,
+      Pointer<Uint8> data,
+      UintPtr len,
     );
-typedef RegisterFontQueryNative =
-    Void Function(Pointer<NativeFunction<FontQueryCallbackNative>>);
-
-// var system=fullscreen/minimize：宿主返回位标志 bit0=全屏 bit1=最小化。
-typedef WindowStateCallbackNative = Int32 Function();
-typedef RegisterWindowStateNative =
-    Void Function(Pointer<NativeFunction<WindowStateCallbackNative>>);
+typedef HostSetFontList =
+    int Function(
+      Pointer<Void> events,
+      int monospace,
+      int vertical,
+      Pointer<Uint8> data,
+      int len,
+    );
+typedef HostSetWindowStateNative = Void Function(Pointer<Void>, Int32 flags);
+typedef HostSetWindowState = void Function(Pointer<Void> events, int flags);
+typedef HostSetTextReplacementsNative =
+    Int32 Function(Pointer<Void>, Pointer<Uint8> data, UintPtr len);
+typedef HostSetTextReplacements =
+    int Function(Pointer<Void> events, Pointer<Uint8> data, int len);
+typedef HostSetTextTranslationEnabledNative =
+    Void Function(Pointer<Void>, Int32 enabled);
+typedef HostSetTextTranslationEnabled =
+    void Function(Pointer<Void> events, int enabled);
+typedef HostClearStateNative = Void Function(Pointer<Void>);
+typedef HostClearState = void Function(Pointer<Void> events);
 
 // 生命周期通知：state 0=退出 / 1=切后台 / 2=回前台（驱动 [autosave allow=1]）。
 typedef NotifyLifecycleNative = Void Function(Pointer<Void> rt, Int32 state);
 typedef NotifyLifecycleDart = void Function(Pointer<Void> rt, int state);
 
-int _fontQueryCallback(
-  int monospace,
-  int vertical,
-  Pointer<Uint8> buf,
-  int cap,
-) {
-  try {
-    final names =
-        CoreBridge._activeBridge?.enumerateFonts(
-          monospace: monospace != 0,
-          vertical: vertical != 0,
-        ) ??
-        const <String>[];
-    if (names.isEmpty || cap <= 0) return 0;
-    final bytes = utf8.encode(names.join('\n'));
-    if (bytes.length > cap) return 0;
-    buf.asTypedList(cap).setRange(0, bytes.length, bytes);
-    return bytes.length;
-  } catch (e) {
-    Log.error('[CoreBridge] 字体枚举失败: $e');
-    return 0;
-  }
-}
-
-int _windowStateCallback() {
-  return CoreBridge._activeBridge?.windowStateBits ?? 0;
-}
-
-int _logCallback(Pointer<Int8> levelPtr, Pointer<Int8> msgPtr) {
-  final level = levelPtr.cast<Utf8>().toDartString();
-  final msg = msgPtr.cast<Utf8>().toDartString();
+void _dispatchLog(String level, String msg) {
   switch (level) {
     case 'D':
       Log.debug(msg);
@@ -102,94 +86,81 @@ int _logCallback(Pointer<Int8> levelPtr, Pointer<Int8> msgPtr) {
     default:
       Log.info(msg);
   }
-  return 0;
 }
 
-void _mediaCommandCallback(Pointer<Int8> kindPtr, Pointer<Int8> payloadPtr) {
-  try {
-    final kind = kindPtr.cast<Utf8>().toDartString();
-    final rawPayload = payloadPtr.cast<Utf8>().toDartString();
-    final decoded = jsonDecode(rawPayload);
-    final payload = decoded is Map
-        ? decoded.map((key, value) => MapEntry(key.toString(), value))
-        : <String, dynamic>{};
-    CoreBridge._activeBridge?.media.handleCommand(kind, payload);
-  } catch (e) {
-    Log.error('[CoreBridge] 媒体命令解析失败: $e');
-  }
+void _dispatchMediaCommand(String kind, String rawPayload) {
+  final decoded = jsonDecode(rawPayload);
+  final payload = decoded is Map
+      ? decoded.map((key, value) => MapEntry(key.toString(), value))
+      : <String, dynamic>{};
+  CoreBridge._activeBridge?.media.handleCommand(kind, payload);
 }
 
-void _uiCommandCallback(Pointer<Int8> kindPtr, Pointer<Int8> payloadPtr) {
-  try {
-    final kind = kindPtr.cast<Utf8>().toDartString();
-    final rawPayload = payloadPtr.cast<Utf8>().toDartString();
-    final decoded = jsonDecode(rawPayload);
-    final payload = decoded is Map
-        ? decoded.map((key, value) => MapEntry(key.toString(), value))
-        : <String, dynamic>{};
-    final bridge = CoreBridge._activeBridge;
-    if (bridge == null) return;
-    switch (kind) {
-      case 'dialog_show':
-        if (bridge.onDialogRequested != null) {
-          final request = EngineDialogRequest.fromJson(payload);
-          scheduleMicrotask(() => bridge.onDialogRequested!(request));
-        }
-      case 'text_translate':
-        final serial = (payload['serial'] as num?)?.toInt();
-        final text = payload['text']?.toString();
-        final ruby = payload['ruby']?.toString();
-        if (serial != null && text != null) {
-          scheduleMicrotask(
-            () => bridge._queueTranslation(serial, text, ruby: ruby),
-          );
-        }
-      case 'avoid':
-        // 紧急回避：show 时全屏覆盖（可带图），hide 时撤除。UI 层观察此 notifier。
-        final action = payload['action']?.toString();
-        if (action == 'show') {
-          bridge.avoidOverlay.value = AvoidOverlay(
-            file: payload['file']?.toString(),
-          );
-        } else {
-          bridge.avoidOverlay.value = null;
-        }
-      case 'mouse':
-        bridge.applyMouseConfig(payload);
-      case 'caption':
-        // core 发的字段是 data（events.rs），旧代码读 caption/text 一直取不到值。
-        final title =
-            payload['data']?.toString() ??
-            payload['caption']?.toString() ??
-            payload['text']?.toString();
-        if (title != null) bridge.windowTitle.value = title;
-      case 'write_clipboard':
-        final text = payload['text']?.toString();
-        if (text != null) {
-          scheduleMicrotask(() => Clipboard.setData(ClipboardData(text: text)));
-        }
-      case 'vibrate':
-        scheduleMicrotask(HapticFeedback.mediumImpact);
-      case 'statusbar':
-        final show = _asBool(payload['show']) || _asBool(payload['visible']);
+void _dispatchUiCommand(String kind, String rawPayload) {
+  final decoded = jsonDecode(rawPayload);
+  final payload = decoded is Map
+      ? decoded.map((key, value) => MapEntry(key.toString(), value))
+      : <String, dynamic>{};
+  final bridge = CoreBridge._activeBridge;
+  if (bridge == null) return;
+  switch (kind) {
+    case 'dialog_show':
+      if (bridge.onDialogRequested != null) {
+        final request = EngineDialogRequest.fromJson(payload);
+        scheduleMicrotask(() => bridge.onDialogRequested!(request));
+      }
+    case 'text_translate':
+      final serial = (payload['serial'] as num?)?.toInt();
+      final text = payload['text']?.toString();
+      final ruby = payload['ruby']?.toString();
+      if (serial != null && text != null) {
         scheduleMicrotask(
-          () => SystemChrome.setEnabledSystemUIMode(
-            show ? SystemUiMode.edgeToEdge : SystemUiMode.immersiveSticky,
-          ),
+          () => bridge._queueTranslation(serial, text, ruby: ruby),
         );
-      case 'openbrowser':
-        // [openbrowser]：用系统默认浏览器打开 url。桌面无依赖走 Process.run
-        //（open / cmd start / xdg-open）；移动端无外部命令路径，暂不支持。
-        final url = payload['url']?.toString();
-        if (url != null && url.isNotEmpty) {
-          scheduleMicrotask(() => _openInBrowser(url));
-        }
-      default:
-        // 未处理的 kind（http_request/callnative 等）暂由宿主按需扩展。
-        break;
-    }
-  } catch (e) {
-    Log.error('[CoreBridge] UI 命令解析失败: $e');
+      }
+    case 'avoid':
+      // 紧急回避：show 时全屏覆盖（可带图），hide 时撤除。UI 层观察此 notifier。
+      final action = payload['action']?.toString();
+      if (action == 'show') {
+        bridge.avoidOverlay.value = AvoidOverlay(
+          file: payload['file']?.toString(),
+        );
+      } else {
+        bridge.avoidOverlay.value = null;
+      }
+    case 'mouse':
+      bridge.applyMouseConfig(payload);
+    case 'caption':
+      // core 发的字段是 data（events.rs），旧代码读 caption/text 一直取不到值。
+      final title =
+          payload['data']?.toString() ??
+          payload['caption']?.toString() ??
+          payload['text']?.toString();
+      if (title != null) bridge.windowTitle.value = title;
+    case 'write_clipboard':
+      final text = payload['text']?.toString();
+      if (text != null) {
+        scheduleMicrotask(() => Clipboard.setData(ClipboardData(text: text)));
+      }
+    case 'vibrate':
+      scheduleMicrotask(HapticFeedback.mediumImpact);
+    case 'statusbar':
+      final show = _asBool(payload['show']) || _asBool(payload['visible']);
+      scheduleMicrotask(
+        () => SystemChrome.setEnabledSystemUIMode(
+          show ? SystemUiMode.edgeToEdge : SystemUiMode.immersiveSticky,
+        ),
+      );
+    case 'openbrowser':
+      // [openbrowser]：用系统默认浏览器打开 url。桌面无依赖走 Process.run
+      //（open / cmd start / xdg-open）；移动端无外部命令路径，暂不支持。
+      final url = payload['url']?.toString();
+      if (url != null && url.isNotEmpty) {
+        scheduleMicrotask(() => _openInBrowser(url));
+      }
+    default:
+      // 未处理的 kind（http_request/callnative 等）暂由宿主按需扩展。
+      break;
   }
 }
 
@@ -222,25 +193,6 @@ int? _asInt(dynamic value) {
   if (value is num) return value.toInt();
   if (value is String) return int.tryParse(value);
   return null;
-}
-
-int _textInjectCallback(
-  Pointer<Int8> textPtr,
-  Pointer<Uint8> output,
-  int capacity,
-) {
-  try {
-    final source = textPtr.cast<Utf8>().toDartString();
-    return CoreBridge._activeBridge?.translation?.inject(
-          source,
-          output,
-          capacity,
-        ) ??
-        -1;
-  } catch (error) {
-    Log.error('[Translation] 注入回调失败: $error');
-    return -1;
-  }
 }
 
 // ── Core FFI type definitions ───────────────────────────────────
@@ -299,17 +251,6 @@ typedef RuntimeNotifyVideoFinishedNative =
     Void Function(Pointer<Void> rt, Pointer<Utf8> id);
 typedef RuntimeNotifySoundFinishedNative =
     Void Function(Pointer<Void> rt, Pointer<Utf8> id);
-typedef RuntimeUploadVideoLayerFrameNative =
-    Int32 Function(
-      Pointer<Void> rt,
-      Pointer<Utf8> id,
-      Uint32 width,
-      Uint32 height,
-      Pointer<Uint8> rgba,
-      IntPtr rgbaLen,
-    );
-typedef RuntimeUploadVideoLayerFrame =
-    int Function(Pointer<Void>, Pointer<Utf8>, int, int, Pointer<Uint8>, int);
 typedef RuntimeAdvanceWithoutRenderNative =
     Int32 Function(Pointer<Void> rt, Uint32 deltaMs);
 typedef RuntimeAdvanceWithoutRender =
@@ -339,20 +280,64 @@ typedef RuntimeSetProfilerEnabledNative =
     Void Function(Pointer<Void> rt, Int32 enabled);
 typedef RuntimeSetProfilerEnabled =
     void Function(Pointer<Void> rt, int enabled);
+typedef RuntimeSetRuntimeMediaEnabledNative =
+    Void Function(Pointer<Void> rt, Int32 enabled);
+typedef RuntimeSetRuntimeMediaEnabled =
+    void Function(Pointer<Void> rt, int enabled);
 typedef RuntimeProfilerSnapshotNative =
     Int32 Function(Pointer<Void> rt, Pointer<Uint8> output, Uint32 capacity);
 typedef RuntimeProfilerSnapshot =
     int Function(Pointer<Void> rt, Pointer<Uint8> output, int capacity);
 
+final class _HostEventApi {
+  const _HostEventApi({
+    required this.handle,
+    required this._enable,
+    required this._nextEventBytes,
+    required this._poll,
+    required this._setFontList,
+    required this._setWindowState,
+    required this._setTextReplacements,
+    required this._setTextTranslationEnabled,
+    required this._clearState,
+  });
+
+  final Pointer<Void> handle;
+  final HostEventsEnable _enable;
+  final HostEventsNext _nextEventBytes;
+  final HostEventsPoll _poll;
+  final HostSetFontList _setFontList;
+  final HostSetWindowState _setWindowState;
+  final HostSetTextReplacements _setTextReplacements;
+  final HostSetTextTranslationEnabled _setTextTranslationEnabled;
+  final HostClearState _clearState;
+
+  void enable(int enabled) => _enable(handle, enabled);
+
+  int nextEventBytes() => _nextEventBytes(handle);
+
+  int poll(Pointer<Uint8> output, int capacity, Pointer<Uint32> count) =>
+      _poll(handle, output, capacity, count);
+
+  int setFontList(int monospace, int vertical, Pointer<Uint8> data, int len) =>
+      _setFontList(handle, monospace, vertical, data, len);
+
+  void setWindowState(int flags) => _setWindowState(handle, flags);
+
+  int setTextReplacements(Pointer<Uint8> data, int len) =>
+      _setTextReplacements(handle, data, len);
+
+  void setTextTranslationEnabled(int enabled) =>
+      _setTextTranslationEnabled(handle, enabled);
+
+  void clearState() => _clearState(handle);
+}
+
 // ── CoreBridge — manages the core runtime lifecycle ─────────────
 
 class CoreBridge {
-  static NativeCallable<LogCallbackNative>? _sharedLogCallable;
-  static NativeCallable<MediaCommandCallbackNative>? _sharedMediaCallable;
-  static NativeCallable<UiCommandCallbackNative>? _sharedUiCallable;
-  static NativeCallable<TextInjectCallbackNative>? _sharedTextInjectCallable;
-  static NativeCallable<FontQueryCallbackNative>? _sharedFontQueryCallable;
-  static NativeCallable<WindowStateCallbackNative>? _sharedWindowStateCallable;
+  static const int _hostEventHeaderSize = 24;
+  static const int _hostEventBufferBytes = 256 * 1024;
   static CoreBridge? _activeBridge;
 
   CoreBridge({this.onDialogRequested, bool? engineCursorControlEnabled})
@@ -364,8 +349,10 @@ class CoreBridge {
   final void Function(EngineDialogRequest request)? onDialogRequested;
   bool _initialized = false;
   DynamicLibrary? _lib;
+  CoreApiV1? _coreApi;
+  Pointer<Void>? _resources;
   Pointer<Void>? _runtime;
-  RuntimeUploadVideoLayerFrame? _uploadVideoLayerFrame;
+  _HostEventApi? _hostEvents;
   RuntimeAdvanceWithoutRender? _advanceWithoutRender;
   bool _advanceWithoutRenderUnavailable = false;
   RuntimeSetExternalSurface? _setExternalSurface;
@@ -387,7 +374,6 @@ class CoreBridge {
   int _sharedTextureWidth = 0;
   int _sharedTextureHeight = 0;
   TextTranslationService? translation;
-  final Map<String, Pointer<Utf8>> _videoLayerIds = {};
   int _stageWidth = 1280;
   int _stageHeight = 720;
 
@@ -487,6 +473,7 @@ class CoreBridge {
       bits = minimized ? (bits | 0x2) : (bits & ~0x2);
     }
     _windowStateBits = bits;
+    _hostEvents?.setWindowState(bits);
   }
 
   /// 可枚举字体族（var system=get_font）。Flutter 无系统字体枚举 API，故返回
@@ -510,7 +497,6 @@ class CoreBridge {
   late final MediaBridge media = MediaBridge(
     onVideoFinished: notifyVideoFinished,
     onSoundFinished: notifySoundFinished,
-    uploadVideoLayerFrame: _uploadLayerVideoFrame,
   );
 
   bool get isInitialized => _initialized;
@@ -540,25 +526,32 @@ class CoreBridge {
         _sharedTextureHeight == height) {
       return _sharedTextureId;
     }
-    try {
-      _setExternalSurface ??= lib
-          .lookupFunction<
-            RuntimeSetExternalSurfaceNative,
-            RuntimeSetExternalSurface
-          >('art3m1s_runtime_set_external_surface');
-      _clearExternalSurface ??= lib
-          .lookupFunction<
-            RuntimeClearExternalSurfaceNative,
-            RuntimeClearExternalSurface
-          >('art3m1s_runtime_clear_external_surface');
-      _advancePresent ??= lib
-          .lookupFunction<RuntimeAdvancePresentNative, RuntimeAdvancePresent>(
-            'art3m1s_runtime_advance_and_present',
-          );
-    } catch (error) {
-      _sharedTextureSymbolsUnavailable = true;
-      Log.info('[CoreBridge] 当前 core 不支持共享纹理，使用 RGBA 回读: $error');
-      return null;
+    final coreApi = _coreApi;
+    if (coreApi != null) {
+      _setExternalSurface = coreApi.setExternalSurface;
+      _clearExternalSurface = coreApi.clearExternalSurface;
+      _advancePresent = coreApi.advanceAndPresent;
+    } else {
+      try {
+        _setExternalSurface ??= lib
+            .lookupFunction<
+              RuntimeSetExternalSurfaceNative,
+              RuntimeSetExternalSurface
+            >('art3m1s_runtime_set_external_surface');
+        _clearExternalSurface ??= lib
+            .lookupFunction<
+              RuntimeClearExternalSurfaceNative,
+              RuntimeClearExternalSurface
+            >('art3m1s_runtime_clear_external_surface');
+        _advancePresent ??= lib
+            .lookupFunction<RuntimeAdvancePresentNative, RuntimeAdvancePresent>(
+              'art3m1s_runtime_advance_and_present',
+            );
+      } catch (error) {
+        _sharedTextureSymbolsUnavailable = true;
+        Log.info('[CoreBridge] 当前 core 不支持共享纹理，使用 RGBA 回读: $error');
+        return null;
+      }
     }
 
     try {
@@ -666,8 +659,8 @@ class CoreBridge {
     if (runtime == null || present == null || !_sharedTextureAttached) {
       return -1;
     }
-    media.pumpLayerVideoFrames();
     final result = present(runtime, deltaMs);
+    _drainHostEvents();
     if (result > 0 && (_sharedTextureKind == 2 || _sharedTextureKind == 3)) {
       unawaited(
         _sharedTextureChannel.invokeMethod<void>('frameAvailable').catchError((
@@ -709,6 +702,22 @@ class CoreBridge {
   Future<void> initialize() async {
     try {
       _loadLibrary();
+      final lib = _lib;
+      if (lib == null) {
+        throw StateError('core dynamic library is unavailable');
+      }
+      final coreApi = CoreApiV1.tryLoad(lib);
+      if (coreApi == null) {
+        throw StateError('core 缺少 art3m1s_get_api_v1，拒绝加载旧 ABI');
+      }
+      _coreApi = coreApi;
+      _resources = coreApi.createResources();
+      if (_resources == nullptr) {
+        _coreApi = null;
+        _resources = null;
+        throw StateError('core 创建资源句柄失败');
+      }
+      Log.info('[CoreBridge] 使用版本化 C ABI v1');
       final executableDirectory = File(Platform.resolvedExecutable).parent;
       if (Platform.isMacOS) {
         configureAngle(executableDirectory.path);
@@ -720,88 +729,59 @@ class CoreBridge {
       _initialized = false;
       return;
     }
-    _registerCallback();
-    _initialized = true;
+    try {
+      _registerHostEvents();
+      _drainHostEvents();
+      _initialized = true;
+    } catch (error) {
+      Log.error('[CoreBridge] host events v1 初始化失败: $error');
+      _initialized = false;
+    }
   }
 
-  void _registerCallback() {
+  void _registerHostEvents() {
     if (_lib == null) return;
-    final registerFn = _lib!
-        .lookupFunction<
-          RegisterLogCallbackNative,
-          void Function(Pointer<NativeFunction<LogCallbackNative>>)
-        >('art3m1s_register_log_callback');
-    _sharedLogCallable ??= NativeCallable<LogCallbackNative>.isolateLocal(
-      _logCallback,
-      exceptionalReturn: -1,
-    );
-    registerFn(_sharedLogCallable!.nativeFunction);
-
-    final registerMediaFn = _lib!
-        .lookupFunction<
-          RegisterMediaCommandCallbackNative,
-          void Function(Pointer<NativeFunction<MediaCommandCallbackNative>>)
-        >('art3m1s_register_media_command_callback');
-    _sharedMediaCallable ??=
-        NativeCallable<MediaCommandCallbackNative>.isolateLocal(
-          _mediaCommandCallback,
-        );
     _activeBridge = this;
-    registerMediaFn(_sharedMediaCallable!.nativeFunction);
-
-    final registerUiFn = _lib!
-        .lookupFunction<
-          RegisterUiCommandCallbackNative,
-          void Function(Pointer<NativeFunction<UiCommandCallbackNative>>)
-        >('art3m1s_register_ui_command_callback');
-    _sharedUiCallable ??= NativeCallable<UiCommandCallbackNative>.isolateLocal(
-      _uiCommandCallback,
-    );
-    registerUiFn(_sharedUiCallable!.nativeFunction);
-
-    final registerTextInjectFn = _lib!
-        .lookupFunction<
-          RegisterTextInjectCallbackNative,
-          void Function(Pointer<NativeFunction<TextInjectCallbackNative>>)
-        >('art3m1s_register_text_inject_callback');
-    _sharedTextInjectCallable ??=
-        NativeCallable<TextInjectCallbackNative>.isolateLocal(
-          _textInjectCallback,
-          exceptionalReturn: -1,
-        );
-    registerTextInjectFn(_sharedTextInjectCallable!.nativeFunction);
-
-    // 字体枚举与窗口状态查询是可选回调：老版本 core 可能未导出，查不到就跳过（不崩）。
-    try {
-      final registerFontFn = _lib!
-          .lookupFunction<
-            RegisterFontQueryNative,
-            void Function(Pointer<NativeFunction<FontQueryCallbackNative>>)
-          >('art3m1s_register_font_query');
-      _sharedFontQueryCallable ??=
-          NativeCallable<FontQueryCallbackNative>.isolateLocal(
-            _fontQueryCallback,
-            exceptionalReturn: 0,
-          );
-      registerFontFn(_sharedFontQueryCallable!.nativeFunction);
-    } catch (e) {
-      Log.warn('[CoreBridge] 字体枚举回调不可用（core 未导出）: $e');
+    if (!_tryEnableHostEvents()) {
+      throw StateError('core 缺少 host events v1，拒绝使用旧 callback ABI');
     }
+  }
 
+  bool _tryEnableHostEvents() {
+    final coreApi = _coreApi;
+    if (coreApi == null) return false;
+    Pointer<Void> handle = nullptr;
     try {
-      final registerWindowFn = _lib!
-          .lookupFunction<
-            RegisterWindowStateNative,
-            void Function(Pointer<NativeFunction<WindowStateCallbackNative>>)
-          >('art3m1s_register_window_state_query');
-      _sharedWindowStateCallable ??=
-          NativeCallable<WindowStateCallbackNative>.isolateLocal(
-            _windowStateCallback,
-            exceptionalReturn: 0,
-          );
-      registerWindowFn(_sharedWindowStateCallable!.nativeFunction);
-    } catch (e) {
-      Log.warn('[CoreBridge] 窗口状态回调不可用（core 未导出）: $e');
+      handle = coreApi.createHostEvents();
+      if (handle == nullptr) {
+        Log.error('[CoreBridge] 创建 host events 句柄失败');
+        return false;
+      }
+      final api = _HostEventApi(
+        handle: handle,
+        enable: coreApi.hostEventsEnable,
+        nextEventBytes: coreApi.hostEventsNext,
+        poll: coreApi.pollEvents,
+        setFontList: coreApi.setFontList,
+        setWindowState: coreApi.setWindowState,
+        setTextReplacements: coreApi.setTextReplacements,
+        setTextTranslationEnabled: coreApi.setTextTranslationEnabled,
+        clearState: coreApi.clearHostState,
+      );
+      api.enable(1);
+      api.clearState();
+      _syncHostState();
+      _hostEvents = api;
+      Log.info('[CoreBridge] 使用无反向回调 host events 通道');
+      return true;
+    } catch (error) {
+      if (handle != nullptr) {
+        try {
+          coreApi.destroyHostEvents(handle);
+        } catch (_) {}
+      }
+      Log.error('[CoreBridge] host events v1 启用失败: $error');
+      return false;
     }
   }
 
@@ -811,6 +791,131 @@ class CoreBridge {
     if (previous != null && previous != service) {
       unawaited(previous.dispose());
     }
+    _syncTextTranslation();
+  }
+
+  void _syncHostState() {
+    final api = _hostEvents;
+    if (api == null) return;
+    _pushFontList(api, monospace: false, vertical: false);
+    _pushFontList(api, monospace: true, vertical: false);
+    api.setWindowState(_windowStateBits);
+    _syncTextTranslation();
+  }
+
+  void _pushFontList(
+    _HostEventApi api, {
+    required bool monospace,
+    required bool vertical,
+  }) {
+    final names = enumerateFonts(monospace: monospace, vertical: vertical);
+    final bytes = utf8.encode(names.join('\n'));
+    final ptr = bytes.isEmpty ? nullptr : malloc.allocate<Uint8>(bytes.length);
+    try {
+      if (bytes.isNotEmpty) {
+        ptr.asTypedList(bytes.length).setAll(0, bytes);
+      }
+      api.setFontList(monospace ? 1 : 0, vertical ? 1 : 0, ptr, bytes.length);
+    } finally {
+      if (ptr != nullptr) malloc.free(ptr);
+    }
+  }
+
+  void _syncTextTranslation() {
+    final api = _hostEvents;
+    if (api == null) return;
+    final service = translation;
+    if (service == null || !service.hostTranslationEnabled) {
+      api.setTextTranslationEnabled(0);
+      api.setTextReplacements(nullptr, 0);
+      return;
+    }
+    final bytes = utf8.encode(jsonEncode(service.hostReplacementTable));
+    final ptr = malloc.allocate<Uint8>(bytes.length);
+    try {
+      ptr.asTypedList(bytes.length).setAll(0, bytes);
+      if (api.setTextReplacements(ptr, bytes.length) == 0) {
+        Log.warn('[CoreBridge] 翻译替换表提交失败');
+      }
+      api.setTextTranslationEnabled(service.hostOnlineEnabled ? 1 : 0);
+    } finally {
+      malloc.free(ptr);
+    }
+  }
+
+  void _drainHostEvents() {
+    final api = _hostEvents;
+    if (api == null) return;
+    var capacity = _hostEventBufferBytes;
+    var output = malloc.allocate<Uint8>(capacity);
+    final count = calloc<Uint32>();
+    try {
+      while (true) {
+        final nextEvent = api.nextEventBytes();
+        if (nextEvent <= 0) break;
+        if (nextEvent > capacity) {
+          malloc.free(output);
+          capacity = nextEvent;
+          output = malloc.allocate<Uint8>(capacity);
+        }
+        final written = api.poll(output, capacity, count);
+        if (written <= 0 || count.value == 0) break;
+        _handleHostEventBuffer(output, written, count.value);
+      }
+    } catch (error) {
+      Log.error('[CoreBridge] host event 拉取失败: $error');
+    } finally {
+      malloc.free(output);
+      calloc.free(count);
+    }
+  }
+
+  void _handleHostEventBuffer(
+    Pointer<Uint8> output,
+    int written,
+    int eventCount,
+  ) {
+    final bytes = output.asTypedList(written);
+    final view = ByteData.sublistView(bytes);
+    var offset = 0;
+    for (var index = 0; index < eventCount; index++) {
+      if (offset + _hostEventHeaderSize > written) break;
+      final version = view.getUint32(offset, Endian.host);
+      final kind = view.getUint32(offset + 4, Endian.host);
+      final payloadLength = view.getUint32(offset + 16, Endian.host);
+      final aux = view.getUint32(offset + 20, Endian.host);
+      offset += _hostEventHeaderSize;
+      if (offset + payloadLength > written) break;
+      final payload = Uint8List.sublistView(
+        bytes,
+        offset,
+        offset + payloadLength,
+      );
+      offset += payloadLength;
+      if (version != 1) continue;
+      switch (kind) {
+        case 1:
+          _dispatchLog(
+            String.fromCharCode(aux),
+            utf8.decode(payload, allowMalformed: true),
+          );
+        case 2:
+          _dispatchHostJsonEvent(payload, _dispatchMediaCommand);
+        case 3:
+          _dispatchHostJsonEvent(payload, _dispatchUiCommand);
+      }
+    }
+  }
+
+  void _dispatchHostJsonEvent(
+    Uint8List payload,
+    void Function(String kind, String payload) dispatch,
+  ) {
+    final decoded = jsonDecode(utf8.decode(payload));
+    if (decoded is! Map) return;
+    final kind = decoded['kind']?.toString();
+    if (kind == null) return;
+    dispatch(kind, jsonEncode(decoded['payload'] ?? <String, dynamic>{}));
   }
 
   /// 配置输入门控（每个游戏启动时按资料库条目/补丁设置一次）。
@@ -838,6 +943,11 @@ class CoreBridge {
   }
 
   void setDebug(bool enabled) {
+    final coreApi = _coreApi;
+    if (coreApi != null) {
+      coreApi.setDebug(enabled ? 1 : 0);
+      return;
+    }
     if (_lib == null) return;
     final fn = _lib!.lookupFunction<Void Function(Int32), void Function(int)>(
       'art3m1s_set_debug',
@@ -846,6 +956,11 @@ class CoreBridge {
   }
 
   void setDamageVisualization(bool enabled) {
+    final coreApi = _coreApi;
+    if (coreApi != null) {
+      coreApi.setDamageVisualization(enabled ? 1 : 0);
+      return;
+    }
     if (_lib == null) return;
     try {
       final fn = _lib!.lookupFunction<Void Function(Int32), void Function(int)>(
@@ -865,14 +980,18 @@ class CoreBridge {
       return false;
     }
     try {
-      final fn = lib
-          .lookupFunction<
-            Int32 Function(Pointer<Uint8>, Int32),
-            int Function(Pointer<Uint8>, int)
-          >('art3m1s_set_font_override');
       final ptr = malloc.allocate<Uint8>(bytes.length);
       try {
         ptr.asTypedList(bytes.length).setAll(0, bytes);
+        final coreApi = _coreApi;
+        if (coreApi != null) {
+          return coreApi.setFontOverride(ptr, bytes.length) == 1;
+        }
+        final fn = lib
+            .lookupFunction<
+              Int32 Function(Pointer<Uint8>, Int32),
+              int Function(Pointer<Uint8>, int)
+            >('art3m1s_set_font_override');
         return fn(ptr, bytes.length) == 1;
       } finally {
         malloc.free(ptr);
@@ -889,6 +1008,11 @@ class CoreBridge {
     final lib = _lib;
     if (lib == null || _fontOverrideSymbolsUnavailable) return;
     try {
+      final coreApi = _coreApi;
+      if (coreApi != null) {
+        coreApi.clearFontOverride();
+        return;
+      }
       final fn = lib.lookupFunction<Void Function(), void Function()>(
         'art3m1s_clear_font_override',
       );
@@ -906,15 +1030,20 @@ class CoreBridge {
     final runtime = _runtime;
     if (lib == null || runtime == null) return;
     try {
-      final fn = lib
-          .lookupFunction<
-            Void Function(Pointer<Void>, Pointer<Utf8>),
-            void Function(Pointer<Void>, Pointer<Utf8>)
-          >('art3m1s_runtime_set_reported_os');
       final ptr = (os == null || os.isEmpty)
           ? nullptr
           : os.toNativeUtf8().cast<Utf8>();
       try {
+        final coreApi = _coreApi;
+        if (coreApi != null) {
+          coreApi.setReportedOs(runtime, ptr);
+          return;
+        }
+        final fn = lib
+            .lookupFunction<
+              Void Function(Pointer<Void>, Pointer<Utf8>),
+              void Function(Pointer<Void>, Pointer<Utf8>)
+            >('art3m1s_runtime_set_reported_os');
         fn(runtime, ptr);
       } finally {
         if (ptr != nullptr) malloc.free(ptr);
@@ -931,6 +1060,11 @@ class CoreBridge {
       return false;
     }
     try {
+      final coreApi = _coreApi;
+      if (coreApi != null) {
+        coreApi.setProfilerEnabled(runtime, enabled ? 1 : 0);
+        return true;
+      }
       final fn = _setProfilerEnabled ??= lib
           .lookupFunction<
             RuntimeSetProfilerEnabledNative,
@@ -952,11 +1086,17 @@ class CoreBridge {
       return null;
     }
     try {
-      final fn = _profilerSnapshot ??= lib
-          .lookupFunction<
-            RuntimeProfilerSnapshotNative,
-            RuntimeProfilerSnapshot
-          >('art3m1s_runtime_profiler_snapshot');
+      final coreApi = _coreApi;
+      final RuntimeProfilerSnapshot fn;
+      if (coreApi != null) {
+        fn = coreApi.profilerSnapshot;
+      } else {
+        fn = _profilerSnapshot ??= lib
+            .lookupFunction<
+              RuntimeProfilerSnapshotNative,
+              RuntimeProfilerSnapshot
+            >('art3m1s_runtime_profiler_snapshot');
+      }
       final required = fn(runtime, Pointer<Uint8>.fromAddress(0), 0);
       if (required <= 0 || required > 64 * 1024) return null;
       final output = malloc.allocate<Uint8>(required);
@@ -980,6 +1120,16 @@ class CoreBridge {
   void configureAngle(String libDir) {
     if (_lib == null) return;
     try {
+      final coreApi = _coreApi;
+      if (coreApi != null) {
+        final ptr = libDir.toNativeUtf8();
+        try {
+          coreApi.setAnglePath(ptr);
+        } finally {
+          malloc.free(ptr);
+        }
+        return;
+      }
       final fn = _lib!
           .lookupFunction<
             Void Function(Pointer<Utf8>),
@@ -1002,14 +1152,19 @@ class CoreBridge {
       if (!d.existsSync()) {
         d.createSync(recursive: true);
       }
-      final fn = _lib!
-          .lookupFunction<
-            Void Function(Pointer<Utf8>),
-            void Function(Pointer<Utf8>)
-          >('art3m1s_set_save_dir');
       final ptr = dir.toNativeUtf8();
-      fn(ptr);
-      malloc.free(ptr);
+      try {
+        final coreApi = _coreApi;
+        final resources = _resources;
+        final result = coreApi != null && resources != null
+            ? coreApi.fsSetSaveDir(resources, ptr)
+            : 0;
+        if (result == 0) {
+          throw StateError('resources_set_save_dir failed');
+        }
+      } finally {
+        malloc.free(ptr);
+      }
       // 同步告知 FileProvider 存档基准目录，供写/删/读回退使用
       FileProvider.setSaveDir(dir);
       Log.info('[CoreBridge] 存档目录已设置: $dir');
@@ -1020,7 +1175,7 @@ class CoreBridge {
 
   void registerFileReader() {
     if (_lib == null) return;
-    FileProvider.register(_lib!);
+    FileProvider.mountCore(_lib!, coreApi: _coreApi, resources: _resources);
   }
 
   void createRuntime(int stageW, int stageH, {int backend = 0}) {
@@ -1030,12 +1185,43 @@ class CoreBridge {
     _backendCapabilities = null;
     _backendCapabilitiesUnavailable = false;
 
-    final fn = _lib!
-        .lookupFunction<
-          RuntimeCreateNative,
-          Pointer<Void> Function(int, int, int)
-        >('art3m1s_runtime_create');
-    _runtime = fn(stageW, stageH, backend);
+    final coreApi = _coreApi;
+    if (coreApi != null) {
+      _runtime = coreApi.createRuntime(stageW, stageH, backend);
+    } else {
+      final fn = _lib!
+          .lookupFunction<
+            RuntimeCreateNative,
+            Pointer<Void> Function(int, int, int)
+          >('art3m1s_runtime_create');
+      _runtime = fn(stageW, stageH, backend);
+    }
+    final runtime = _runtime;
+    if (runtime == null || runtime == nullptr) return;
+    final resources = _resources;
+    if (resources == null || resources == nullptr) {
+      throw StateError('runtime 创建时资源句柄不可用');
+    }
+    if (coreApi != null &&
+        coreApi.setRuntimeResources(runtime, resources) == 0) {
+      throw StateError('runtime 绑定资源句柄失败');
+    }
+    if (coreApi?.hasRuntimeMedia ?? false) {
+      coreApi!.setRuntimeMediaEnabled(runtime, 1);
+      Log.info('[CoreBridge] runtime 视频解码已启用');
+    } else {
+      try {
+        final setRuntimeMedia = _lib!
+            .lookupFunction<
+              RuntimeSetRuntimeMediaEnabledNative,
+              RuntimeSetRuntimeMediaEnabled
+            >('art3m1s_runtime_set_runtime_media_enabled_v1');
+        setRuntimeMedia(runtime, 1);
+        Log.info('[CoreBridge] runtime 视频解码已启用');
+      } catch (_) {
+        Log.info('[CoreBridge] 当前 core 不支持 runtime 视频解码，保留宿主路径');
+      }
+    }
   }
 
   /// Selects an optional E-Mote implementation before project loading.
@@ -1044,6 +1230,10 @@ class CoreBridge {
     if (_runtime == null || _lib == null) return false;
     if (backend == 0) return true;
     try {
+      final coreApi = _coreApi;
+      if (coreApi != null) {
+        return coreApi.setEmoteBackend(_runtime!, backend) != 0;
+      }
       final fn = _lib!
           .lookupFunction<
             RuntimeSetEmoteBackendNative,
@@ -1059,6 +1249,10 @@ class CoreBridge {
   bool setRenderQualityPreset(int preset) {
     if (_runtime == null || _lib == null) return false;
     try {
+      final coreApi = _coreApi;
+      if (coreApi != null) {
+        return coreApi.setRenderQualityPreset(_runtime!, preset) != 0;
+      }
       final fn = _lib!
           .lookupFunction<
             Int32 Function(Pointer<Void>, Int32),
@@ -1078,6 +1272,10 @@ class CoreBridge {
     final cached = _backendCapabilities;
     if (cached != null) return cached;
     try {
+      final coreApi = _coreApi;
+      if (coreApi != null) {
+        return _backendCapabilities = coreApi.backendCapabilities(_runtime!);
+      }
       final fn = _lib!
           .lookupFunction<
             RuntimeBackendCapabilitiesNative,
@@ -1096,6 +1294,15 @@ class CoreBridge {
   bool configureSpatialUpscale(double renderScale, {double sharpness = 0}) {
     if (_runtime == null || _lib == null) return false;
     try {
+      final coreApi = _coreApi;
+      if (coreApi != null) {
+        return coreApi.configureSpatialUpscale(
+              _runtime!,
+              renderScale,
+              sharpness,
+            ) !=
+            0;
+      }
       final fn = _lib!
           .lookupFunction<
             RuntimeConfigureSpatialUpscaleNative,
@@ -1110,11 +1317,17 @@ class CoreBridge {
 
   bool loadProject(String iniContent, {String platform = 'WINDOWS'}) {
     if (_runtime == null || _lib == null) return false;
-    final fn = _lib!
-        .lookupFunction<
-          RuntimeLoadProjectNative,
-          int Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>)
-        >('art3m1s_runtime_load_project');
+    final coreApi = _coreApi;
+    final int Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>) fn;
+    if (coreApi != null) {
+      fn = coreApi.loadProject;
+    } else {
+      fn = _lib!
+          .lookupFunction<
+            RuntimeLoadProjectNative,
+            int Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>)
+          >('art3m1s_runtime_load_project');
+    }
     final iniPtr = iniContent.toNativeUtf8();
     final platPtr = platform.trim().toUpperCase().toNativeUtf8();
     try {
@@ -1123,6 +1336,7 @@ class CoreBridge {
         // 加载成功后查询 core 端的实际舞台尺寸
         _updateStageSize();
       }
+      _drainHostEvents();
       return result;
     } finally {
       malloc.free(iniPtr);
@@ -1132,11 +1346,17 @@ class CoreBridge {
 
   bool loadProjectBytes(Uint8List iniContent, {String platform = 'WINDOWS'}) {
     if (_runtime == null || _lib == null) return false;
-    final fn = _lib!
-        .lookupFunction<
-          RuntimeLoadProjectBytesNative,
-          int Function(Pointer<Void>, Pointer<Uint8>, int, Pointer<Utf8>)
-        >('art3m1s_runtime_load_project_bytes');
+    final coreApi = _coreApi;
+    final int Function(Pointer<Void>, Pointer<Uint8>, int, Pointer<Utf8>) fn;
+    if (coreApi != null) {
+      fn = coreApi.loadProjectBytes;
+    } else {
+      fn = _lib!
+          .lookupFunction<
+            RuntimeLoadProjectBytesNative,
+            int Function(Pointer<Void>, Pointer<Uint8>, int, Pointer<Utf8>)
+          >('art3m1s_runtime_load_project_bytes');
+    }
 
     final iniPtr = malloc.allocate<Uint8>(iniContent.length);
     final platPtr = platform.trim().toUpperCase().toNativeUtf8();
@@ -1146,6 +1366,7 @@ class CoreBridge {
       if (result) {
         _updateStageSize();
       }
+      _drainHostEvents();
       return result;
     } finally {
       malloc.free(iniPtr);
@@ -1219,14 +1440,22 @@ class CoreBridge {
       return null;
     }
 
-    // boot 脚本经 core 的 request_file 回调到 FileProvider，须先注册文件读回调。
-    FileProvider.register(lib);
+    final coreApi = _coreApi ?? CoreApiV1.tryLoad(lib);
+    if (coreApi == null) {
+      FileProvider.close();
+      return null;
+    }
+    final ownsResources = _resources == null;
+    final resources = _resources ?? coreApi.createResources();
+    if (resources == nullptr) {
+      FileProvider.close();
+      return null;
+    }
 
-    final fn = lib
-        .lookupFunction<
-          ProbeCaptionNative,
-          int Function(Pointer<Uint8>, int, Pointer<Utf8>, Pointer<Uint8>, int)
-        >('art3m1s_probe_caption');
+    // boot 脚本经 core 的原生文件宿主读取资源，须先挂载当前资源根。
+    FileProvider.mountCore(lib, coreApi: coreApi, resources: resources);
+
+    final fn = coreApi.probeCaption;
 
     const cap = 1024;
     final iniPtr = malloc.allocate<Uint8>(iniContent.length);
@@ -1234,7 +1463,14 @@ class CoreBridge {
     final outBuf = malloc.allocate<Uint8>(cap);
     try {
       iniPtr.asTypedList(iniContent.length).setAll(0, iniContent);
-      final len = fn(iniPtr, iniContent.length, platPtr, outBuf, cap);
+      final len = fn(
+        resources,
+        iniPtr,
+        iniContent.length,
+        platPtr,
+        outBuf,
+        cap,
+      );
       if (len <= 0) return null;
       return utf8.decode(outBuf.asTypedList(len), allowMalformed: true);
     } catch (e) {
@@ -1245,23 +1481,33 @@ class CoreBridge {
       malloc.free(platPtr);
       malloc.free(outBuf);
       FileProvider.close();
+      if (ownsResources) {
+        coreApi.destroyResources(resources);
+      }
     }
   }
 
   void _updateStageSize() {
     if (_runtime == null || _lib == null) return;
     try {
-      final widthFn = _lib!
-          .lookupFunction<RuntimeStageWidthNative, int Function(Pointer<Void>)>(
-            'art3m1s_runtime_stage_width',
-          );
-      final heightFn = _lib!
-          .lookupFunction<
-            RuntimeStageHeightNative,
-            int Function(Pointer<Void>)
-          >('art3m1s_runtime_stage_height');
-      _stageWidth = widthFn(_runtime!);
-      _stageHeight = heightFn(_runtime!);
+      final coreApi = _coreApi;
+      if (coreApi != null) {
+        _stageWidth = coreApi.stageWidth(_runtime!);
+        _stageHeight = coreApi.stageHeight(_runtime!);
+      } else {
+        final widthFn = _lib!
+            .lookupFunction<
+              RuntimeStageWidthNative,
+              int Function(Pointer<Void>)
+            >('art3m1s_runtime_stage_width');
+        final heightFn = _lib!
+            .lookupFunction<
+              RuntimeStageHeightNative,
+              int Function(Pointer<Void>)
+            >('art3m1s_runtime_stage_height');
+        _stageWidth = widthFn(_runtime!);
+        _stageHeight = heightFn(_runtime!);
+      }
       Log.info('[CoreBridge] 舞台尺寸已更新: $_stageWidth x $_stageHeight');
     } catch (e) {
       Log.warn('[CoreBridge] 查询舞台尺寸失败: $e');
@@ -1272,6 +1518,11 @@ class CoreBridge {
     if (_runtime == null || _lib == null) return;
     // 门控：指针位置流（hover/移动）。
     if (!_inputGate.mouseMove) return;
+    final coreApi = _coreApi;
+    if (coreApi != null) {
+      coreApi.feedMouse(_runtime!, x, y);
+      return;
+    }
     final fn = _lib!
         .lookupFunction<
           RuntimeFeedMouseNative,
@@ -1283,6 +1534,11 @@ class CoreBridge {
   void feedClick() {
     if (_runtime == null || _lib == null) return;
     if (!_inputGate.mouseButtons) return;
+    final coreApi = _coreApi;
+    if (coreApi != null) {
+      coreApi.feedClick(_runtime!);
+      return;
+    }
     final fn = _lib!
         .lookupFunction<RuntimeFeedClickNative, void Function(Pointer<Void>)>(
           'art3m1s_runtime_feed_click',
@@ -1293,6 +1549,11 @@ class CoreBridge {
   void feedMouseButton(int button, bool pressed) {
     if (_runtime == null || _lib == null) return;
     if (!_inputGate.mouseButtons) return;
+    final coreApi = _coreApi;
+    if (coreApi != null) {
+      coreApi.feedMouseButton(_runtime!, button, pressed ? 1 : 0);
+      return;
+    }
     final fn = _lib!
         .lookupFunction<
           RuntimeFeedMouseButtonNative,
@@ -1306,6 +1567,11 @@ class CoreBridge {
   void feedTouch(int id, int phase, int x, int y) {
     if (_runtime == null || _lib == null) return;
     if (!_inputGate.touch) return;
+    final coreApi = _coreApi;
+    if (coreApi != null) {
+      coreApi.feedTouch(_runtime!, id, phase, x, y);
+      return;
+    }
     final fn = _lib!
         .lookupFunction<
           RuntimeFeedTouchNative,
@@ -1319,6 +1585,11 @@ class CoreBridge {
     // 门控：类别开关 → 黑名单 → 重映射；按下/抬起经同一映射保持一致。
     final mapped = _inputGate.filterKey(vk);
     if (mapped == null) return;
+    final coreApi = _coreApi;
+    if (coreApi != null) {
+      coreApi.feedKey(_runtime!, mapped, pressed ? 1 : 0);
+      return;
+    }
     final fn = _lib!
         .lookupFunction<
           RuntimeFeedKeyNative,
@@ -1333,6 +1604,11 @@ class CoreBridge {
     if (_runtime == null || _lib == null) return;
     final mapped = _inputGate.filterForwardedKey(vk);
     if (mapped == null) return;
+    final coreApi = _coreApi;
+    if (coreApi != null) {
+      coreApi.feedKey(_runtime!, mapped, pressed ? 1 : 0);
+      return;
+    }
     final fn = _lib!
         .lookupFunction<
           RuntimeFeedKeyNative,
@@ -1343,6 +1619,15 @@ class CoreBridge {
 
   bool submitDialog(bool accepted, String text) {
     if (_runtime == null || _lib == null) return false;
+    final coreApi = _coreApi;
+    if (coreApi != null) {
+      final textPtr = text.toNativeUtf8();
+      try {
+        return coreApi.submitDialog(_runtime!, accepted ? 1 : 0, textPtr) != 0;
+      } finally {
+        malloc.free(textPtr);
+      }
+    }
     final fn = _lib!
         .lookupFunction<
           RuntimeSubmitDialogNative,
@@ -1358,6 +1643,20 @@ class CoreBridge {
 
   bool submitTextTranslation(int serial, String? text) {
     if (_runtime == null || _lib == null) return false;
+    final coreApi = _coreApi;
+    if (coreApi != null) {
+      final textPtr = text?.toNativeUtf8();
+      try {
+        return coreApi.submitTextTranslation(
+              _runtime!,
+              serial,
+              textPtr ?? Pointer<Utf8>.fromAddress(0),
+            ) !=
+            0;
+      } finally {
+        if (textPtr != null) malloc.free(textPtr);
+      }
+    }
     final fn = _lib!
         .lookupFunction<
           RuntimeSubmitTextTranslationNative,
@@ -1374,16 +1673,22 @@ class CoreBridge {
 
   Uint8List? advanceAndRender(int deltaMs) {
     if (_runtime == null || _lib == null) return null;
-    media.pumpLayerVideoFrames();
-    final fn = _lib!
-        .lookupFunction<
-          RuntimeAdvanceRenderNative,
-          int Function(Pointer<Void>, int, Pointer<Uint8>, int)
-        >('art3m1s_runtime_advance_and_render');
+    final coreApi = _coreApi;
+    final int Function(Pointer<Void>, int, Pointer<Uint8>, int) fn;
+    if (coreApi != null) {
+      fn = coreApi.advanceAndRender;
+    } else {
+      fn = _lib!
+          .lookupFunction<
+            RuntimeAdvanceRenderNative,
+            int Function(Pointer<Void>, int, Pointer<Uint8>, int)
+          >('art3m1s_runtime_advance_and_render');
+    }
     final pixelCount = _stageWidth * _stageHeight * 4;
     final out = malloc.allocate<Uint8>(pixelCount);
     try {
       final written = fn(_runtime!, deltaMs, out, pixelCount);
+      _drainHostEvents();
       if (written == 0) return null;
       return Uint8List.fromList(out.asTypedList(written));
     } finally {
@@ -1397,14 +1702,21 @@ class CoreBridge {
     if (_runtime == null || _lib == null || _advanceWithoutRenderUnavailable) {
       return false;
     }
-    media.pumpLayerVideoFrames();
+    final coreApi = _coreApi;
+    if (coreApi != null) {
+      final result = coreApi.advanceWithoutRender(_runtime!, deltaMs) != 0;
+      _drainHostEvents();
+      return result;
+    }
     try {
       final fn = _advanceWithoutRender ??= _lib!
           .lookupFunction<
             RuntimeAdvanceWithoutRenderNative,
             RuntimeAdvanceWithoutRender
           >('art3m1s_runtime_advance_without_render');
-      return fn(_runtime!, deltaMs) != 0;
+      final result = fn(_runtime!, deltaMs) != 0;
+      _drainHostEvents();
+      return result;
     } catch (_) {
       // 旧 core 没有该可选接口时保持原行为，避免每帧重复查找符号。
       _advanceWithoutRenderUnavailable = true;
@@ -1412,28 +1724,13 @@ class CoreBridge {
     }
   }
 
-  bool _uploadLayerVideoFrame(
-    String id,
-    int width,
-    int height,
-    Pointer<Uint8> rgba,
-    int rgbaLen,
-  ) {
-    final runtime = _runtime;
-    final lib = _lib;
-    if (runtime == null || lib == null) return false;
-    final fn = _uploadVideoLayerFrame ??= lib
-        .lookupFunction<
-          RuntimeUploadVideoLayerFrameNative,
-          RuntimeUploadVideoLayerFrame
-        >('art3m1s_runtime_upload_video_layer_frame');
-    final idPtr = _videoLayerIds.putIfAbsent(id, id.toNativeUtf8);
-    return fn(runtime, idPtr, width, height, rgba, rgbaLen) != 0;
-  }
-
   bool isExitRequested() {
     if (_runtime == null || _lib == null) return false;
     try {
+      final coreApi = _coreApi;
+      if (coreApi != null) {
+        return coreApi.isExitRequested(_runtime!) != 0;
+      }
       final fn = _lib!
           .lookupFunction<
             RuntimeIsExitRequestedNative,
@@ -1450,11 +1747,18 @@ class CoreBridge {
   void notifyLifecycle(int state) {
     if (_runtime == null || _lib == null) return;
     try {
+      final coreApi = _coreApi;
+      if (coreApi != null) {
+        coreApi.notifyLifecycle(_runtime!, state);
+        _drainHostEvents();
+        return;
+      }
       final fn = _lib!
           .lookupFunction<NotifyLifecycleNative, NotifyLifecycleDart>(
             'art3m1s_runtime_notify_lifecycle',
           );
       fn(_runtime!, state);
+      _drainHostEvents();
     } catch (e) {
       Log.warn('[CoreBridge] notifyLifecycle 不可用: $e');
     }
@@ -1462,6 +1766,18 @@ class CoreBridge {
 
   void notifyVideoFinished(String? id) {
     if (_runtime == null || _lib == null) return;
+    final coreApi = _coreApi;
+    if (coreApi != null) {
+      final idPtr = id == null
+          ? Pointer<Utf8>.fromAddress(0)
+          : id.toNativeUtf8();
+      try {
+        coreApi.notifyVideoFinished(_runtime!, idPtr);
+      } finally {
+        if (id != null) malloc.free(idPtr);
+      }
+      return;
+    }
     final fn = _lib!
         .lookupFunction<
           RuntimeNotifyVideoFinishedNative,
@@ -1477,6 +1793,18 @@ class CoreBridge {
 
   void notifySoundFinished(String? id) {
     if (_runtime == null || _lib == null) return;
+    final coreApi = _coreApi;
+    if (coreApi != null) {
+      final idPtr = id == null
+          ? Pointer<Utf8>.fromAddress(0)
+          : id.toNativeUtf8();
+      try {
+        coreApi.notifySoundFinished(_runtime!, idPtr);
+      } finally {
+        if (id != null) malloc.free(idPtr);
+      }
+      return;
+    }
     final fn = _lib!
         .lookupFunction<
           RuntimeNotifySoundFinishedNative,
@@ -1491,6 +1819,9 @@ class CoreBridge {
   }
 
   void shutdown() {
+    final hostEvents = _hostEvents;
+    hostEvents?.enable(0);
+    final hostEventsHandle = hostEvents?.handle;
     if (_activeBridge == this) _activeBridge = null;
     _resetCursorState();
     unawaited(media.dispose());
@@ -1501,6 +1832,7 @@ class CoreBridge {
     }
     final runtime = _runtime;
     final lib = _lib;
+    final coreApi = _coreApi;
     _detachSharedTexture();
     if (_sharedTextureId != null) {
       unawaited(_sharedTextureChannel.invokeMethod<void>('release'));
@@ -1511,10 +1843,13 @@ class CoreBridge {
     _sharedTextureWidth = 0;
     _sharedTextureHeight = 0;
     _runtime = null;
+    _coreApi = null;
+    final resources = _resources;
+    _resources = null;
+    _hostEvents = null;
     _backendCapabilities = null;
     _backendCapabilitiesUnavailable = false;
     _initialized = false;
-    _uploadVideoLayerFrame = null;
     _advanceWithoutRender = null;
     _advanceWithoutRenderUnavailable = false;
     _setExternalSurface = null;
@@ -1525,26 +1860,40 @@ class CoreBridge {
     _profilerSymbolsUnavailable = false;
     _fontOverrideSymbolsUnavailable = false;
     _sharedTextureSymbolsUnavailable = false;
-    for (final id in _videoLayerIds.values) {
-      malloc.free(id);
-    }
-    _videoLayerIds.clear();
-
     if (runtime != null && lib != null) {
       try {
         Log.info('[CoreBridge] runtime destroy begin');
-        final fn = lib
-            .lookupFunction<RuntimeDestroyNative, void Function(Pointer<Void>)>(
-              'art3m1s_runtime_destroy',
-            );
-        fn(runtime);
+        if (coreApi != null) {
+          coreApi.destroyRuntime(runtime);
+        } else {
+          final fn = lib
+              .lookupFunction<
+                RuntimeDestroyNative,
+                void Function(Pointer<Void>)
+              >('art3m1s_runtime_destroy');
+          fn(runtime);
+        }
         Log.info('[CoreBridge] runtime destroy end');
       } catch (e) {
         Log.warn('[CoreBridge] runtime destroy failed: $e');
         // dylib may not export art3m1s_runtime_destroy yet
       }
     }
+    if (hostEventsHandle != null && coreApi != null) {
+      try {
+        coreApi.destroyHostEvents(hostEventsHandle);
+      } catch (e) {
+        Log.warn('[CoreBridge] host event destroy failed: $e');
+      }
+    }
     FileProvider.close();
+    if (resources != null && resources != nullptr) {
+      try {
+        coreApi?.destroyResources(resources);
+      } catch (e) {
+        Log.warn('[CoreBridge] resource destroy failed: $e');
+      }
+    }
     _lib = null;
   }
 }

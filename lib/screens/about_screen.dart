@@ -61,7 +61,6 @@ class AboutScreen extends StatelessWidget {
             'file_selector',
             'jis0208',
             'audioplayers',
-            'media_kit / media_kit_video',
             'flutter_miuix',
           ],
         ),

@@ -40,6 +40,11 @@ function dmmck_logincheck() end
     return bytes == null ? null : Uint8List.fromList(bytes);
   }
 
+  static Map<String, Uint8List> virtualFiles() => {
+    for (final entry in _virtualFiles.entries)
+      entry.key: Uint8List.fromList(entry.value),
+  };
+
   static bool canTransform(String path) =>
       normalizePath(path) == 'system/first.iet';
 

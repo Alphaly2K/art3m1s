@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'telemetry_service.dart';
+
 class Log {
   static final _logs = <LogEntry>[];
   static final _runtimeSessionLogs = <LogEntry>[];
@@ -64,6 +66,7 @@ class Log {
     _notifier.value = _logs.length;
     _pendingFileWrites.add(entry);
     _scheduleFileFlush();
+    TelemetryService.instance.captureLog(level: level, message: msg);
   }
 
   static void _scheduleFileFlush() {

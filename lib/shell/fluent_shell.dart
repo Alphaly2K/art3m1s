@@ -456,7 +456,7 @@ class _FluentAboutPage extends StatelessWidget {
               label: 'Flutter',
               caption:
                   'flutter_riverpod · path_provider · shared_preferences · ffi · '
-                  'file_selector · audioplayers · media_kit · fluent_ui',
+                  'file_selector · audioplayers · fluent_ui',
               control: SizedBox.shrink(),
             ),
             _FluentSettingRow(
