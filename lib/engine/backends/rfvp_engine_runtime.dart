@@ -276,6 +276,7 @@ class RfvpEngineRuntime implements EngineRuntime {
         await _sharedTextureChannel.invokeMethod<void>('release');
         _sharedTextureId = null;
         _sharedTextureKind = null;
+        Log.warn('[RfvpEngineRuntime] 共享纹理 attach 失败，使用 RGBA 回读');
         return null;
       }
       if (!_sharedTextureHandlerAttached) {
@@ -324,16 +325,16 @@ class RfvpEngineRuntime implements EngineRuntime {
     ];
     for (final (kind, handle) in candidates) {
       if (kind == null || handle == null || handle == 0) continue;
-      final attached =
-          api.setExternalSurface(
-            runtime,
-            kind,
-            Pointer<Void>.fromAddress(handle),
-            surfaceWidth,
-            surfaceHeight,
-          ) !=
-          0;
-      if (!attached) continue;
+      final status = api.setExternalSurface(
+        runtime,
+        kind,
+        Pointer<Void>.fromAddress(handle),
+        surfaceWidth,
+        surfaceHeight,
+      );
+      // RFVP reports status 0 on success; this differs from the legacy
+      // Art3m1s boolean-style external surface API.
+      if (status != art3m1sRfvpStatusOk) continue;
       _sharedTextureId = textureId;
       _sharedTextureKind = kind;
       _sharedTextureAttached = true;
