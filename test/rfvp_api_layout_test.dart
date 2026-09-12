@@ -1,6 +1,6 @@
 import 'dart:ffi';
 
-import 'package:art3m1s/engine/backends/rfvp/rfvp_api.dart';
+import 'package:art3m1s/engine/backends/rfvp/core_rfvp_api.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -9,12 +9,8 @@ void main() {
       return;
     }
 
-    expect(RfvpApiV1.resourcesConfigSize, 64);
-    expect(RfvpApiV1.runtimeConfigSize, 56);
-    expect(RfvpApiV1.inputEventSize, 40);
-    expect(RfvpApiV1.audioCommandSize, 88);
-    expect(RfvpApiV1.textureCommandSize, 88);
-    expect(RfvpApiV1.drawCommandSize, 264);
-    expect(RfvpApiV1.apiTableSize, 272);
+    expect(CoreRfvpApiV1.inputEventSize, 40);
+    expect(CoreRfvpApiV1.audioCommandSize, 88);
+    expect(CoreRfvpApiV1.apiTableSize, 128);
   });
 }

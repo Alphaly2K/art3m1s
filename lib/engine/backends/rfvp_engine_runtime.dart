@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:ffi';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 import '../../models/game_engine.dart';
 import '../../models/input_gate.dart';
@@ -11,14 +13,12 @@ import '../../services/profiler_snapshot.dart';
 import '../../services/text_translation_service.dart';
 import '../engine_runtime.dart';
 import '../media_bridge.dart';
-import 'rfvp/rfvp_api.dart';
-import 'rfvp/rfvp_software_renderer.dart';
+import 'rfvp/core_rfvp_api.dart';
 
 /// RFVP core adapter for the Host engine contract.
 ///
-/// RFVP owns VM/animation state and emits backend-neutral draw, texture, and
-/// audio commands. This adapter keeps the dynamic library and ABI handles
-/// isolated from `art3m1s-core`.
+/// The Art3m1s core library owns RFVP's native runtime, GPU backend and frame
+/// adaptation. Dart only passes paths, input, lifecycle and audio commands.
 class RfvpEngineRuntime implements EngineRuntime {
   RfvpEngineRuntime({this.engineCursorControlEnabled = true});
 
@@ -31,11 +31,13 @@ class RfvpEngineRuntime implements EngineRuntime {
     onVideoFinished: (_) {},
     onSoundFinished: (_) {},
   );
-  final RfvpSoftwareRenderer _renderer = RfvpSoftwareRenderer();
+
+  static const MethodChannel _sharedTextureChannel = MethodChannel(
+    'moe.alphaly.art3m1s/shared_texture',
+  );
 
   DynamicLibrary? _library;
-  RfvpApiV1? _api;
-  int _resources = 0;
+  CoreRfvpApiV1? _api;
   int _runtime = 0;
   bool _initialized = false;
   bool _exitRequested = false;
@@ -45,8 +47,16 @@ class RfvpEngineRuntime implements EngineRuntime {
   int _pointerX = 0;
   int _pointerY = 0;
   String? _projectDirectory;
+  String? _saveDirectory;
   InputGatePolicy _inputGate = InputGatePolicy.full;
   TextTranslationService? _translation;
+
+  int? _sharedTextureId;
+  int? _sharedTextureKind;
+  bool _sharedTextureAttached = false;
+  bool _sharedTextureHandlerAttached = false;
+  int _sharedTextureWidth = 0;
+  int _sharedTextureHeight = 0;
 
   @override
   GameEngineKind get kind => GameEngineKind.rfvp;
@@ -78,21 +88,17 @@ class RfvpEngineRuntime implements EngineRuntime {
   Future<void> initialize() async {
     try {
       _lastError = null;
-      _library = _openLibrary();
-      final api = RfvpApiV1.tryLoad(_library!);
+      _library = _openCoreLibrary();
+      final api = CoreRfvpApiV1.tryLoad(_library!);
       if (api == null) {
-        throw StateError('RFVP 缺少 rfvp_get_api_v1 或 ABI 版本不兼容');
+        throw StateError('art3m1s-core 未导出 RFVP API v1');
       }
       _api = api;
-      _resources = api.createResources(nls: rfvpNlsShiftJis);
-      if (_resources <= 0) {
-        throw StateError('RFVP 创建资源句柄失败');
-      }
       _initialized = true;
-      Log.info('[RfvpEngineRuntime] 使用 rfvp_get_api_v1');
+      Log.info('[RfvpEngineRuntime] 使用 art3m1s_rfvp_get_api_v1');
     } catch (error) {
       _lastError = error.toString();
-      Log.error('[RfvpEngineRuntime] RFVP 库加载失败: $error');
+      Log.error('[RfvpEngineRuntime] RFVP 后端加载失败: $error');
       _shutdownNative();
     }
   }
@@ -114,18 +120,14 @@ class RfvpEngineRuntime implements EngineRuntime {
 
   @override
   void setSaveDir(String dir) {
-    final api = _api;
-    if (api == null || _resources <= 0) return;
+    _saveDirectory = dir;
     try {
       final directory = Directory(dir);
       if (!directory.existsSync()) {
         directory.createSync(recursive: true);
       }
-      if (api.setSaveRoot(_resources, dir) != rfvpStatusOk) {
-        Log.warn('[RfvpEngineRuntime] set save root failed: $dir');
-      }
     } catch (error) {
-      Log.warn('[RfvpEngineRuntime] set save root failed: $dir: $error');
+      Log.warn('[RfvpEngineRuntime] 创建存档目录失败: $dir: $error');
     }
   }
 
@@ -155,42 +157,39 @@ class RfvpEngineRuntime implements EngineRuntime {
     if (isArchive) {
       throw UnsupportedError('RFVP 暂不支持 PFS 归档项目');
     }
+    _projectDirectory = projectPath;
     final ini = File('$projectPath${Platform.pathSeparator}system.ini');
     if (!ini.existsSync()) {
-      _projectDirectory = null;
-      return null;
+      // RFVP discovers HCB and .bin packs directly; FVP games do not require
+      // the Artemis system.ini contract.
+      return Uint8List(0);
     }
-    _projectDirectory = projectPath;
     return ini.readAsBytes();
   }
 
   @override
   void registerFileReader() {
-    final api = _api;
-    if (api == null || _resources <= 0) return;
     final directory = _projectDirectory;
     if (directory == null) {
       Log.warn('[RfvpEngineRuntime] 项目目录尚未准备');
       return;
     }
-    api.clearResources(_resources);
-    final status = api.mountDirectory(_resources, directory);
-    if (status != rfvpStatusOk) {
-      _lastError = 'mount directory failed: $directory ($status)';
-      Log.error('[RfvpEngineRuntime] $_lastError');
-      return;
-    }
-    Log.info('[RfvpEngineRuntime] 项目目录已挂载: $directory');
+    Log.info('[RfvpEngineRuntime] 项目目录将由 Rust 宿主挂载: $directory');
   }
 
   @override
   void createRuntime(int stageWidth, int stageHeight, {int backend = 0}) {
     final api = _api;
-    if (api == null || _resources <= 0) return;
+    final projectDirectory = _projectDirectory;
+    if (api == null || projectDirectory == null) return;
+
     _runtime = api.createRuntime(
-      resources: _resources,
-      requestedWidth: stageWidth,
-      requestedHeight: stageHeight,
+      gameRoot: projectDirectory,
+      saveRoot: _saveDirectory,
+      width: stageWidth,
+      height: stageHeight,
+      backend: backend,
+      nls: art3m1sRfvpNlsShiftJis,
     );
     if (_runtime <= 0) {
       _lastError = 'runtime create failed (${api.lastStatus})';
@@ -198,8 +197,8 @@ class RfvpEngineRuntime implements EngineRuntime {
       return;
     }
     _lastError = null;
-    _stageWidth = stageWidth;
-    _stageHeight = stageHeight;
+    _stageWidth = api.stageWidth(_runtime);
+    _stageHeight = api.stageHeight(_runtime);
     _exitRequested = false;
   }
 
@@ -230,69 +229,185 @@ class RfvpEngineRuntime implements EngineRuntime {
       false;
 
   @override
-  bool get hasActiveSharedTexture => false;
+  bool get hasActiveSharedTexture =>
+      _sharedTextureId != null && _sharedTextureAttached;
 
   @override
-  int? get sharedTextureId => null;
+  int? get sharedTextureId => _sharedTextureId;
 
   @override
-  int get sharedTextureWidth => 0;
+  int get sharedTextureWidth => _sharedTextureWidth;
 
   @override
-  int get sharedTextureHeight => 0;
+  int get sharedTextureHeight => _sharedTextureHeight;
 
   @override
   Future<int?> enableSharedTexture({
     int? outputWidth,
     int? outputHeight,
-  }) async => null;
-
-  @override
-  bool isExitRequested() {
-    if (_exitRequested) return true;
+  }) async {
     final api = _api;
     final runtime = _runtime;
-    if (api == null || runtime <= 0) return false;
-    return api.isExitRequested(runtime);
+    if (api == null || runtime <= 0) return null;
+    final width = math.max(outputWidth ?? _stageWidth, _stageWidth);
+    final height = math.max(outputHeight ?? _stageHeight, _stageHeight);
+    if (_sharedTextureAttached &&
+        _sharedTextureId != null &&
+        _sharedTextureWidth == width &&
+        _sharedTextureHeight == height) {
+      return _sharedTextureId;
+    }
+
+    try {
+      _detachSharedTexture();
+      final raw = await _sharedTextureChannel.invokeMapMethod<String, dynamic>(
+        'create',
+        {'width': width, 'height': height},
+      );
+      if (raw == null ||
+          !_attachSharedTexture(raw, width: width, height: height)) {
+        await _sharedTextureChannel.invokeMethod<void>('release');
+        _sharedTextureId = null;
+        _sharedTextureKind = null;
+        return null;
+      }
+      if (!_sharedTextureHandlerAttached) {
+        _sharedTextureChannel.setMethodCallHandler(_handleSharedTextureCall);
+        _sharedTextureHandlerAttached = true;
+      }
+      Log.info(
+        '[RfvpEngineRuntime] 共享纹理已启用: id=$_sharedTextureId '
+        '${_sharedTextureWidth}x$_sharedTextureHeight '
+        '(stage=${_stageWidth}x$_stageHeight)',
+      );
+      return _sharedTextureId;
+    } catch (error) {
+      Log.warn('[RfvpEngineRuntime] 共享纹理不可用，使用 RGBA 回读: $error');
+      _sharedTextureId = null;
+      _sharedTextureKind = null;
+      unawaited(
+        _sharedTextureChannel.invokeMethod<void>('release').catchError((_) {}),
+      );
+      return null;
+    }
+  }
+
+  bool _attachSharedTexture(
+    Map<dynamic, dynamic> descriptor, {
+    int? width,
+    int? height,
+  }) {
+    final api = _api;
+    final runtime = _runtime;
+    final textureId = (descriptor['textureId'] as num?)?.toInt();
+    if (api == null || runtime <= 0 || textureId == null) return false;
+    final surfaceWidth = width ?? _sharedTextureWidth;
+    final surfaceHeight = height ?? _sharedTextureHeight;
+    if (surfaceWidth <= 0 || surfaceHeight <= 0) return false;
+
+    final candidates = <(int?, int?)>[
+      (
+        (descriptor['kind'] as num?)?.toInt(),
+        (descriptor['handle'] as num?)?.toInt(),
+      ),
+      (
+        (descriptor['fallbackKind'] as num?)?.toInt(),
+        (descriptor['fallbackHandle'] as num?)?.toInt(),
+      ),
+    ];
+    for (final (kind, handle) in candidates) {
+      if (kind == null || handle == null || handle == 0) continue;
+      final attached =
+          api.setExternalSurface(
+            runtime,
+            kind,
+            Pointer<Void>.fromAddress(handle),
+            surfaceWidth,
+            surfaceHeight,
+          ) !=
+          0;
+      if (!attached) continue;
+      _sharedTextureId = textureId;
+      _sharedTextureKind = kind;
+      _sharedTextureAttached = true;
+      _sharedTextureWidth = surfaceWidth;
+      _sharedTextureHeight = surfaceHeight;
+      return true;
+    }
+    return false;
+  }
+
+  Future<void> _handleSharedTextureCall(MethodCall call) async {
+    switch (call.method) {
+      case 'surfaceCleanup':
+        _detachSharedTexture();
+      case 'surfaceAvailable':
+        final descriptor = call.arguments;
+        if (descriptor is Map && !_attachSharedTexture(descriptor)) {
+          Log.warn('[RfvpEngineRuntime] 无法重新绑定共享纹理 surface');
+        }
+    }
+  }
+
+  void _detachSharedTexture() {
+    final api = _api;
+    final runtime = _runtime;
+    if (api != null && runtime > 0 && _sharedTextureAttached) {
+      api.clearExternalSurface(runtime);
+    }
+    _sharedTextureAttached = false;
   }
 
   @override
-  bool advanceWithoutRender(int deltaMs) => _step(deltaMs);
+  bool isExitRequested() {
+    final api = _api;
+    final runtime = _runtime;
+    if (_exitRequested) return true;
+    if (api == null || runtime <= 0) return false;
+    _exitRequested = api.isExitRequested(runtime);
+    return _exitRequested;
+  }
+
+  @override
+  bool advanceWithoutRender(int deltaMs) {
+    final api = _api;
+    final runtime = _runtime;
+    if (api == null || runtime <= 0) return false;
+    final status = api.step(runtime, deltaMs.clamp(1, 1000));
+    _drainAudio();
+    return status == art3m1sRfvpStatusOk;
+  }
 
   @override
   int advanceAndPresent(int deltaMs) {
-    final pixels = advanceAndRender(deltaMs);
-    return pixels == null ? -1 : 1;
+    final api = _api;
+    final runtime = _runtime;
+    if (api == null || runtime <= 0 || !_sharedTextureAttached) return -1;
+    final result = api.advanceAndPresent(runtime, deltaMs.clamp(1, 1000));
+    _drainAudio();
+    if (result > 0 && (_sharedTextureKind == 2 || _sharedTextureKind == 3)) {
+      unawaited(
+        _sharedTextureChannel.invokeMethod<void>('frameAvailable').catchError((
+          Object error,
+        ) {
+          Log.warn('[RfvpEngineRuntime] 共享纹理帧通知失败: $error');
+        }),
+      );
+    } else if (result < 0) {
+      Log.warn('[RfvpEngineRuntime] 共享纹理提交失败，回退到 RGBA 路径');
+      _detachSharedTexture();
+    }
+    return result;
   }
 
   @override
   Uint8List? advanceAndRender(int deltaMs) {
     final api = _api;
     final runtime = _runtime;
-    if (api == null || runtime <= 0 || !_step(deltaMs)) return null;
-    final frame = api.acquireFrame(runtime);
-    if (frame == null) return null;
-    _stageWidth = frame.width;
-    _stageHeight = frame.height;
-    try {
-      return _renderer.render(frame);
-    } catch (error, stackTrace) {
-      Log.error('[RfvpEngineRuntime] frame render failed: $error\n$stackTrace');
-      return null;
-    }
-  }
-
-  bool _step(int deltaMs) {
-    final api = _api;
-    final runtime = _runtime;
-    if (api == null || runtime <= 0) return false;
-    final status = api.step(runtime, deltaMs.clamp(1, 1000));
-    if (status != rfvpStatusOk) {
-      Log.error('[RfvpEngineRuntime] runtime step failed: $status');
-      return false;
-    }
+    if (api == null || runtime <= 0) return null;
+    final pixels = api.advanceAndRender(runtime, deltaMs.clamp(1, 1000));
     _drainAudio();
-    return true;
+    return pixels;
   }
 
   void _drainAudio() {
@@ -322,17 +437,17 @@ class RfvpEngineRuntime implements EngineRuntime {
 
   static EngineAudioCommandKind _engineAudioKind(int kind) {
     return switch (kind) {
-      rfvpAudioLoadEncoded => EngineAudioCommandKind.loadEncoded,
-      rfvpAudioCreateStream => EngineAudioCommandKind.createStream,
-      rfvpAudioSubmitI16 => EngineAudioCommandKind.submitI16,
-      rfvpAudioSubmitF32 => EngineAudioCommandKind.submitF32,
-      rfvpAudioPlay => EngineAudioCommandKind.play,
-      rfvpAudioStop => EngineAudioCommandKind.stop,
-      rfvpAudioPause => EngineAudioCommandKind.pause,
-      rfvpAudioResume => EngineAudioCommandKind.resume,
-      rfvpAudioSetParams => EngineAudioCommandKind.setParams,
-      rfvpAudioDestroyStream => EngineAudioCommandKind.destroyStream,
-      rfvpAudioMasterVolume => EngineAudioCommandKind.masterVolume,
+      art3m1sRfvpAudioLoadEncoded => EngineAudioCommandKind.loadEncoded,
+      art3m1sRfvpAudioCreateStream => EngineAudioCommandKind.createStream,
+      art3m1sRfvpAudioSubmitI16 => EngineAudioCommandKind.submitI16,
+      art3m1sRfvpAudioSubmitF32 => EngineAudioCommandKind.submitF32,
+      art3m1sRfvpAudioPlay => EngineAudioCommandKind.play,
+      art3m1sRfvpAudioStop => EngineAudioCommandKind.stop,
+      art3m1sRfvpAudioPause => EngineAudioCommandKind.pause,
+      art3m1sRfvpAudioResume => EngineAudioCommandKind.resume,
+      art3m1sRfvpAudioSetParams => EngineAudioCommandKind.setParams,
+      art3m1sRfvpAudioDestroyStream => EngineAudioCommandKind.destroyStream,
+      art3m1sRfvpAudioMasterVolume => EngineAudioCommandKind.masterVolume,
       _ => EngineAudioCommandKind.destroyStream,
     };
   }
@@ -349,10 +464,10 @@ class RfvpEngineRuntime implements EngineRuntime {
     _pointerX = x;
     _pointerY = y;
     _pushInput([
-      RfvpInputEvent(
-        kind: rfvpInputPointerMove,
+      RfvpCoreInputEvent(
+        kind: art3m1sRfvpInputPointerMove,
         code: 0,
-        phase: rfvpInputPhaseMove,
+        phase: art3m1sRfvpInputPhaseMove,
         x: x,
         y: y,
       ),
@@ -363,17 +478,17 @@ class RfvpEngineRuntime implements EngineRuntime {
   void feedClick() {
     if (!_inputGate.mouseButtons) return;
     _pushInput([
-      RfvpInputEvent(
-        kind: rfvpInputPointerButton,
-        code: rfvpPointerLeft,
-        phase: rfvpInputPhaseDown,
+      RfvpCoreInputEvent(
+        kind: art3m1sRfvpInputPointerButton,
+        code: art3m1sRfvpPointerLeft,
+        phase: art3m1sRfvpInputPhaseDown,
         x: _pointerX,
         y: _pointerY,
       ),
-      RfvpInputEvent(
-        kind: rfvpInputPointerButton,
-        code: rfvpPointerLeft,
-        phase: rfvpInputPhaseUp,
+      RfvpCoreInputEvent(
+        kind: art3m1sRfvpInputPointerButton,
+        code: art3m1sRfvpPointerLeft,
+        phase: art3m1sRfvpInputPhaseUp,
         x: _pointerX,
         y: _pointerY,
       ),
@@ -384,15 +499,15 @@ class RfvpEngineRuntime implements EngineRuntime {
   void feedMouseButton(int button, bool pressed) {
     if (!_inputGate.mouseButtons) return;
     final code = switch (button) {
-      2 => rfvpPointerRight,
-      3 => rfvpPointerMiddle,
-      _ => rfvpPointerLeft,
+      2 => art3m1sRfvpPointerRight,
+      3 => art3m1sRfvpPointerMiddle,
+      _ => art3m1sRfvpPointerLeft,
     };
     _pushInput([
-      RfvpInputEvent(
-        kind: rfvpInputPointerButton,
+      RfvpCoreInputEvent(
+        kind: art3m1sRfvpInputPointerButton,
         code: code,
-        phase: pressed ? rfvpInputPhaseDown : rfvpInputPhaseUp,
+        phase: pressed ? art3m1sRfvpInputPhaseDown : art3m1sRfvpInputPhaseUp,
         x: _pointerX,
         y: _pointerY,
       ),
@@ -403,14 +518,14 @@ class RfvpEngineRuntime implements EngineRuntime {
   void feedTouch(int id, int phase, int x, int y) {
     if (!_inputGate.touch) return;
     final nativePhase = switch (phase) {
-      0 => rfvpInputPhaseDown,
-      1 => rfvpInputPhaseMove,
-      2 => rfvpInputPhaseUp,
-      _ => rfvpInputPhaseMove,
+      0 => art3m1sRfvpInputPhaseDown,
+      1 => art3m1sRfvpInputPhaseMove,
+      2 => art3m1sRfvpInputPhaseUp,
+      _ => art3m1sRfvpInputPhaseMove,
     };
     _pushInput([
-      RfvpInputEvent(
-        kind: rfvpInputTouch,
+      RfvpCoreInputEvent(
+        kind: art3m1sRfvpInputTouch,
         code: 0,
         phase: nativePhase,
         x: x,
@@ -436,20 +551,20 @@ class RfvpEngineRuntime implements EngineRuntime {
 
   void _pushKey(int keyCode, bool pressed) {
     _pushInput([
-      RfvpInputEvent(
-        kind: rfvpInputKey,
+      RfvpCoreInputEvent(
+        kind: art3m1sRfvpInputKey,
         code: keyCode,
-        phase: pressed ? rfvpInputPhaseDown : rfvpInputPhaseUp,
+        phase: pressed ? art3m1sRfvpInputPhaseDown : art3m1sRfvpInputPhaseUp,
       ),
     ]);
   }
 
-  void _pushInput(List<RfvpInputEvent> events) {
+  void _pushInput(List<RfvpCoreInputEvent> events) {
     final api = _api;
     final runtime = _runtime;
     if (api == null || runtime <= 0 || events.isEmpty) return;
-    final status = api.pushInput(runtime, events);
-    if (status != rfvpStatusOk) {
+    final status = api.feedInput(runtime, events);
+    if (status != art3m1sRfvpStatusOk) {
       Log.warn('[RfvpEngineRuntime] input rejected: $status');
     }
   }
@@ -469,19 +584,19 @@ class RfvpEngineRuntime implements EngineRuntime {
       case 0:
         _exitRequested = true;
         _pushInput(const [
-          RfvpInputEvent(
-            kind: rfvpInputQuit,
+          RfvpCoreInputEvent(
+            kind: art3m1sRfvpInputQuit,
             code: 0,
-            phase: rfvpInputPhaseDown,
+            phase: art3m1sRfvpInputPhaseDown,
           ),
         ]);
       case 1:
         _pushInput(const [
-          RfvpInputEvent(kind: rfvpInputFocus, code: 0, phase: 0),
+          RfvpCoreInputEvent(kind: art3m1sRfvpInputFocus, code: 0, phase: 0),
         ]);
       case 2:
         _pushInput(const [
-          RfvpInputEvent(kind: rfvpInputFocus, code: 0, phase: 1),
+          RfvpCoreInputEvent(kind: art3m1sRfvpInputFocus, code: 0, phase: 1),
         ]);
     }
   }
@@ -489,31 +604,39 @@ class RfvpEngineRuntime implements EngineRuntime {
   void _shutdownNative() {
     final api = _api;
     final runtime = _runtime;
-    final resources = _resources;
+    _detachSharedTexture();
+    if (_sharedTextureId != null) {
+      unawaited(_sharedTextureChannel.invokeMethod<void>('release'));
+    }
+    if (_sharedTextureHandlerAttached) {
+      _sharedTextureChannel.setMethodCallHandler(null);
+      _sharedTextureHandlerAttached = false;
+    }
     _runtime = 0;
-    _resources = 0;
     _projectDirectory = null;
     _initialized = false;
-    _renderer.reset();
-    if (api != null) {
-      if (runtime > 0) api.destroyRuntime(runtime);
-      if (resources > 0) api.destroyResources(resources);
+    _sharedTextureId = null;
+    _sharedTextureKind = null;
+    _sharedTextureWidth = 0;
+    _sharedTextureHeight = 0;
+    if (api != null && runtime > 0) {
+      api.destroyRuntime(runtime);
     }
     _api = null;
     _library = null;
   }
 
-  static DynamicLibrary _openLibrary() {
-    final configured = Platform.environment['RFVP_LIBRARY'];
+  static DynamicLibrary _openCoreLibrary() {
+    final configured = Platform.environment['ART3M1S_CORE_LIBRARY'];
     if (configured != null && configured.isNotEmpty) {
       return DynamicLibrary.open(configured);
     }
     if (Platform.isIOS) return DynamicLibrary.process();
     final name = Platform.isMacOS
-        ? 'librfvp.dylib'
+        ? 'libart3m1s_core.dylib'
         : Platform.isWindows
-        ? 'rfvp.dll'
-        : 'librfvp.so';
+        ? 'art3m1s_core.dll'
+        : 'libart3m1s_core.so';
     try {
       return DynamicLibrary.open(name);
     } catch (_) {

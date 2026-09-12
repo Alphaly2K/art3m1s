@@ -3,33 +3,30 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:art3m1s/engine/backends/rfvp_engine_runtime.dart';
-import 'package:art3m1s/engine/backends/rfvp/rfvp_api.dart';
+import 'package:art3m1s/engine/backends/rfvp/core_rfvp_api.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   final gameRoot = Platform.environment['RFVP_SMOKE_GAME'];
-  final library = Platform.environment['RFVP_LIBRARY'];
+  final library = Platform.environment['ART3M1S_CORE_LIBRARY'];
   test(
-    'real RFVP ABI mounts the project root',
+    'Art3m1s core RFVP ABI mounts the project root',
     () {
-      final api = RfvpApiV1.tryLoad(DynamicLibrary.open(library!))!;
-      final resources = api.createResources(nls: rfvpNlsShiftJis);
+      final api = CoreRfvpApiV1.tryLoad(DynamicLibrary.open(library!))!;
+      final runtime = api.createRuntime(
+        gameRoot: gameRoot!,
+        width: 1024,
+        height: 640,
+        backend: 0,
+      );
       try {
-        expect(resources, greaterThan(0));
-        expect(api.mountDirectory(resources, gameRoot!), rfvpStatusOk);
-        final runtime = api.createRuntime(
-          resources: resources,
-          requestedWidth: 1024,
-          requestedHeight: 640,
-        );
         expect(runtime, greaterThan(0), reason: '${api.lastStatus}');
-        if (runtime > 0) api.destroyRuntime(runtime);
       } finally {
-        api.destroyResources(resources);
+        api.destroyRuntime(runtime);
       }
     },
     skip: gameRoot == null || library == null
-        ? 'RFVP_SMOKE_GAME or RFVP_LIBRARY is not set'
+        ? 'RFVP_SMOKE_GAME or ART3M1S_CORE_LIBRARY is not set'
         : false,
   );
 
@@ -72,7 +69,9 @@ void main() {
         if (saveRoot.existsSync()) saveRoot.deleteSync(recursive: true);
       }
     },
-    skip: gameRoot == null ? 'RFVP_SMOKE_GAME is not set' : false,
+    skip: gameRoot == null || library == null
+        ? 'RFVP_SMOKE_GAME or ART3M1S_CORE_LIBRARY is not set'
+        : false,
     timeout: const Timeout(Duration(minutes: 2)),
   );
 }
