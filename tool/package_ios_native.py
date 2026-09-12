@@ -37,6 +37,7 @@ def package(source, output):
     for binary, dsym in (
         (source / info["CFBundleExecutable"], source.parent / "Runner.app.dSYM"),
         (source / "Frameworks/Art3m1sRuntime.dylib", source.parent / "Art3m1sRuntime.dylib.dSYM"),
+        (source / "Frameworks/App.framework/App", source.parent / "App.framework.dSYM"),
     ):
         if not dsym.is_dir() or uuids(binary) != uuids(dsym):
             raise ValueError(f"Missing or mismatched dSYM for {binary}")

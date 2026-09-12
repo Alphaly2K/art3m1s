@@ -87,6 +87,17 @@ unless missing_xcframeworks.empty?
   MESSAGE
 end
 
+FFMPEG_XCFRAMEWORKS = %w[
+  libavcodec
+  libavformat
+  libavutil
+  libswscale
+  libswresample
+]
+ffmpeg_xcframeworks_ready = FFMPEG_XCFRAMEWORKS.all? do |name|
+  File.directory?(File.join(FRAMEWORKS_DIR, "#{name}.xcframework"))
+end
+
 target 'Runner' do
   use_frameworks!
 
@@ -94,6 +105,9 @@ target 'Runner' do
 
   # ── 本地 vendored frameworks ──────────────────────────────────────────
   pod 'Art3m1sCore', :path => 'Frameworks'
+  if ffmpeg_xcframeworks_ready
+    pod 'Art3m1sFFmpeg', :path => 'Frameworks'
+  end
   pod 'PfsUpk',       :path => 'Frameworks'
   pod 'MetalANGLE',   :path => 'Frameworks'
 

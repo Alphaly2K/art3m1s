@@ -244,8 +244,7 @@
 				33CC10EB2044A3C60003C045 /* Resources */,
 				33CC110E2044A8840003C045 /* Bundle Framework */,
 				3399D490228B24CF009A79C7 /* ShellScript */,
-				AF1CF067E7BBF37D8B4EF4A3 /* [CP] Embed Pods Frameworks */,
-				A13C0DE00000000000000001 /* Bundle Art3m1s Core */,
+				A13C0DE00000000000000001 /* Bundle Art3m1s Runtime Libraries */,
 			);
 			buildRules = (
 			);
@@ -416,24 +415,7 @@
 			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
 			showEnvVarsInLog = 0;
 		};
-		AF1CF067E7BBF37D8B4EF4A3 /* [CP] Embed Pods Frameworks */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-				"${PODS_ROOT}/Target Support Files/Pods-Runner/Pods-Runner-frameworks-${CONFIGURATION}-input-files.xcfilelist",
-			);
-			name = "[CP] Embed Pods Frameworks";
-			outputFileListPaths = (
-				"${PODS_ROOT}/Target Support Files/Pods-Runner/Pods-Runner-frameworks-${CONFIGURATION}-output-files.xcfilelist",
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-Runner/Pods-Runner-frameworks.sh\"\n";
-			showEnvVarsInLog = 0;
-		};
-		A13C0DE00000000000000001 /* Bundle Art3m1s Core */ = {
+		A13C0DE00000000000000001 /* Bundle Art3m1s Runtime Libraries */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
@@ -446,6 +428,11 @@
 				"$(SRCROOT)/../libpfs_upk.dylib",
 				"$(SRCROOT)/../libEGL.dylib",
 				"$(SRCROOT)/../libGLESv2.dylib",
+				"$(SRCROOT)/../libavcodec.62.dylib",
+				"$(SRCROOT)/../libavformat.62.dylib",
+				"$(SRCROOT)/../libavutil.60.dylib",
+				"$(SRCROOT)/../libswresample.6.dylib",
+				"$(SRCROOT)/../libswscale.9.dylib",
 			);
 			name = "Bundle Art3m1s Runtime Libraries";
 			outputFileListPaths = (
@@ -455,10 +442,15 @@
 				"$(TARGET_BUILD_DIR)/$(EXECUTABLE_FOLDER_PATH)/libpfs_upk.dylib",
 				"$(TARGET_BUILD_DIR)/$(EXECUTABLE_FOLDER_PATH)/libEGL.dylib",
 				"$(TARGET_BUILD_DIR)/$(EXECUTABLE_FOLDER_PATH)/libGLESv2.dylib",
+				"$(TARGET_BUILD_DIR)/$(EXECUTABLE_FOLDER_PATH)/libavcodec.62.dylib",
+				"$(TARGET_BUILD_DIR)/$(EXECUTABLE_FOLDER_PATH)/libavformat.62.dylib",
+				"$(TARGET_BUILD_DIR)/$(EXECUTABLE_FOLDER_PATH)/libavutil.60.dylib",
+				"$(TARGET_BUILD_DIR)/$(EXECUTABLE_FOLDER_PATH)/libswresample.6.dylib",
+				"$(TARGET_BUILD_DIR)/$(EXECUTABLE_FOLDER_PATH)/libswscale.9.dylib",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -e\nCORE_SOURCE=\"${SRCROOT}/../libart3m1s_core.dylib\"\nPFS_SOURCE=\"${SRCROOT}/../libpfs_upk.dylib\"\nEGL_SOURCE=\"${SRCROOT}/../libEGL.dylib\"\nGLES_SOURCE=\"${SRCROOT}/../libGLESv2.dylib\"\nDEST_DIR=\"${TARGET_BUILD_DIR}/${EXECUTABLE_FOLDER_PATH}\"\nfor SOURCE in \"${CORE_SOURCE}\" \"${PFS_SOURCE}\" \"${EGL_SOURCE}\" \"${GLES_SOURCE}\"; do\n  if [ ! -f \"${SOURCE}\" ]; then\n    echo \"error: Missing ${SOURCE}. Build and copy the Rust runtime libraries before building the app.\" >&2\n    exit 1\n  fi\n  DEST=\"${DEST_DIR}/$(basename \"${SOURCE}\")\"\n  /bin/cp -f \"${SOURCE}\" \"${DEST}\"\n  SIGN_IDENTITY=\"${EXPANDED_CODE_SIGN_IDENTITY}\"\n  if [ -z \"${SIGN_IDENTITY}\" ]; then\n    SIGN_IDENTITY=\"-\"\n  fi\n  /usr/bin/codesign --force --sign \"${SIGN_IDENTITY}\" --timestamp=none \"${DEST}\"\ndone\n";
+				shellScript = "set -e\nCORE_SOURCE=\"${SRCROOT}/../libart3m1s_core.dylib\"\nPFS_SOURCE=\"${SRCROOT}/../libpfs_upk.dylib\"\nEGL_SOURCE=\"${SRCROOT}/../libEGL.dylib\"\nGLES_SOURCE=\"${SRCROOT}/../libGLESv2.dylib\"\nAVCODEC_SOURCE=\"${SRCROOT}/../libavcodec.62.dylib\"\nAVFORMAT_SOURCE=\"${SRCROOT}/../libavformat.62.dylib\"\nAVUTIL_SOURCE=\"${SRCROOT}/../libavutil.60.dylib\"\nSWRESAMPLE_SOURCE=\"${SRCROOT}/../libswresample.6.dylib\"\nSWSCALE_SOURCE=\"${SRCROOT}/../libswscale.9.dylib\"\nDEST_DIR=\"${TARGET_BUILD_DIR}/${EXECUTABLE_FOLDER_PATH}\"\nfor SOURCE in \"${CORE_SOURCE}\" \"${PFS_SOURCE}\" \"${EGL_SOURCE}\" \"${GLES_SOURCE}\" \"${AVCODEC_SOURCE}\" \"${AVFORMAT_SOURCE}\" \"${AVUTIL_SOURCE}\" \"${SWRESAMPLE_SOURCE}\" \"${SWSCALE_SOURCE}\"; do\n  if [ ! -f \"${SOURCE}\" ]; then\n    echo \"error: Missing ${SOURCE}. Build and copy the runtime libraries before building the app.\" >&2\n    exit 1\n  fi\n  DEST=\"${DEST_DIR}/$(basename \"${SOURCE}\")\"\n  /bin/cp -f \"${SOURCE}\" \"${DEST}\"\n  SIGN_IDENTITY=\"${EXPANDED_CODE_SIGN_IDENTITY}\"\n  if [ -z \"${SIGN_IDENTITY}\" ]; then\n    SIGN_IDENTITY=\"-\"\n  fi\n  /usr/bin/codesign --force --sign \"${SIGN_IDENTITY}\" --timestamp=none \"${DEST}\"\ndone\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 

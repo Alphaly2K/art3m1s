@@ -209,7 +209,32 @@ Future<void> _buildMacos(
   BuildMetadata metadata,
   BuildOptions options,
 ) async {
-  await _buildHostRust(core, pfs, options.profile);
+  await _run(
+    '${project.path}/scripts/build_ffmpeg_macos.sh',
+    const <String>[],
+    workingDirectory: project,
+  );
+  final ffmpegPrefix = Directory('${project.path}/.build/ffmpeg-macos/prefix');
+  await _run(
+    'cargo',
+    <String>[
+      'build',
+      if (options.profile == 'release') '--release',
+      '--features',
+      'ffmpeg',
+      '--manifest-path',
+      '${core.path}/Cargo.toml',
+    ],
+    workingDirectory: core,
+    environment: <String, String>{'FFMPEG_DIR': ffmpegPrefix.path},
+  );
+  await _run('cargo', <String>[
+    'build',
+    if (options.profile == 'release') '--release',
+    '--manifest-path',
+    '${pfs.path}/Cargo.toml',
+  ], workingDirectory: pfs);
+
   final suffix = options.profile == 'release' ? 'release' : 'debug';
   File(
     '${core.path}/target/$suffix/libart3m1s_core.dylib',
@@ -217,6 +242,19 @@ Future<void> _buildMacos(
   File(
     '${pfs.path}/target/$suffix/libpfs_upk.dylib',
   ).copySync('${project.path}/libpfs_upk.dylib');
+  for (final name in const <String>[
+    'libavcodec.62.dylib',
+    'libavformat.62.dylib',
+    'libavutil.60.dylib',
+    'libswresample.6.dylib',
+    'libswscale.9.dylib',
+  ]) {
+    final source = File('${ffmpegPrefix.path}/lib/$name');
+    if (!source.existsSync()) {
+      throw StateError('missing FFmpeg library: ${source.path}');
+    }
+    source.copySync('${project.path}/$name');
+  }
   await _run('${project.path}/scripts/build_angle.sh', const <String>[
     'macos',
   ], workingDirectory: project);

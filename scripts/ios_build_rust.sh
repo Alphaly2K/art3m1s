@@ -7,7 +7,7 @@ set -euo pipefail
 # ios/Frameworks/ 供 CocoaPods vendored_frameworks 使用。
 #
 # 用法:
-#   ./scripts/ios_build_rust.sh [--release] [--device-only] [--sign "证书名"]
+#   ./scripts/ios_build_rust.sh [--release] [--device-only] [--skip-angle] [--sign "证书名"]
 #
 # 前置条件:
 #   1. Rust 工具链: rustup target add aarch64-apple-ios aarch64-apple-ios-sim
@@ -20,11 +20,13 @@ OUT_DIR="$PROJECT_DIR/ios/Frameworks"
 # ── 可配置: Rust 项目路径 ──────────────────────────────────────────────
 CORE_SRC="${CORE_SRC:-$PROJECT_DIR/../art3m1s-core}"
 PFS_SRC="${PFS_SRC:-$CORE_SRC/crates/pfs-upk-rust}"
+FFMPEG_BUILD_ROOT="${FFMPEG_BUILD_ROOT:-$PROJECT_DIR/.build/ffmpeg-ios}"
 
 # ── 参数解析 ────────────────────────────────────────────────────────────
 PROFILE="release"
 CODE_SIGN_ID=""
 BUILD_SIM=1
+BUILD_ANGLE=1
 export IPHONEOS_DEPLOYMENT_TARGET="${IPHONEOS_DEPLOYMENT_TARGET:-13.0}"
 
 while [[ $# -gt 0 ]]; do
@@ -32,6 +34,7 @@ while [[ $# -gt 0 ]]; do
     --debug)   PROFILE="debug" ;;
     --release) PROFILE="release" ;;
     --device-only) BUILD_SIM=0 ;;
+    --skip-angle) BUILD_ANGLE=0 ;;
     --sign)
       shift
       CODE_SIGN_ID="${1:-}"
@@ -57,12 +60,14 @@ require lipo
 require xcodebuild
 require install_name_tool
 
-# Build official Chromium ANGLE before packaging the Rust frameworks.
-ANGLE_ARGS=(ios)
-if [[ "$BUILD_SIM" != "1" ]]; then
-  ANGLE_ARGS+=(--device-only)
+if [[ "$BUILD_ANGLE" == "1" ]]; then
+  # Build official Chromium ANGLE before packaging the Rust frameworks.
+  ANGLE_ARGS=(ios)
+  if [[ "$BUILD_SIM" != "1" ]]; then
+    ANGLE_ARGS+=(--device-only)
+  fi
+  "$SCRIPT_DIR/build_angle.sh" "${ANGLE_ARGS[@]}"
 fi
-"$SCRIPT_DIR/build_angle.sh" "${ANGLE_ARGS[@]}"
 
 # ── iOS targets ─────────────────────────────────────────────────────────
 IOS_DEVICE_TARGET="aarch64-apple-ios"
@@ -161,22 +166,53 @@ make_framework() {
     exit 1
   fi
 
+  local device_ffmpeg_dir="${FFMPEG_DIR:-$FFMPEG_BUILD_ROOT/device/prefix}"
+  local simulator_ffmpeg_dir="${FFMPEG_DIR_SIMULATOR:-$FFMPEG_BUILD_ROOT/simulator/prefix}"
+  local device_cargo_flags=("${CARGO_FLAGS[@]}")
+  local simulator_cargo_flags=("${CARGO_FLAGS[@]}")
+  if [[ "$src_dir" == "$CORE_SRC" ]]; then
+    if [[ -d "$device_ffmpeg_dir" ]]; then
+      device_cargo_flags+=(--features ffmpeg)
+    fi
+    if [[ -d "$simulator_ffmpeg_dir" ]]; then
+      simulator_cargo_flags+=(--features ffmpeg)
+    fi
+  fi
+
   echo "  -> $IOS_DEVICE_TARGET"
   if [[ "$CARGO_FLAGS[@]" == "--release" ]]; then
-    cargo build "${CARGO_FLAGS[@]}" --lib \
-      --manifest-path "$src_dir/Cargo.toml" \
-      --target "$IOS_DEVICE_TARGET"
+    if [[ -d "$device_ffmpeg_dir" ]]; then
+      FFMPEG_DIR="$device_ffmpeg_dir" cargo build "${device_cargo_flags[@]}" --lib \
+        --manifest-path "$src_dir/Cargo.toml" \
+        --target "$IOS_DEVICE_TARGET"
+    else
+      cargo build "${device_cargo_flags[@]}" --lib \
+        --manifest-path "$src_dir/Cargo.toml" \
+        --target "$IOS_DEVICE_TARGET"
+    fi
   else
-    cargo build --lib \
-          --manifest-path "$src_dir/Cargo.toml" \
-          --target "$IOS_DEVICE_TARGET"
+    if [[ -d "$device_ffmpeg_dir" ]]; then
+      FFMPEG_DIR="$device_ffmpeg_dir" cargo build "${device_cargo_flags[@]}" --lib \
+        --manifest-path "$src_dir/Cargo.toml" \
+        --target "$IOS_DEVICE_TARGET"
+    else
+      cargo build "${device_cargo_flags[@]}" --lib \
+        --manifest-path "$src_dir/Cargo.toml" \
+        --target "$IOS_DEVICE_TARGET"
+    fi
   fi
 
   if [[ "$BUILD_SIM" == "1" ]]; then
     echo "  -> $IOS_SIM_ARM64_TARGET"
-    cargo build "${CARGO_FLAGS[@]}" --lib \
-      --manifest-path "$src_dir/Cargo.toml" \
-      --target "$IOS_SIM_ARM64_TARGET"
+    if [[ -d "$simulator_ffmpeg_dir" ]]; then
+      FFMPEG_DIR="$simulator_ffmpeg_dir" cargo build "${simulator_cargo_flags[@]}" --lib \
+        --manifest-path "$src_dir/Cargo.toml" \
+        --target "$IOS_SIM_ARM64_TARGET"
+    else
+      cargo build "${simulator_cargo_flags[@]}" --lib \
+        --manifest-path "$src_dir/Cargo.toml" \
+        --target "$IOS_SIM_ARM64_TARGET"
+    fi
   fi
 
   local device_dylib="$src_dir/target/$IOS_DEVICE_TARGET/$TARGET_DIR_SUFFIX/lib${lib_name}.dylib"

@@ -39,7 +39,11 @@ def generate(app, products=None, reference=None):
     if info.get("UIApplicationSceneManifest") or info.get("UIMainStoryboardFile"):
         raise ValueError("The native entry must create its legacy window before loading Flutter")
     def is_system(name):
-        return name.startswith(("/System/Library/", "/usr/lib/"))
+        # Swift packages may record system Swift runtimes through the loader's
+        # rpath even though dyld resolves them from /usr/lib/swift.
+        return name.startswith(("/System/Library/", "/usr/lib/")) or (
+            name.startswith("@rpath/libswift_") and name.endswith(".dylib")
+        )
 
     if any(not is_system(name) for name, _ in libraries(app / info["CFBundleExecutable"])):
         raise ValueError("The native executable must only link system libraries")
