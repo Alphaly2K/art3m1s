@@ -20,6 +20,11 @@ jobs:
           ref: master
           path: art3m1s-core
           submodules: recursive
+      - name: Checkout RFVP dependency
+        uses: actions/checkout@v4
+        with:
+          repository: Alphaly2K/rfvp
+          path: rfvp
       - name: Checkout Art3m1s
         uses: actions/checkout@v4
         with:
@@ -48,6 +53,11 @@ jobs:
           ref: master
           path: art3m1s-core
           submodules: recursive
+      - name: Checkout RFVP dependency
+        uses: actions/checkout@v4
+        with:
+          repository: Alphaly2K/rfvp
+          path: rfvp
       - name: Checkout Art3m1s
         uses: actions/checkout@v4
         with:
@@ -99,6 +109,11 @@ jobs:
           ref: master
           path: art3m1s-core
           submodules: recursive
+      - name: Checkout RFVP dependency
+        uses: actions/checkout@v4
+        with:
+          repository: Alphaly2K/rfvp
+          path: rfvp
       - name: Checkout Art3m1s
         uses: actions/checkout@v4
         with:
