@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
 import 'dart:math' as math;
@@ -13,8 +12,8 @@ import '../../services/logger.dart';
 import '../../services/profiler_snapshot.dart';
 import '../../services/text_translation_service.dart';
 import '../engine_runtime.dart';
-import '../media_bridge.dart';
 import 'rfvp/core_rfvp_api.dart';
+import 'rfvp/rfvp_media_host.dart';
 
 /// RFVP core adapter for the Host engine contract.
 ///
@@ -28,10 +27,7 @@ class RfvpEngineRuntime implements EngineRuntime {
   final ValueNotifier<bool> _cursorHidden = ValueNotifier(false);
   final ValueNotifier<AvoidOverlay?> _avoidOverlay = ValueNotifier(null);
   final ValueNotifier<String?> _windowTitle = ValueNotifier(null);
-  late final MediaBridge _media = MediaBridge(
-    onVideoFinished: (_) {},
-    onSoundFinished: (_) {},
-  );
+  late final RfvpMediaHost _media = RfvpMediaHost();
 
   static const MethodChannel _sharedTextureChannel = MethodChannel(
     'moe.alphaly.art3m1s/shared_texture',
@@ -39,7 +35,6 @@ class RfvpEngineRuntime implements EngineRuntime {
 
   DynamicLibrary? _library;
   CoreRfvpApiV1? _api;
-  NativeCallable<RfvpLogCallbackNative>? _logCallable;
   int _runtime = 0;
   bool _initialized = false;
   bool _exitRequested = false;
@@ -95,12 +90,10 @@ class RfvpEngineRuntime implements EngineRuntime {
       if (api == null) {
         throw StateError('art3m1s-core 未导出 RFVP API v1');
       }
-      final logCallable = NativeCallable<RfvpLogCallbackNative>.isolateLocal(
-        _handleNativeLog,
-      );
-      api.setLogCallback(logCallable.nativeFunction, nullptr);
       _api = api;
-      _logCallable = logCallable;
+      // 日志走拉取式队列：不在 native 侧注册 NativeCallable，避免在
+      // 越狱/注入环境触发 Dart 回调蹦床崩溃。
+      _drainNativeLogs();
       _initialized = true;
       Log.info('[RfvpEngineRuntime] 使用 art3m1s_rfvp_get_api_v1');
     } catch (error) {
@@ -198,6 +191,7 @@ class RfvpEngineRuntime implements EngineRuntime {
       backend: backend,
       nls: art3m1sRfvpNlsShiftJis,
     );
+    _drainNativeLogs(api);
     if (_runtime <= 0) {
       _lastError = 'runtime create failed (${api.lastStatus})';
       Log.error('[RfvpEngineRuntime] $_lastError');
@@ -226,14 +220,27 @@ class RfvpEngineRuntime implements EngineRuntime {
   void clearFontOverride() {}
 
   @override
-  bool get supportsSpatialUpscaling => false;
+  bool get supportsSpatialUpscaling {
+    final api = _api;
+    final runtime = _runtime;
+    if (api == null || runtime <= 0) return false;
+    return api.capabilities(runtime) & art3m1sRfvpCapabilitySpatialUpscaling !=
+        0;
+  }
 
   @override
   bool setRenderQuality(EngineRenderQuality quality) => false;
 
   @override
-  bool configureSpatialUpscale(double renderScale, {double sharpness = 0}) =>
-      false;
+  bool configureSpatialUpscale(double renderScale, {double sharpness = 0}) {
+    // Surface attachment already configures the backend-native spatial pass
+    // from the final output extent. Keep this host contract truthful so the
+    // PlayerScreen can request higher-resolution output textures.
+    return _sharedTextureAttached &&
+        supportsSpatialUpscaling &&
+        renderScale > 0 &&
+        renderScale <= 1;
+  }
 
   @override
   bool get hasActiveSharedTexture =>
@@ -383,6 +390,7 @@ class RfvpEngineRuntime implements EngineRuntime {
     if (api == null || runtime <= 0) return false;
     final status = api.step(runtime, deltaMs.clamp(1, 1000));
     _drainAudio();
+    _drainNativeLogs(api);
     return status == art3m1sRfvpStatusOk;
   }
 
@@ -393,6 +401,7 @@ class RfvpEngineRuntime implements EngineRuntime {
     if (api == null || runtime <= 0 || !_sharedTextureAttached) return -1;
     final result = api.advanceAndPresent(runtime, deltaMs.clamp(1, 1000));
     _drainAudio();
+    _drainNativeLogs(api);
     if (result > 0 && (_sharedTextureKind == 2 || _sharedTextureKind == 3)) {
       unawaited(
         _sharedTextureChannel.invokeMethod<void>('frameAvailable').catchError((
@@ -415,6 +424,7 @@ class RfvpEngineRuntime implements EngineRuntime {
     if (api == null || runtime <= 0) return null;
     final pixels = api.advanceAndRender(runtime, deltaMs.clamp(1, 1000));
     _drainAudio();
+    _drainNativeLogs(api);
     return pixels;
   }
 
@@ -612,8 +622,6 @@ class RfvpEngineRuntime implements EngineRuntime {
   void _shutdownNative() {
     final api = _api;
     final runtime = _runtime;
-    final logCallable = _logCallable;
-    _logCallable = null;
     _detachSharedTexture();
     if (_sharedTextureId != null) {
       unawaited(_sharedTextureChannel.invokeMethod<void>('release'));
@@ -634,37 +642,28 @@ class RfvpEngineRuntime implements EngineRuntime {
         api.destroyRuntime(runtime);
       }
     } finally {
-      api?.setLogCallback(nullptr, nullptr);
-      logCallable?.close();
+      _drainNativeLogs(api);
     }
     _api = null;
     _library = null;
   }
 
-  void _handleNativeLog(
-    int level,
-    Pointer<Uint8> message,
-    int messageLength,
-    Pointer<Void> userData,
-  ) {
-    if (messageLength <= 0) return;
-    try {
-      final text =
-          '[RFVP] ${utf8.decode(message.asTypedList(messageLength), allowMalformed: true)}';
-      switch (String.fromCharCode(level)) {
+  void _drainNativeLogs([CoreRfvpApiV1? api]) {
+    api ??= _api;
+    if (api == null) return;
+    for (final record in api.drainLogs()) {
+      final text = '[RFVP] ${record.message}';
+      switch (String.fromCharCode(record.level)) {
         case 'E':
           Log.error(text);
         case 'W':
           Log.warn(text);
         case 'D':
-          Log.debug(text);
         case 'T':
           Log.debug(text);
         default:
           Log.info(text);
       }
-    } catch (_) {
-      // Never let callback decoding errors cross back into native code.
     }
   }
 

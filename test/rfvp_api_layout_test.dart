@@ -11,6 +11,7 @@ void main() {
 
     expect(CoreRfvpApiV1.inputEventSize, 40);
     expect(CoreRfvpApiV1.audioCommandSize, 88);
-    expect(CoreRfvpApiV1.apiTableSize, 136);
+    // 16 字节头 + 17 个函数指针（含表尾追加的 logNextBytes/pollLog）。
+    expect(CoreRfvpApiV1.apiTableSize, 152);
   });
 }

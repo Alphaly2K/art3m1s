@@ -8,8 +8,10 @@ import 'package:macos_window_utils/macos_window_utils.dart';
 import 'services/app_info.dart';
 import 'services/app_data_paths.dart';
 import 'services/logger.dart';
+import 'services/sentry_telemetry_sink.dart';
 import 'services/storage_service.dart';
 import 'services/startup_diagnostics.dart';
+import 'services/telemetry_service.dart';
 import 'models/host_ui_theme.dart';
 import 'providers/settings_provider.dart';
 import 'shell/cupertino_shell.dart';
@@ -17,6 +19,12 @@ import 'shell/fluent_shell.dart';
 import 'shell/macos_shell.dart';
 import 'shell/material_shell.dart';
 import 'shell/miuix_shell.dart';
+import 'package:sentry_flutter/sentry_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+/// 由构建期 `--dart-define=SENTRY_DSN=...` 注入（见 tool/secrets.example.env）。
+/// 任何情况下不要把真实 DSN 写进源码或提交记录。
+const String _sentryDsn = String.fromEnvironment('SENTRY_DSN');
 
 void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -62,7 +70,43 @@ void main(List<String> args) async {
   );
   await StartupDiagnostics.step('app-info', AppInfo.init);
   Log.info('Art3m1s 启动');
-  runApp(const ProviderScope(child: Art3m1sApp()));
+
+  // 崩溃/错误上报：默认关闭，用户在设置中明确开启且构建注入了 DSN 才启用。
+  final crashReporting = await _loadCrashReportingPreference();
+  TelemetryService.instance.setEnabled(crashReporting);
+  void startApp() {
+    runApp(const ProviderScope(child: Art3m1sApp()));
+  }
+
+  if (_sentryDsn.isEmpty || !crashReporting) {
+    startApp();
+    return;
+  }
+  await SentryFlutter.init(
+    (options) {
+      options.dsn = _sentryDsn;
+      // 不随事件发送 IP 等默认 PII；日志在 TelemetryService 侧已脱敏。
+      options.sendDefaultPii = false;
+      options.enableLogs = true;
+      // 采样保持低位，避免性能数据淹没事件配额；profiling 关闭。
+      options.tracesSampleRate = 0.2;
+      // Session Replay 会记录画面内容，对本应用不适用。
+      options.replay.sessionSampleRate = 0.0;
+      options.replay.onErrorSampleRate = 0.0;
+    },
+    appRunner: () =>
+        runApp(SentryWidget(child: const ProviderScope(child: Art3m1sApp()))),
+  );
+  TelemetryService.instance.registerSink(const SentryTelemetrySink());
+}
+
+Future<bool> _loadCrashReportingPreference() async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool('crash_reporting_enabled') ?? false;
+  } catch (_) {
+    return false;
+  }
 }
 
 /// 按平台选壳：macOS 原生风（macos_ui）、iOS Cupertino、

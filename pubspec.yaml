@@ -28,6 +28,7 @@ environment:
 # the latest version available on pub.dev. To see which dependencies have newer
 # versions available, run `flutter pub outdated`.
 dependencies:
+  sentry_flutter: ^9.30.0
   flutter:
     sdk: flutter
 
@@ -38,6 +39,7 @@ dependencies:
   ffi: ^2.1.4
   file_selector: ^1.0.3
   audioplayers: ^6.8.0
+  audio_decode: ^1.3.3
   macos_ui: ^2.2.2
   macos_window_utils: ^1.9.1
   fluent_ui: ^4.16.0
@@ -48,6 +50,7 @@ dependencies:
   protobuf: ^6.0.0
   flutter_miuix: ^1.1.1
 dev_dependencies:
+  sentry_dart_plugin: ^3.4.0
   flutter_test:
     sdk: flutter
 
@@ -103,3 +106,9 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+
+sentry:
+  upload_debug_symbols: true
+  upload_source_maps: true
+  project: flutter
+  org: alphaly

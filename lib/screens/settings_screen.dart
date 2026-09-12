@@ -163,6 +163,13 @@ class SettingsScreen extends ConsumerWidget {
           onChanged: (v) =>
               ref.read(settingsProvider.notifier).setDebugOverlay(v),
         ),
+        SwitchListTile(
+          title: const Text('崩溃与错误上报'),
+          subtitle: const Text('发生崩溃或错误时上传诊断报告（不含游戏内容），重启后完全生效'),
+          value: settings.crashReportingEnabled,
+          onChanged: (v) =>
+              ref.read(settingsProvider.notifier).setCrashReportingEnabled(v),
+        ),
         ListTile(
           leading: const Icon(Icons.save_alt),
           title: const Text('导出日志文件'),

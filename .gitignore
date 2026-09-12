@@ -6,6 +6,8 @@
 .DS_Store
 # 构建期生成（scripts/gen_git_env.sh）：注入版本/提交号，不入库。
 .env.git
+# 本地鉴权/上报配置（Sentry DSN、auth token 等），永远不入库。
+tool/secrets.local.env
 .atom/
 .build/
 .buildlog/
@@ -52,3 +54,5 @@ app.*.map.json
 !/ios/Frameworks/Art3m1sCore.podspec
 !/ios/Frameworks/MetalANGLE.podspec
 !/ios/Frameworks/PfsUpk.podspec
+
+sentry.properties

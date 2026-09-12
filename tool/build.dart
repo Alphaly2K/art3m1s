@@ -9,6 +9,7 @@ Future<void> main(List<String> arguments) async {
   );
   final flutter = _flutterExecutable();
   final metadata = await _buildMetadata(project);
+  final secrets = _loadSecrets(project);
   final targets = options.target == 'all'
       ? _hostTargets()
       : <String>[options.target];
@@ -18,15 +19,47 @@ Future<void> main(List<String> arguments) async {
     stdout.writeln('\n=== Building $target (${options.profile}) ===');
     switch (target) {
       case 'ios':
-        await _buildIos(project, core, pfs, flutter, metadata, options);
+        await _buildIos(project, core, pfs, flutter, metadata, secrets, options);
       case 'macos':
-        await _buildMacos(project, core, pfs, flutter, metadata, options);
+        await _buildMacos(
+          project,
+          core,
+          pfs,
+          flutter,
+          metadata,
+          secrets,
+          options,
+        );
       case 'android':
-        await _buildAndroid(project, core, pfs, flutter, metadata, options);
+        await _buildAndroid(
+          project,
+          core,
+          pfs,
+          flutter,
+          metadata,
+          secrets,
+          options,
+        );
       case 'windows':
-        await _buildWindows(project, core, pfs, flutter, metadata, options);
+        await _buildWindows(
+          project,
+          core,
+          pfs,
+          flutter,
+          metadata,
+          secrets,
+          options,
+        );
       case 'linux':
-        await _buildLinux(project, core, pfs, flutter, metadata, options);
+        await _buildLinux(
+          project,
+          core,
+          pfs,
+          flutter,
+          metadata,
+          secrets,
+          options,
+        );
       default:
         throw UsageException('Unknown target: $target');
     }
@@ -100,6 +133,54 @@ final class BuildMetadata {
     '--dart-define=GIT_COMMIT=$commit',
     '--dart-define=APP_VERSION=$version',
   ];
+}
+
+/// Credentials and upload configuration that must never enter git.
+///
+/// Resolution order: process environment first, then the untracked
+/// `tool/secrets.local.env` file (see `tool/secrets.example.env`).
+final class BuildSecrets {
+  const BuildSecrets({this.sentryDsn = '', this.sentryAuthToken = ''});
+
+  final String sentryDsn;
+  final String sentryAuthToken;
+
+  List<String> get dartDefines => <String>[
+    if (sentryDsn.isNotEmpty) '--dart-define=SENTRY_DSN=$sentryDsn',
+  ];
+
+  /// Extra environment for the Flutter build process; `sentry_dart_plugin`
+  /// picks up `SENTRY_AUTH_TOKEN` for debug-symbol upload.
+  Map<String, String> get environment => <String, String>{
+    if (sentryAuthToken.isNotEmpty) 'SENTRY_AUTH_TOKEN': sentryAuthToken,
+  };
+}
+
+BuildSecrets _loadSecrets(Directory project) {
+  var values = <String, String>{};
+  final file = File('${project.path}/tool/secrets.local.env');
+  if (file.existsSync()) {
+    for (final rawLine in file.readAsLinesSync()) {
+      final line = rawLine.trim();
+      if (line.isEmpty || line.startsWith('#')) continue;
+      final separator = line.indexOf('=');
+      if (separator <= 0) continue;
+      final key = line.substring(0, separator).trim();
+      var value = line.substring(separator + 1).trim();
+      if (value.length >= 2 &&
+          ((value.startsWith('"') && value.endsWith('"')) ||
+              (value.startsWith("'") && value.endsWith("'")))) {
+        value = value.substring(1, value.length - 1);
+      }
+      values[key] = value;
+    }
+  }
+  // Environment variables win over the file.
+  values = <String, String>{...values, ...Platform.environment};
+  return BuildSecrets(
+    sentryDsn: values['SENTRY_DSN'] ?? '',
+    sentryAuthToken: values['SENTRY_AUTH_TOKEN'] ?? '',
+  );
 }
 
 final class UsageException implements Exception {
@@ -177,6 +258,7 @@ Future<void> _buildIos(
   Directory pfs,
   String flutter,
   BuildMetadata metadata,
+  BuildSecrets secrets,
   BuildOptions options,
 ) async {
   if (options.signOnly) {
@@ -191,13 +273,19 @@ Future<void> _buildIos(
     workingDirectory: project,
     environment: <String, String>{'CORE_SRC': core.path, 'PFS_SRC': pfs.path},
   );
-  await _run(flutter, <String>[
-    'build',
-    'ios',
-    '--${options.profile}',
-    '--no-codesign',
-    ...metadata.dartDefines,
-  ], workingDirectory: project);
+  await _run(
+    flutter,
+    <String>[
+      'build',
+      'ios',
+      '--${options.profile}',
+      '--no-codesign',
+      ...metadata.dartDefines,
+      ...secrets.dartDefines,
+    ],
+    workingDirectory: project,
+    environment: secrets.environment,
+  );
   await _signIosAppForTrollStore(project, profile: options.profile);
 }
 
@@ -207,6 +295,7 @@ Future<void> _buildMacos(
   Directory pfs,
   String flutter,
   BuildMetadata metadata,
+  BuildSecrets secrets,
   BuildOptions options,
 ) async {
   await _run(
@@ -258,12 +347,18 @@ Future<void> _buildMacos(
   await _run('${project.path}/scripts/build_angle.sh', const <String>[
     'macos',
   ], workingDirectory: project);
-  await _run(flutter, <String>[
-    'build',
-    'macos',
-    '--${options.profile}',
-    ...metadata.dartDefines,
-  ], workingDirectory: project);
+  await _run(
+    flutter,
+    <String>[
+      'build',
+      'macos',
+      '--${options.profile}',
+      ...metadata.dartDefines,
+      ...secrets.dartDefines,
+    ],
+    workingDirectory: project,
+    environment: secrets.environment,
+  );
 }
 
 Future<void> _buildAndroid(
@@ -272,6 +367,7 @@ Future<void> _buildAndroid(
   Directory pfs,
   String flutter,
   BuildMetadata metadata,
+  BuildSecrets secrets,
   BuildOptions options,
 ) async {
   final output = Directory('${project.path}/android/app/src/main/jniLibs');
@@ -289,13 +385,19 @@ Future<void> _buildAndroid(
       '${crate.path}/Cargo.toml',
     ], workingDirectory: crate);
   }
-  await _run(flutter, <String>[
-    'build',
-    'apk',
-    '--${options.profile}',
-    '--target-platform=android-arm64',
-    ...metadata.dartDefines,
-  ], workingDirectory: project);
+  await _run(
+    flutter,
+    <String>[
+      'build',
+      'apk',
+      '--${options.profile}',
+      '--target-platform=android-arm64',
+      ...metadata.dartDefines,
+      ...secrets.dartDefines,
+    ],
+    workingDirectory: project,
+    environment: secrets.environment,
+  );
 }
 
 Future<void> _buildWindows(
@@ -304,15 +406,22 @@ Future<void> _buildWindows(
   Directory pfs,
   String flutter,
   BuildMetadata metadata,
+  BuildSecrets secrets,
   BuildOptions options,
 ) async {
   await _buildHostRust(core, pfs, options.profile);
-  await _run(flutter, <String>[
-    'build',
-    'windows',
-    '--${options.profile}',
-    ...metadata.dartDefines,
-  ], workingDirectory: project);
+  await _run(
+    flutter,
+    <String>[
+      'build',
+      'windows',
+      '--${options.profile}',
+      ...metadata.dartDefines,
+      ...secrets.dartDefines,
+    ],
+    workingDirectory: project,
+    environment: secrets.environment,
+  );
   final bundle = _findDirectory(
     Directory('${project.path}/build/windows'),
     options.profile == 'release' ? 'Release' : 'Debug',
@@ -332,15 +441,22 @@ Future<void> _buildLinux(
   Directory pfs,
   String flutter,
   BuildMetadata metadata,
+  BuildSecrets secrets,
   BuildOptions options,
 ) async {
   await _buildHostRust(core, pfs, options.profile);
-  await _run(flutter, <String>[
-    'build',
-    'linux',
-    '--${options.profile}',
-    ...metadata.dartDefines,
-  ], workingDirectory: project);
+  await _run(
+    flutter,
+    <String>[
+      'build',
+      'linux',
+      '--${options.profile}',
+      ...metadata.dartDefines,
+      ...secrets.dartDefines,
+    ],
+    workingDirectory: project,
+    environment: secrets.environment,
+  );
   final bundle = _findDirectory(
     Directory('${project.path}/build/linux'),
     'bundle',

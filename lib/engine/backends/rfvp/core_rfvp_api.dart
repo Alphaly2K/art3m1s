@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:ffi';
 import 'dart:typed_data';
 
@@ -75,6 +76,10 @@ typedef _RuntimeSetLogCallbackDart =
       Pointer<NativeFunction<RfvpLogCallbackNative>>,
       Pointer<Void>,
     );
+typedef _LogNextBytesNative = UintPtr Function();
+typedef _LogNextBytesDart = int Function();
+typedef _PollLogNative = UintPtr Function(Pointer<Uint8>, UintPtr);
+typedef _PollLogDart = int Function(Pointer<Uint8>, int);
 
 const int art3m1sRfvpStatusOk = 0;
 const int art3m1sRfvpStatusNoFrame = 1;
@@ -84,6 +89,8 @@ const int art3m1sRfvpStatusInvalidHandle = -2;
 const int art3m1sRfvpStatusEngine = -3;
 const int art3m1sRfvpStatusUnsupported = -4;
 const int art3m1sRfvpStatusOutOfMemory = -5;
+
+const int art3m1sRfvpCapabilitySpatialUpscaling = 1 << 11;
 
 const int art3m1sRfvpNlsShiftJis = 1;
 const int art3m1sRfvpNlsGbk = 2;
@@ -228,6 +235,8 @@ final class _Art3m1sRfvpApiV1 extends Struct {
   runtimeAdvanceAndRender;
   external Pointer<NativeFunction<_RuntimeSetLogCallbackNative>>
   runtimeSetLogCallback;
+  external Pointer<NativeFunction<_LogNextBytesNative>> logNextBytes;
+  external Pointer<NativeFunction<_PollLogNative>> pollLog;
 }
 
 class RfvpCoreInputEvent {
@@ -280,6 +289,15 @@ class RfvpCoreAudioCommand {
   final double pan;
   final int sampleCount;
   final Uint8List payload;
+}
+
+/// One record pulled from the core RFVP log queue.
+class RfvpCoreLogRecord {
+  const RfvpCoreLogRecord({required this.level, required this.message});
+
+  /// ASCII level code (`D`/`I`/`W`/`E`), as emitted by the core.
+  final int level;
+  final String message;
 }
 
 class CoreRfvpApiV1 {
@@ -386,6 +404,10 @@ class CoreRfvpApiV1 {
   int pixelBufferSize(int runtime) => _pointer.ref.runtimePixelBufferSize
       .asFunction<_RuntimePixelBufferSizeDart>()(runtime);
 
+  /// Deprecated direct-callback path kept only for older core builds.
+  /// The engine runtime must poll [drainLogs] instead: registering a
+  /// `NativeCallable` here re-exposes the native-to-Dart trampoline that
+  /// crashes on modified/jailbroken devices.
   void setLogCallback(
     Pointer<NativeFunction<RfvpLogCallbackNative>> callback,
     Pointer<Void> userData,
@@ -394,6 +416,53 @@ class CoreRfvpApiV1 {
       callback,
       userData,
     );
+  }
+
+  /// Drains all queued native log records.
+  ///
+  /// The core-side queue is bounded; records are written oldest-first with a
+  /// fixed little-endian header (`level: u32`, `message_len: u32`) followed by
+  /// UTF-8 message bytes.
+  List<RfvpCoreLogRecord> drainLogs() {
+    final nextPtr = _pointer.ref.logNextBytes;
+    final pollPtr = _pointer.ref.pollLog;
+    if (nextPtr == nullptr || pollPtr == nullptr) {
+      return const <RfvpCoreLogRecord>[];
+    }
+    final next = nextPtr.asFunction<_LogNextBytesDart>();
+    final poll = pollPtr.asFunction<_PollLogDart>();
+    final records = <RfvpCoreLogRecord>[];
+    var guard = 0;
+    while (guard++ < 4096) {
+      final required = next();
+      if (required < 8) break;
+      final buffer = calloc<Uint8>(required);
+      try {
+        final written = poll(buffer, required);
+        if (written < 8) break;
+        final bytes = buffer.asTypedList(written);
+        final data = ByteData.sublistView(bytes);
+        var offset = 0;
+        while (offset + 8 <= written) {
+          final level = data.getUint32(offset, Endian.little);
+          final length = data.getUint32(offset + 4, Endian.little);
+          if (offset + 8 + length > written) break;
+          records.add(
+            RfvpCoreLogRecord(
+              level: level,
+              message: utf8.decode(
+                bytes.sublist(offset + 8, offset + 8 + length),
+                allowMalformed: true,
+              ),
+            ),
+          );
+          offset += 8 + length;
+        }
+      } finally {
+        calloc.free(buffer);
+      }
+    }
+    return records;
   }
 
   int feedInput(int runtime, List<RfvpCoreInputEvent> events) {

@@ -8,6 +8,7 @@ import '../models/host_ui_theme.dart';
 import '../models/translation_settings.dart';
 import '../models/render_output.dart';
 import '../services/logger.dart';
+import '../services/telemetry_service.dart';
 
 final settingsProvider = StateNotifierProvider<SettingsNotifier, SettingsState>(
   (ref) {
@@ -22,6 +23,7 @@ class SettingsState {
   final bool debugOverlay;
   final bool showFps;
   final bool mobileTouchpadEnabled;
+  final bool crashReportingEnabled;
   final int backend; // 3 = native Metal, 0 = CGL, 1 = GL/ANGLE
   final RenderOutputMode renderOutputMode;
   final int customRenderWidth;
@@ -36,6 +38,7 @@ class SettingsState {
     this.debugOverlay = false,
     this.showFps = false,
     this.mobileTouchpadEnabled = false,
+    this.crashReportingEnabled = false,
     this.backend = 0,
     this.renderOutputMode = RenderOutputMode.matchDisplay,
     this.customRenderWidth = 2560,
@@ -51,6 +54,7 @@ class SettingsState {
     bool? debugOverlay,
     bool? showFps,
     bool? mobileTouchpadEnabled,
+    bool? crashReportingEnabled,
     int? backend,
     RenderOutputMode? renderOutputMode,
     int? customRenderWidth,
@@ -66,6 +70,8 @@ class SettingsState {
       showFps: showFps ?? this.showFps,
       mobileTouchpadEnabled:
           mobileTouchpadEnabled ?? this.mobileTouchpadEnabled,
+      crashReportingEnabled:
+          crashReportingEnabled ?? this.crashReportingEnabled,
       backend: backend ?? this.backend,
       renderOutputMode: renderOutputMode ?? this.renderOutputMode,
       customRenderWidth: customRenderWidth ?? this.customRenderWidth,
@@ -157,6 +163,8 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
         showFps: prefs.getBool('show_fps') ?? false,
         mobileTouchpadEnabled:
             prefs.getBool('mobile_touchpad_enabled') ?? false,
+        crashReportingEnabled:
+            prefs.getBool('crash_reporting_enabled') ?? false,
         backend:
             prefs.getInt('gfx_backend') ??
             getDefaultBackend(), // default: ANGLE Vulkan
@@ -191,6 +199,9 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
               prefs.getString('translation_target_language') ?? '简体中文',
           fontPath: prefs.getString('translation_font_path') ?? '',
         ),
+      );
+      TelemetryService.instance.setEnabled(
+        prefs.getBool('crash_reporting_enabled') ?? false,
       );
     } finally {
       if (!_ready.isCompleted) _ready.complete();
@@ -245,6 +256,13 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('mobile_touchpad_enabled', v);
     state = state.copyWith(mobileTouchpadEnabled: v);
+  }
+
+  Future<void> setCrashReportingEnabled(bool v) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('crash_reporting_enabled', v);
+    TelemetryService.instance.setEnabled(v);
+    state = state.copyWith(crashReportingEnabled: v);
   }
 
   Future<void> setBackend(int v) async {
