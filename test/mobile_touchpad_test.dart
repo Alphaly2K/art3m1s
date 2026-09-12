@@ -1,6 +1,6 @@
 import 'package:art3m1s/controllers/mobile_touchpad.dart';
+import 'package:art3m1s/engine/engine_runtime.dart';
 import 'package:art3m1s/providers/settings_provider.dart';
-import 'package:art3m1s/services/core_bridge.dart';
 import 'package:art3m1s/widgets/engine_dialog.dart';
 import 'package:art3m1s/widgets/mobile_game_cursor.dart';
 import 'package:art3m1s/widgets/mobile_touchpad_surface.dart';

@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 
-import 'package:art3m1s/services/rfvp_api.dart';
-import 'package:art3m1s/services/rfvp_damage.dart';
+import 'package:art3m1s/engine/backends/rfvp/rfvp_api.dart';
+import 'package:art3m1s/engine/backends/rfvp/rfvp_damage.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 const _white = RfvpColor(1, 1, 1, 1);
@@ -77,9 +77,7 @@ void main() {
     final tracker = RfvpDamageTracker();
     tracker.update(_frame([_command(textureId: 1, x: 10)]));
 
-    final damage = tracker.update(
-      _frame([_command(textureId: 1, x: 30)]),
-    );
+    final damage = tracker.update(_frame([_command(textureId: 1, x: 30)]));
 
     expect(damage.full, isFalse);
     expect(damage.rect?.x, 10);

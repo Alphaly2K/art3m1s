@@ -4,10 +4,10 @@ import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
 
-import '../services/logger.dart';
+import '../../../services/logger.dart';
+import 'pfs_bridge.dart';
 import 'core_api.dart';
 import 'environment_patch.dart';
-import 'pfs_bridge.dart';
 
 final class _PfsResource {
   const _PfsResource(this.archive, this.entryPath, this.size);

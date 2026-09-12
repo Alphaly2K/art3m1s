@@ -65,17 +65,61 @@ class EngineVideoPlayback {
   bool get isFullscreen => id == null;
 }
 
+/// Backend-neutral audio command consumed by the host media implementation.
+enum EngineAudioCommandKind {
+  loadEncoded,
+  createStream,
+  submitI16,
+  submitF32,
+  play,
+  stop,
+  pause,
+  resume,
+  setParams,
+  destroyStream,
+  masterVolume,
+}
+
+class EngineAudioCommand {
+  const EngineAudioCommand({
+    required this.kind,
+    required this.streamId,
+    required this.id,
+    required this.channel,
+    required this.payload,
+    this.sampleRate = 0,
+    this.channels = 0,
+    this.repeat = false,
+    this.fadeMs = 0,
+    this.volume = 1,
+    this.pan = 0,
+  });
+
+  final EngineAudioCommandKind kind;
+  final int streamId;
+  final String id;
+  final String channel;
+  final Uint8List payload;
+  final int sampleRate;
+  final int channels;
+  final bool repeat;
+  final int fadeMs;
+  final double volume;
+  final double pan;
+}
+
 abstract interface class EngineMediaHost {
   ValueListenable<EngineVideoPlayback?> get videoPlayback;
   ValueListenable<bool> get fullscreenVideoBlocking;
   bool get isFullscreenVideoBlocking;
+  void handleEngineAudioCommand(EngineAudioCommand command);
   Future<void> skipVideo();
 }
 
 /// Engine-facing host operations.
 ///
 /// `PlayerScreen` and other Host features depend on this contract instead of
-/// importing `CoreBridge`, `RfvpBridge`, or either native library directly.
+/// importing backend implementations or either native library directly.
 abstract interface class EngineRuntime {
   GameEngineKind get kind;
 
@@ -101,6 +145,17 @@ abstract interface class EngineRuntime {
   void setReportedOs(String? os);
   bool setEmoteBackend(int backend);
   bool loadProjectBytes(Uint8List iniContent, {String platform = 'WINDOWS'});
+
+  /// Mounts a project's resource tree and returns its `system.ini` bytes.
+  ///
+  /// Backends own archive/directory handling and encoding detection. Callers
+  /// must not inspect engine-specific resource providers directly.
+  Future<Uint8List?> prepareProject({
+    required String projectPath,
+    required bool isArchive,
+    required bool environmentPatchEnabled,
+    required String platform,
+  });
 
   bool setFontOverride(Uint8List bytes);
   void clearFontOverride();
@@ -191,6 +246,13 @@ class UnsupportedEngineRuntime implements EngineRuntime {
   bool loadProjectBytes(Uint8List iniContent, {String platform = 'WINDOWS'}) =>
       false;
   @override
+  Future<Uint8List?> prepareProject({
+    required String projectPath,
+    required bool isArchive,
+    required bool environmentPatchEnabled,
+    required String platform,
+  }) async => null;
+  @override
   bool setFontOverride(Uint8List bytes) => false;
   @override
   void clearFontOverride() {}
@@ -260,6 +322,8 @@ class _UnsupportedEngineMediaHost implements EngineMediaHost {
   ValueListenable<bool> get fullscreenVideoBlocking => _fullscreenVideoBlocking;
   @override
   bool get isFullscreenVideoBlocking => false;
+  @override
+  void handleEngineAudioCommand(EngineAudioCommand command) {}
   @override
   Future<void> skipVideo() async {}
 }

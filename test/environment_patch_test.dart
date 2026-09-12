@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:art3m1s/services/file_provider.dart';
+import 'package:art3m1s/engine/backends/art3m1s/file_provider.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

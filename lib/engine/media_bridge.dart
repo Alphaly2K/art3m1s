@@ -6,10 +6,9 @@ import 'dart:typed_data';
 import 'package:audioplayers/audioplayers.dart' as audio;
 import 'package:flutter/widgets.dart';
 
-import '../engine/engine_runtime.dart';
-import 'file_provider.dart';
-import 'logger.dart';
-import 'rfvp_api.dart';
+import '../services/logger.dart';
+import 'backends/art3m1s/file_provider.dart';
+import 'engine_runtime.dart';
 
 typedef MediaFinishedCallback = void Function(String? id);
 
@@ -52,16 +51,17 @@ class MediaBridge implements EngineMediaHost {
   );
 
   _AudioHandle? _bgm;
-  final Map<int, Uint8List> _rfvpEncoded = {};
-  final Map<int, _AudioHandle> _rfvpHandles = {};
+  final Map<int, Uint8List> _engineEncoded = {};
+  final Map<int, _AudioHandle> _engineHandles = {};
   bool _disposed = false;
 
   @override
   bool get isFullscreenVideoBlocking => false;
 
-  void handleRfvpAudioCommand(RfvpAudioCommand command) {
+  @override
+  void handleEngineAudioCommand(EngineAudioCommand command) {
     if (_disposed) return;
-    unawaited(_handleRfvpAudioCommand(command));
+    unawaited(_handleEngineAudioCommand(command));
   }
 
   void handleCommand(String kind, Map<String, dynamic> payload) {
@@ -112,33 +112,30 @@ class MediaBridge implements EngineMediaHost {
     }
   }
 
-  Future<void> _handleRfvpAudioCommand(RfvpAudioCommand command) async {
+  Future<void> _handleEngineAudioCommand(EngineAudioCommand command) async {
     final streamId = command.streamId;
-    final channel = streamId < 0x1000 ? 'bgm' : 'se';
-    final id = 'rfvp:$streamId';
+    final channel = command.channel;
 
     switch (command.kind) {
-      case rfvpAudioLoadEncoded:
-        _rfvpEncoded[streamId] = command.payload;
-        final old = _rfvpHandles.remove(streamId);
+      case EngineAudioCommandKind.loadEncoded:
+        _engineEncoded[streamId] = command.payload;
+        final old = _engineHandles.remove(streamId);
         if (old != null) await old.dispose();
-      case rfvpAudioCreateStream:
-      case rfvpAudioSubmitI16:
-      case rfvpAudioSubmitF32:
-        Log.warn(
-          '[MediaBridge] RFVP PCM stream $streamId 由引擎侧提交，Host 暂不做二次混音',
-        );
-      case rfvpAudioPlay:
-        final bytes = _rfvpEncoded[streamId];
+      case EngineAudioCommandKind.createStream:
+      case EngineAudioCommandKind.submitI16:
+      case EngineAudioCommandKind.submitF32:
+        Log.warn('[MediaBridge] PCM stream $streamId 尚未接入 Host 混音');
+      case EngineAudioCommandKind.play:
+        final bytes = _engineEncoded[streamId];
         if (bytes == null) {
-          Log.warn('[MediaBridge] RFVP stream $streamId 尚未加载，忽略播放');
+          Log.warn('[MediaBridge] stream $streamId 尚未加载，忽略播放');
           return;
         }
-        final old = _rfvpHandles.remove(streamId);
+        final old = _engineHandles.remove(streamId);
         if (old != null) await old.dispose();
         _AudioHandle? handle;
         final created = await _AudioHandle.create(
-          id: id,
+          id: command.id,
           file: null,
           bytes: bytes,
           loopFile: null,
@@ -147,13 +144,13 @@ class MediaBridge implements EngineMediaHost {
           pan: command.pan,
           loop: command.repeat,
           onCompleted: (_) {
-            if (identical(_rfvpHandles[streamId], handle)) {
-              _rfvpHandles.remove(streamId);
+            if (identical(_engineHandles[streamId], handle)) {
+              _engineHandles.remove(streamId);
             }
           },
         );
         handle = created;
-        _rfvpHandles[streamId] = handle;
+        _engineHandles[streamId] = handle;
         await handle.setEffectiveVolume(
           command.fadeMs > 0 ? 0 : _effectiveVolume(channel, handle.gain),
         );
@@ -164,33 +161,33 @@ class MediaBridge implements EngineMediaHost {
             command.fadeMs,
           );
         }
-      case rfvpAudioStop:
-        final handle = _rfvpHandles.remove(streamId);
+      case EngineAudioCommandKind.stop:
+        final handle = _engineHandles.remove(streamId);
         if (handle == null) return;
         if (command.fadeMs > 0) await handle.fadeTo(0, command.fadeMs);
         await handle.dispose();
-      case rfvpAudioPause:
-        await _rfvpHandles[streamId]?.player.pause();
-      case rfvpAudioResume:
-        await _rfvpHandles[streamId]?.player.resume();
-      case rfvpAudioSetParams:
-        final handle = _rfvpHandles[streamId];
+      case EngineAudioCommandKind.pause:
+        await _engineHandles[streamId]?.player.pause();
+      case EngineAudioCommandKind.resume:
+        await _engineHandles[streamId]?.player.resume();
+      case EngineAudioCommandKind.setParams:
+        final handle = _engineHandles[streamId];
         if (handle == null) return;
         handle.gain = command.volume;
         await handle.setEffectiveVolume(
           _effectiveVolume(channel, command.volume),
         );
         await handle.setPan(command.pan);
-      case rfvpAudioDestroyStream:
-        _rfvpEncoded.remove(streamId);
-        final handle = _rfvpHandles.remove(streamId);
+      case EngineAudioCommandKind.destroyStream:
+        _engineEncoded.remove(streamId);
+        final handle = _engineHandles.remove(streamId);
         if (handle != null) await handle.dispose();
-      case rfvpAudioMasterVolume:
+      case EngineAudioCommandKind.masterVolume:
         _channelVolumes['master'] = command.volume.clamp(0, 1);
         final handles = <_AudioHandle>[
           ?_bgm,
           ..._sounds.values,
-          ..._rfvpHandles.values,
+          ..._engineHandles.values,
         ];
         for (final handle in handles) {
           await handle.setEffectiveVolume(
@@ -512,14 +509,14 @@ class MediaBridge implements EngineMediaHost {
     _bgm = null;
     final handles = _sounds.values.toList();
     _sounds.clear();
-    final rfvpHandles = _rfvpHandles.values.toList();
-    _rfvpHandles.clear();
-    _rfvpEncoded.clear();
+    final engineHandles = _engineHandles.values.toList();
+    _engineHandles.clear();
+    _engineEncoded.clear();
     if (bgm != null) await bgm.dispose();
     for (final handle in handles) {
       await handle.dispose();
     }
-    for (final handle in rfvpHandles) {
+    for (final handle in engineHandles) {
       await handle.dispose();
     }
   }

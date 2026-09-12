@@ -1,8 +1,7 @@
 import '../models/game_engine.dart';
-import '../services/core_bridge.dart'
-    hide AvoidOverlay, EngineDialogRequest, EngineVideoPlayback;
 import '../services/logger.dart';
 import 'backends/art3m1s_engine_runtime.dart';
+import 'backends/rfvp_engine_runtime.dart';
 import 'engine_runtime.dart';
 
 class EngineRuntimeFactory {
@@ -18,7 +17,9 @@ class EngineRuntimeFactory {
         onDialogRequested: onDialogRequested,
         engineCursorControlEnabled: engineCursorControlEnabled,
       ),
-      GameEngineKind.rfvp => UnsupportedEngineRuntime(engine),
+      GameEngineKind.rfvp => RfvpEngineRuntime(
+        engineCursorControlEnabled: engineCursorControlEnabled,
+      ),
     };
   }
 
@@ -31,7 +32,7 @@ class EngineRuntimeFactory {
   }) async {
     switch (engine) {
       case GameEngineKind.art3m1s:
-        return CoreBridge().probeCaption(
+        return Art3m1sEngineRuntime().probeCaption(
           projectPath: projectPath,
           isPfsArchive: isPfsArchive,
           platform: platform,

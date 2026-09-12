@@ -1,6 +1,6 @@
 import 'dart:ffi';
 
-import 'package:art3m1s/services/rfvp_api.dart';
+import 'package:art3m1s/engine/backends/rfvp/rfvp_api.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

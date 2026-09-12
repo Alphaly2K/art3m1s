@@ -1,15 +1,12 @@
 import 'dart:convert';
-import 'dart:ffi';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:ffi/ffi.dart';
-
+import '../engine/engine_archive.dart';
 import '../models/game_engine.dart';
 import '../models/game_entry.dart';
 import '../models/input_gate.dart';
 import 'logger.dart';
-import 'pfs_bridge.dart';
 
 /// 项目清单（manifest）：游戏目录或 PFS 归档内的 `art3m1s.json`，记录游戏信息
 /// 与宿主侧默认配置——VNDB ID、功能开关默认值、覆盖字体与输入门控。
@@ -192,12 +189,13 @@ class GameManifest {
   /// 在游戏目录 / PFS 归档内发现清单（至多两级）。找不到或解析失败返回 null。
   static Future<GameManifest?> discover(
     String projectPath,
-    GameSource source,
-  ) async {
+    GameSource source, {
+    GameEngineKind engine = GameEngineKind.art3m1s,
+  }) async {
     try {
       return switch (source) {
         GameSource.directory => await _discoverDirectory(projectPath),
-        GameSource.pfsArchive => await _discoverPfs(projectPath),
+        GameSource.pfsArchive => await _discoverPfs(projectPath, engine),
       };
     } catch (error) {
       Log.warn('[Manifest] 清单发现失败 ($projectPath): $error');
@@ -229,11 +227,12 @@ class GameManifest {
     String projectPath,
     GameSource source, {
     String? manifestPath,
+    GameEngineKind engine = GameEngineKind.art3m1s,
   }) async {
     final direct = await loadFromPath(
       manifestPath ?? manifestPathFor(projectPath, source),
     );
-    return direct ?? await discover(projectPath, source);
+    return direct ?? await discover(projectPath, source, engine: engine);
   }
 
   static Future<String> writeForProject(
@@ -259,6 +258,7 @@ class GameManifest {
       entry.path,
       entry.source,
       manifestPath: path,
+      engine: entry.engine,
     );
     return manifest?.applyTo(entry, manifestPath: path) ??
         entry.copyWith(manifestPath: path);
@@ -283,24 +283,22 @@ class GameManifest {
     return parse(await File('$root/$selected').readAsBytes());
   }
 
-  static Future<GameManifest?> _discoverPfs(String archivePath) async {
-    final bridge = PfsBridge();
-    final archive = bridge.open(archivePath);
-    if (archive.address == 0) return null;
-    try {
-      final count = bridge.entryCount(archive);
-      if (count <= 0) return null;
-      final entries = <String>[
-        for (var i = 0; i < count; i++) ?bridge.entryPath(archive, i),
-      ];
-      final selected = selectManifestPath(entries);
-      if (selected == null) return null;
-      final bytes = await _readPfsFile(archive, selected);
-      if (bytes == null) return null;
-      return parse(bytes);
-    } finally {
-      bridge.close(archive);
-    }
+  static Future<GameManifest?> _discoverPfs(
+    String archivePath,
+    GameEngineKind engine,
+  ) async {
+    final entries = await EngineArchive.listEntries(
+      engine: engine,
+      archivePath: archivePath,
+    );
+    final selected = selectManifestPath(entries);
+    if (selected == null) return null;
+    final bytes = await EngineArchive.readFile(
+      engine: engine,
+      archivePath: archivePath,
+      relativePath: selected,
+    );
+    return bytes == null ? null : parse(bytes);
   }
 
   /// 读取游戏内文件的绝对字节：目录直接读，PFS 走归档读取。
@@ -308,8 +306,9 @@ class GameManifest {
   static Future<Uint8List?> readGameFile(
     String projectPath,
     GameSource source,
-    String relativePath,
-  ) async {
+    String relativePath, {
+    GameEngineKind engine = GameEngineKind.art3m1s,
+  }) async {
     final normalized = relativePath.replaceAll('\\', '/');
     // 拒绝目录穿越：清单是游戏侧数据，不能借此读游戏目录外的文件。
     if (normalized.split('/').contains('..')) {
@@ -325,6 +324,7 @@ class GameManifest {
         GameSource.pfsArchive => await _readPfsFileByName(
           projectPath,
           normalized,
+          engine,
         ),
       };
     } catch (error) {
@@ -345,32 +345,13 @@ class GameManifest {
   static Future<Uint8List?> _readPfsFileByName(
     String archivePath,
     String relativePath,
+    GameEngineKind engine,
   ) async {
-    final bridge = PfsBridge();
-    final archive = bridge.open(archivePath);
-    if (archive.address == 0) return null;
-    try {
-      return await _readPfsFile(archive, relativePath);
-    } finally {
-      bridge.close(archive);
-    }
-  }
-
-  static Future<Uint8List?> _readPfsFile(
-    Pointer<Void> archive,
-    String path,
-  ) async {
-    final bridge = PfsBridge();
-    final size = bridge.fileSize(archive, path);
-    if (size <= 0) return null;
-    final buf = malloc.allocate<Uint8>(size);
-    try {
-      final read = bridge.read(archive, path, 0, buf, size);
-      if (read <= 0) return null;
-      return Uint8List.fromList(buf.asTypedList(read));
-    } finally {
-      malloc.free(buf);
-    }
+    return EngineArchive.readFile(
+      engine: engine,
+      archivePath: archivePath,
+      relativePath: relativePath,
+    );
   }
 
   static String _basename(String path) {

@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:art3m1s/services/caption_table_probe.dart';
-import 'package:art3m1s/services/project_charset.dart';
+import 'package:art3m1s/engine/backends/art3m1s/caption_table_probe.dart';
+import 'package:art3m1s/engine/backends/art3m1s/project_charset.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:jis0208/jis0208.dart';
 

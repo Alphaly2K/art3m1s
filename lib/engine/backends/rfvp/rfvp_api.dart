@@ -35,28 +35,26 @@ typedef _RuntimeAcquireFrameNative = Int32 Function(Uint64, Pointer<Uint64>);
 typedef _FrameReleaseNative = Void Function(Uint64);
 typedef _FrameGetSizeNative =
     Int32 Function(Uint64, Pointer<Uint32>, Pointer<Uint32>);
-typedef _FrameGetCommandsNative = Int32 Function(
-  Uint64,
-  Pointer<Pointer<_RfvpDrawCommandV1>>,
-  Pointer<UintPtr>,
-);
-typedef _FrameGetTexturesNative = Int32 Function(
-  Uint64,
-  Pointer<Pointer<_RfvpTextureCommandV1>>,
-  Pointer<UintPtr>,
-);
-typedef _FrameGetHitProxiesNative = Int32 Function(
-  Uint64,
-  Pointer<Pointer<_RfvpHitProxyV1>>,
-  Pointer<UintPtr>,
-);
+typedef _FrameGetCommandsNative =
+    Int32 Function(
+      Uint64,
+      Pointer<Pointer<_RfvpDrawCommandV1>>,
+      Pointer<UintPtr>,
+    );
+typedef _FrameGetTexturesNative =
+    Int32 Function(
+      Uint64,
+      Pointer<Pointer<_RfvpTextureCommandV1>>,
+      Pointer<UintPtr>,
+    );
+typedef _FrameGetHitProxiesNative =
+    Int32 Function(Uint64, Pointer<Pointer<_RfvpHitProxyV1>>, Pointer<UintPtr>);
 
 typedef _ResourcesCreateDart =
     int Function(Pointer<_RfvpResourcesConfigV1>, Pointer<Uint64>);
 typedef _ResourcesDestroyDart = void Function(int);
 typedef _ResourcesClearDart = void Function(int);
-typedef _ResourcesMountDirectoryDart =
-    int Function(int, Pointer<Uint8>, int);
+typedef _ResourcesMountDirectoryDart = int Function(int, Pointer<Uint8>, int);
 typedef _ResourcesMountPackDart =
     int Function(int, Pointer<Uint8>, int, Pointer<Uint8>, int);
 typedef _ResourcesSetOverrideDart =
@@ -76,21 +74,16 @@ typedef _RuntimeCapabilitiesDart = int Function(int);
 typedef _RuntimeAcquireFrameDart = int Function(int, Pointer<Uint64>);
 typedef _FrameReleaseDart = void Function(int);
 typedef _FrameGetSizeDart = int Function(int, Pointer<Uint32>, Pointer<Uint32>);
-typedef _FrameGetCommandsDart = int Function(
-  int,
-  Pointer<Pointer<_RfvpDrawCommandV1>>,
-  Pointer<UintPtr>,
-);
-typedef _FrameGetTexturesDart = int Function(
-  int,
-  Pointer<Pointer<_RfvpTextureCommandV1>>,
-  Pointer<UintPtr>,
-);
-typedef _FrameGetHitProxiesDart = int Function(
-  int,
-  Pointer<Pointer<_RfvpHitProxyV1>>,
-  Pointer<UintPtr>,
-);
+typedef _FrameGetCommandsDart =
+    int Function(int, Pointer<Pointer<_RfvpDrawCommandV1>>, Pointer<UintPtr>);
+typedef _FrameGetTexturesDart =
+    int Function(
+      int,
+      Pointer<Pointer<_RfvpTextureCommandV1>>,
+      Pointer<UintPtr>,
+    );
+typedef _FrameGetHitProxiesDart =
+    int Function(int, Pointer<Pointer<_RfvpHitProxyV1>>, Pointer<UintPtr>);
 
 const int rfvpStatusOk = 0;
 const int rfvpStatusNoFrame = 1;
@@ -140,10 +133,14 @@ const int rfvpDrawGlyph = 2;
 const int rfvpDrawSolid = 3;
 
 const int rfvpDrawFlagHasClip = 1 << 0;
+const int rfvpDrawFlagHasMesh = 1 << 1;
+const int rfvpDrawFlagHasEffect = 1 << 2;
 const int rfvpDrawFlagHasSrcRect = 1 << 3;
 
 const int rfvpHitProxyEnabled = 1 << 0;
 const int rfvpHitProxyVisible = 1 << 1;
+
+const int rfvpTextureIdWhite = 0xFFFFFFFF;
 
 const int rfvpAudioLoadEncoded = 1;
 const int rfvpAudioCreateStream = 2;
@@ -451,7 +448,8 @@ final class _RfvpApiV1 extends Struct {
   external Pointer<NativeFunction<_ResourcesClearNative>> resourcesClear;
   external Pointer<NativeFunction<_ResourcesMountDirectoryNative>>
   resourcesMountDirectory;
-  external Pointer<NativeFunction<_ResourcesMountPackNative>> resourcesMountPack;
+  external Pointer<NativeFunction<_ResourcesMountPackNative>>
+  resourcesMountPack;
   external Pointer<NativeFunction<_ResourcesSetOverrideNative>>
   resourcesSetOverride;
   external Pointer<NativeFunction<_ResourcesClearOverridesNative>>
@@ -470,7 +468,9 @@ final class _RfvpApiV1 extends Struct {
   external Pointer<NativeFunction<UintPtr Function(Uint64)>>
   runtimeNextEventSize;
   external Pointer<
-    NativeFunction<UintPtr Function(Uint64, Pointer<Uint8>, UintPtr, Pointer<Uint32>)>
+    NativeFunction<
+      UintPtr Function(Uint64, Pointer<Uint8>, UintPtr, Pointer<Uint32>)
+    >
   >
   runtimePollEvents;
 
@@ -506,7 +506,8 @@ final class _RfvpApiV1 extends Struct {
   external Pointer<NativeFunction<_FrameGetSizeNative>> frameGetSize;
   external Pointer<NativeFunction<_FrameGetCommandsNative>> frameGetCommands;
   external Pointer<NativeFunction<_FrameGetTexturesNative>> frameGetTextures;
-  external Pointer<NativeFunction<_FrameGetHitProxiesNative>> frameGetHitProxies;
+  external Pointer<NativeFunction<_FrameGetHitProxiesNative>>
+  frameGetHitProxies;
 }
 
 class RfvpColor {
@@ -586,6 +587,8 @@ class RfvpDrawCommand {
   final Uint8List effectData;
 
   bool get hasClip => flags & rfvpDrawFlagHasClip != 0;
+  bool get hasMesh => flags & rfvpDrawFlagHasMesh != 0;
+  bool get hasEffect => flags & rfvpDrawFlagHasEffect != 0;
   bool get hasSrcRect => flags & rfvpDrawFlagHasSrcRect != 0;
 }
 
@@ -707,6 +710,9 @@ final class RfvpApiV1 {
   static const int _abiMagic = 0x4950413150564652; // "RFVP1API"
 
   final Pointer<_RfvpApiV1> _pointer;
+  int _lastStatus = rfvpStatusOk;
+
+  int get lastStatus => _lastStatus;
 
   static int get apiTableSize => sizeOf<_RfvpApiV1>();
   static int get resourcesConfigSize => sizeOf<_RfvpResourcesConfigV1>();
@@ -719,7 +725,9 @@ final class RfvpApiV1 {
   static RfvpApiV1? tryLoad(DynamicLibrary library) {
     final _GetApi getApi;
     try {
-      getApi = library.lookupFunction<_GetApiNative, _GetApi>('rfvp_get_api_v1');
+      getApi = library.lookupFunction<_GetApiNative, _GetApi>(
+        'rfvp_get_api_v1',
+      );
     } catch (_) {
       return null;
     }
@@ -751,12 +759,10 @@ final class RfvpApiV1 {
         ..saveRootUtf8 = saveRootPtr == nullptr
             ? nullptr
             : saveRootPtr.cast<Uint8>()
-        ..saveRootLen = saveRoot == null ? 0 : saveRootPtr.length - 1;
-      final status =
-          _pointer.ref.resourcesCreate.asFunction<_ResourcesCreateDart>()(
-            config,
-            out,
-          );
+        ..saveRootLen = saveRoot == null ? 0 : saveRootPtr.length;
+      final status = _pointer.ref.resourcesCreate
+          .asFunction<_ResourcesCreateDart>()(config, out);
+      _lastStatus = status;
       if (status != rfvpStatusOk) return -1;
       return out.value;
     } finally {
@@ -779,12 +785,15 @@ final class RfvpApiV1 {
   int mountDirectory(int resources, String path) {
     final native = path.toNativeUtf8();
     try {
-      return _pointer.ref.resourcesMountDirectory
-          .asFunction<_ResourcesMountDirectoryDart>()(
+      final status =
+          _pointer.ref.resourcesMountDirectory
+              .asFunction<_ResourcesMountDirectoryDart>()(
             resources,
             native.cast<Uint8>(),
-            native.length - 1,
+            native.length,
           );
+      _lastStatus = status;
+      return status;
     } finally {
       malloc.free(native);
     }
@@ -797,12 +806,12 @@ final class RfvpApiV1 {
       nativeBytes.asTypedList(bytes.length).setAll(0, bytes);
       return _pointer.ref.resourcesMountPack
           .asFunction<_ResourcesMountPackDart>()(
-            resources,
-            nativeFolder.cast<Uint8>(),
-            nativeFolder.length - 1,
-            nativeBytes,
-            bytes.length,
-          );
+        resources,
+        nativeFolder.cast<Uint8>(),
+        nativeFolder.length,
+        nativeBytes,
+        bytes.length,
+      );
     } finally {
       calloc.free(nativeBytes);
       malloc.free(nativeFolder);
@@ -816,12 +825,12 @@ final class RfvpApiV1 {
       nativeBytes.asTypedList(bytes.length).setAll(0, bytes);
       return _pointer.ref.resourcesSetOverride
           .asFunction<_ResourcesSetOverrideDart>()(
-            resources,
-            nativePath.cast<Uint8>(),
-            nativePath.length - 1,
-            nativeBytes,
-            bytes.length,
-          );
+        resources,
+        nativePath.cast<Uint8>(),
+        nativePath.length,
+        nativeBytes,
+        bytes.length,
+      );
     } finally {
       calloc.free(nativeBytes);
       malloc.free(nativePath);
@@ -839,10 +848,10 @@ final class RfvpApiV1 {
     try {
       return _pointer.ref.resourcesSetSaveRoot
           .asFunction<_ResourcesSetSaveRootDart>()(
-            resources,
-            native.cast<Uint8>(),
-            native.length - 1,
-          );
+        resources,
+        native.cast<Uint8>(),
+        native.length,
+      );
     } finally {
       malloc.free(native);
     }
@@ -864,6 +873,7 @@ final class RfvpApiV1 {
         ..requestedHeight = requestedHeight;
       final status = _pointer.ref.runtimeCreate
           .asFunction<_RuntimeCreateDart>()(config, out);
+      _lastStatus = status;
       if (status != rfvpStatusOk) return -1;
       return out.value;
     } finally {
@@ -878,10 +888,12 @@ final class RfvpApiV1 {
   }
 
   int step(int runtime, int deltaMs) {
-    return _pointer.ref.runtimeStep.asFunction<_RuntimeStepDart>()(
+    final status = _pointer.ref.runtimeStep.asFunction<_RuntimeStepDart>()(
       runtime,
       deltaMs,
     );
+    _lastStatus = status;
+    return status;
   }
 
   bool isExitRequested(int runtime) {
@@ -907,8 +919,11 @@ final class RfvpApiV1 {
           ..modifiers = source.modifiers
           ..id = source.id;
       }
-      return _pointer.ref.runtimePushInput
-          .asFunction<_RuntimePushInputDart>()(runtime, native, events.length);
+      return _pointer.ref.runtimePushInput.asFunction<_RuntimePushInputDart>()(
+        runtime,
+        native,
+        events.length,
+      );
     } finally {
       calloc.free(native);
     }
@@ -936,9 +951,7 @@ final class RfvpApiV1 {
         sampleCount: ref.sampleCount,
         payload: ref.payloadSize == 0
             ? Uint8List(0)
-            : Uint8List.fromList(
-                ref.payload.asTypedList(ref.payloadSize),
-              ),
+            : Uint8List.fromList(ref.payload.asTypedList(ref.payloadSize)),
       );
     } finally {
       calloc.free(command);
@@ -972,8 +985,11 @@ final class RfvpApiV1 {
     final width = calloc<Uint32>();
     final height = calloc<Uint32>();
     try {
-      final status = _pointer.ref.frameGetSize
-          .asFunction<_FrameGetSizeDart>()(frame, width, height);
+      final status = _pointer.ref.frameGetSize.asFunction<_FrameGetSizeDart>()(
+        frame,
+        width,
+        height,
+      );
       if (status != rfvpStatusOk) {
         throw StateError('rfvp_frame_get_size failed: $status');
       }
@@ -1123,11 +1139,6 @@ final class RfvpApiV1 {
   }
 
   static RfvpRectI32 _copyRectI32(_RfvpRectI32V1 source) {
-    return RfvpRectI32(
-      source.x,
-      source.y,
-      source.width,
-      source.height,
-    );
+    return RfvpRectI32(source.x, source.y, source.width, source.height);
   }
 }

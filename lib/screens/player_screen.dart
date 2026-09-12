@@ -19,11 +19,9 @@ import '../models/input_gate.dart';
 import '../models/render_output.dart';
 import '../providers/settings_provider.dart';
 import '../services/app_data_paths.dart';
-import '../services/file_provider.dart';
 import '../services/game_manifest.dart';
 import '../services/logger.dart';
 import '../services/profiler_snapshot.dart';
-import '../services/project_charset.dart';
 import '../services/text_translation_service.dart';
 import '../widgets/engine_dialog.dart';
 import '../widgets/mobile_game_cursor.dart';
@@ -207,9 +205,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     }
     if (!_bridge.isInitialized) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(
+        ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('引擎初始化失败（${_bridge.kind.label}）')),
         );
       }
@@ -242,39 +238,24 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     );
     final runtimePlatform = config.runtimePlatform;
 
-    Uint8List iniContent;
-    if (widget.source == GameSource.pfsArchive) {
-      try {
-        FileProvider.openPfs(
-          widget.projectPath,
-          environmentPatchEnabled: config.environmentPatchEnabled,
-        );
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text('PFS 库加载失败: $e')));
-        }
-        return;
+    Uint8List? iniContent;
+    try {
+      iniContent = await _bridge.prepareProject(
+        projectPath: widget.projectPath,
+        isArchive: widget.source == GameSource.pfsArchive,
+        environmentPatchEnabled: config.environmentPatchEnabled,
+        platform: runtimePlatform,
+      );
+    } catch (error) {
+      Log.error('[Player] 项目资源挂载失败: $error');
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('项目资源挂载失败: $error')));
       }
-      final bytes = FileProvider.readFile('system.ini');
-      if (bytes == null) return;
-      iniContent = bytes;
-      final charset = ProjectCharset.detect(iniContent, runtimePlatform);
-      FileProvider.openPfs(
-        widget.projectPath,
-        archiveEncoding: charset,
-        environmentPatchEnabled: config.environmentPatchEnabled,
-      );
-    } else {
-      FileProvider.openDirectory(
-        widget.projectPath,
-        environmentPatchEnabled: config.environmentPatchEnabled,
-      );
-      iniContent = File(
-        '${widget.projectPath}${Platform.pathSeparator}system.ini',
-      ).readAsBytesSync();
+      return;
     }
+    if (iniContent == null) return;
 
     _parseStageSize(iniContent);
 
@@ -399,6 +380,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         config.path,
         config.source,
         config.fontOverridePath,
+        engine: config.engine,
       );
       if (bytes == null) {
         Log.warn('[字体] 清单覆盖字体读取失败: ${config.fontOverridePath}');

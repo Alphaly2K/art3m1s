@@ -9,10 +9,7 @@ class RfvpDamage {
     required this.pixels,
   });
 
-  const RfvpDamage.none()
-    : full = false,
-      rect = null,
-      pixels = 0;
+  const RfvpDamage.none() : full = false, rect = null, pixels = 0;
 
   const RfvpDamage.full(int width, int height)
     : full = true,
@@ -23,7 +20,8 @@ class RfvpDamage {
   final RfvpRectI32? rect;
   final int pixels;
 
-  bool get hasDamage => full || (rect?.width ?? 0) > 0 && (rect?.height ?? 0) > 0;
+  bool get hasDamage =>
+      full || (rect?.width ?? 0) > 0 && (rect?.height ?? 0) > 0;
 }
 
 class RfvpDamageTracker {
@@ -82,8 +80,7 @@ class RfvpDamageTracker {
 
     if (!found) return const RfvpDamage.none();
     final area =
-        math.max(0, damage.width).toInt() *
-        math.max(0, damage.height).toInt();
+        math.max(0, damage.width).toInt() * math.max(0, damage.height).toInt();
     final stageArea = math.max(1, frame.width * frame.height).toInt();
     if (area * 10 >= stageArea * 8) {
       return RfvpDamage.full(frame.width, frame.height);

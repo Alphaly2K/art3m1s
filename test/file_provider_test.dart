@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:art3m1s/services/file_provider.dart';
+import 'package:art3m1s/engine/backends/art3m1s/file_provider.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -16,19 +16,21 @@ void main() {
     project.deleteSync(recursive: true);
   });
 
-  test('indexed hits read bytes and misses return null without touching disk',
-      () {
-    File('${project.path}/system/first.iet').writeAsStringSync('boot');
-    FileProvider.openDirectory(project.path);
+  test(
+    'indexed hits read bytes and misses return null without touching disk',
+    () {
+      File('${project.path}/system/first.iet').writeAsStringSync('boot');
+      FileProvider.openDirectory(project.path);
 
-    final bytes = FileProvider.readFile('system/first.iet');
-    expect(bytes, isNotNull);
-    expect(String.fromCharCodes(bytes!), 'boot');
-    expect(FileProvider.readFile('system/missing.iet'), isNull);
-    // 索引建立后新落的文件不出现在索引里（资源目录在会话内视为只读）。
-    File('${project.path}/system/late.iet').writeAsStringSync('late');
-    expect(FileProvider.readFile('system/late.iet'), isNull);
-  });
+      final bytes = FileProvider.readFile('system/first.iet');
+      expect(bytes, isNotNull);
+      expect(String.fromCharCodes(bytes!), 'boot');
+      expect(FileProvider.readFile('system/missing.iet'), isNull);
+      // 索引建立后新落的文件不出现在索引里（资源目录在会话内视为只读）。
+      File('${project.path}/system/late.iet').writeAsStringSync('late');
+      expect(FileProvider.readFile('system/late.iet'), isNull);
+    },
+  );
 
   test('directory index resolves case and separator variants', () {
     File('${project.path}/system/Title.PNG').writeAsBytesSync([1, 2, 3]);
