@@ -89,9 +89,10 @@ Documents/Art3m1s/
 
 原生选择器经 security-scoped URL 读取用户选中的游戏目录。导入时
 会先扫描 table 中的 `gametitle` / `["game_title"]`，找不到时再使用启用环境补丁
-的 headless runtime 探测标题。全平台统一为「选择文件夹 → 探测 → 原地入库」，
-不再复制游戏文件；Android 通过「所有文件访问」授权（`MANAGE_EXTERNAL_STORAGE`）
-把 SAF 选中的目录解析为真实路径直接读取。
+的 headless runtime 探测标题。导入统一为「选择文件夹 → 探测 → 原地入库」，
+不再复制游戏文件：目录导入同时识别解包工程（`system.ini`/`.hcb`）和打包成
+PFS 归档的 Artemis 游戏。Android 通过「所有文件访问」授权
+（`MANAGE_EXTERNAL_STORAGE`）把 SAF 选中的目录解析为真实路径直接读取。
 
 ### MediaBridge
 
