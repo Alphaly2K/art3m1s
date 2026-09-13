@@ -1465,7 +1465,6 @@ class _Ps5SearchOverlayState extends State<_Ps5SearchOverlay> {
                       ],
                       stops: [0, 0.48, 1],
                     ),
-                    border: Border.all(color: const Color(0x557E838B)),
                     borderRadius: BorderRadius.circular(3),
                     boxShadow: const [
                       BoxShadow(
@@ -1478,32 +1477,10 @@ class _Ps5SearchOverlayState extends State<_Ps5SearchOverlay> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      TextField(
+                      _Ps5SearchField(
                         controller: _controller,
-                        autofocus: true,
                         onChanged: (value) =>
                             setState(() => _query = value.toLowerCase()),
-                        style: const TextStyle(
-                          color: Ps5Colors.text,
-                          fontSize: 20,
-                        ),
-                        cursorColor: Ps5Colors.accent,
-                        decoration: InputDecoration(
-                          hintText: 'Search games',
-                          hintStyle: const TextStyle(
-                            color: Ps5Colors.textMuted,
-                          ),
-                          prefixIcon: const Icon(
-                            Icons.search_rounded,
-                            color: Ps5Colors.textMuted,
-                          ),
-                          filled: true,
-                          fillColor: const Color(0x99101620),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(1),
-                            borderSide: BorderSide.none,
-                          ),
-                        ),
                       ),
                       const SizedBox(height: 14),
                       Flexible(
@@ -1519,6 +1496,10 @@ class _Ps5SearchOverlayState extends State<_Ps5SearchOverlay> {
                               )
                             : ListView.builder(
                                 shrinkWrap: true,
+                                clipBehavior: Clip.none,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                ),
                                 itemCount: results.length,
                                 itemBuilder: (context, index) {
                                   final entry = results[index];
@@ -1537,6 +1518,76 @@ class _Ps5SearchOverlayState extends State<_Ps5SearchOverlay> {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _Ps5SearchField extends StatefulWidget {
+  const _Ps5SearchField({required this.controller, required this.onChanged});
+
+  final TextEditingController controller;
+  final ValueChanged<String> onChanged;
+
+  @override
+  State<_Ps5SearchField> createState() => _Ps5SearchFieldState();
+}
+
+class _Ps5SearchFieldState extends State<_Ps5SearchField> {
+  late final FocusNode _focusNode = FocusNode(debugLabel: 'PS5 search field')
+    ..addListener(_handleFocusChange);
+
+  void _handleFocusChange() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _focusNode
+      ..removeListener(_handleFocusChange)
+      ..dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final focused = _focusNode.hasFocus;
+    return Stack(
+      children: [
+        TextField(
+          controller: widget.controller,
+          focusNode: _focusNode,
+          autofocus: true,
+          onChanged: widget.onChanged,
+          style: const TextStyle(color: Ps5Colors.text, fontSize: 20),
+          cursorColor: Ps5Colors.accent,
+          decoration: InputDecoration(
+            hintText: 'Search games',
+            hintStyle: const TextStyle(color: Ps5Colors.textMuted),
+            prefixIcon: const Icon(
+              Icons.search_rounded,
+              color: Ps5Colors.textMuted,
+            ),
+            filled: true,
+            fillColor: focused
+                ? const Color(0xB51B222D)
+                : const Color(0x99101620),
+            border: const OutlineInputBorder(borderSide: BorderSide.none),
+            enabledBorder: const OutlineInputBorder(
+              borderSide: BorderSide(color: Color(0xFF50555D)),
+            ),
+            focusedBorder: const OutlineInputBorder(
+              borderSide: BorderSide(color: Color(0xFF666B73)),
+            ),
+          ),
+        ),
+        Positioned.fill(
+          child: Ps5AnimatedFocusBorder(
+            active: focused,
+            borderRadius: 1,
+            strokeWidth: 1.7,
+          ),
+        ),
+      ],
     );
   }
 }
