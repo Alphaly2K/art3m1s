@@ -277,18 +277,21 @@ class LibraryActions {
     final gameId = _gameIdForPath(path);
     notify(context, '正在读取游戏信息；VNDB 不可用时将离线继续…');
     final manifest = await GameManifest.loadForProject(path, source);
+    final engine = _resolveProjectEngine(manifest, path, source);
     final metadata = await _resolveGameMetadata(
       defaultName,
       path,
       source,
       gameId,
       manifest,
+      engine,
     );
     if (metadata == null || !context.mounted) return false;
 
     final result = await showGameEditDialog(
       context,
       title: '添加项目',
+      engine: engine,
       initialName: metadata.name,
       initialCoverPath: metadata.coverPath,
       initialTranslationEnabled: manifest?.translationEnabled ?? false,
@@ -415,6 +418,7 @@ class LibraryActions {
     final result = await showGameEditDialog(
       context,
       title: '编辑项目',
+      engine: configured.engine,
       initialName: configured.displayNameOrName,
       initialCoverPath: configured.coverPath,
       initialTranslationEnabled: configured.translationEnabled,

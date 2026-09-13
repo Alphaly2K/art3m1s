@@ -282,4 +282,98 @@ void main() {
       );
     });
   });
+
+  group('per-engine field filtering', () {
+    test('rfvp manifest omits Artemis-only keys when serialized', () {
+      final manifest = GameManifest(
+        name: 'FVP Game',
+        vndbId: 'v1',
+        engine: GameEngineKind.rfvp,
+        translationEnabled: true,
+        environmentPatchEnabled: true,
+        experimentalElunaEnabled: true,
+        fontOverride: 'font/x.ttf',
+        reportedOs: 'ps4',
+        runtimePlatform: 'ANDROID',
+        inputGate: InputGatePolicy.touchOnly,
+      );
+      final json = manifest.toJson();
+      expect(json['engine'], 'rfvp');
+      expect(json['name'], 'FVP Game');
+      expect(json['vndbId'], 'v1');
+      // RFVP 支持翻译(预留)与输入门控。
+      expect(json['translationEnabled'], isTrue);
+      expect(json.containsKey('inputGate'), isTrue);
+      // Artemis 专属键不写入。
+      expect(json.containsKey('environmentPatchEnabled'), isFalse);
+      expect(json.containsKey('experimentalElunaEnabled'), isFalse);
+      expect(json.containsKey('fontOverride'), isFalse);
+      expect(json.containsKey('reportedOs'), isFalse);
+      expect(json.containsKey('runtimePlatform'), isFalse);
+    });
+
+    test('art3m1s manifest keeps all supported keys', () {
+      final manifest = GameManifest(
+        name: 'Artemis Game',
+        engine: GameEngineKind.art3m1s,
+        environmentPatchEnabled: true,
+        experimentalElunaEnabled: true,
+        fontOverride: 'font/x.ttf',
+        reportedOs: 'ps4',
+        runtimePlatform: 'ANDROID',
+      );
+      final json = manifest.toJson();
+      expect(json['engine'], 'art3m1s');
+      expect(json['environmentPatchEnabled'], isTrue);
+      expect(json['experimentalElunaEnabled'], isTrue);
+      expect(json['fontOverride'], 'font/x.ttf');
+      expect(json['reportedOs'], 'ps4');
+      expect(json['runtimePlatform'], 'ANDROID');
+    });
+
+    test('legacy Artemis-only fields are not applied to rfvp entries', () {
+      final manifest = GameManifest.parse(
+        utf8.encode(
+          jsonEncode({
+            'engine': 'rfvp',
+            'environmentPatchEnabled': true,
+            'experimentalElunaEnabled': true,
+            'fontOverride': 'font/x.ttf',
+            'reportedOs': 'ps4',
+            'runtimePlatform': 'ANDROID',
+            'translationEnabled': true,
+          }),
+        ),
+      )!;
+      final entry = GameEntry(
+        name: 'g',
+        path: '/tmp/g',
+        source: GameSource.directory,
+        engine: GameEngineKind.rfvp,
+        addedAt: DateTime(2026),
+      );
+      final applied = manifest.applyTo(entry);
+      expect(applied.translationEnabled, isTrue);
+      expect(applied.environmentPatchEnabled, isFalse);
+      expect(applied.experimentalElunaEnabled, isFalse);
+      expect(applied.fontOverridePath, isEmpty);
+      expect(applied.reportedOs, isEmpty);
+      expect(applied.runtimePlatform, 'WINDOWS');
+    });
+
+    test('engine capability sets match the editing surface', () {
+      expect(
+        GameEngineKind.art3m1s.supportedGameSettings.length,
+        GameSettingField.values.length,
+      );
+      final rfvp = GameEngineKind.rfvp.supportedGameSettings;
+      expect(rfvp.contains(GameSettingField.displayName), isTrue);
+      expect(rfvp.contains(GameSettingField.translationEnabled), isTrue);
+      expect(rfvp.contains(GameSettingField.inputGate), isTrue);
+      expect(rfvp.contains(GameSettingField.experimentalEluna), isFalse);
+      expect(rfvp.contains(GameSettingField.fontOverride), isFalse);
+      expect(GameEngineKind.art3m1s.supportsPfsArchives, isTrue);
+      expect(GameEngineKind.rfvp.supportsPfsArchives, isFalse);
+    });
+  });
 }

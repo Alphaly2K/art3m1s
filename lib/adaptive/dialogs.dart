@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_miuix/miuix.dart';
 import 'package:macos_ui/macos_ui.dart';
 
+import '../models/game_engine.dart';
 import '../models/input_gate.dart';
 import '../models/render_backend.dart';
 import '../widgets/inset_scrollbar.dart';
@@ -189,6 +190,7 @@ Future<GameEditData?> showGameEditDialog(
   BuildContext context, {
   required String title,
   required String initialName,
+  required GameEngineKind engine,
   String? initialCoverPath,
   bool initialTranslationEnabled = false,
   String initialTranslationPatchPath = '',
@@ -220,6 +222,7 @@ Future<GameEditData?> showGameEditDialog(
                 child: _MacosEditDialog(
                   title: title,
                   initialName: initialName,
+                  engine: engine,
                   initialCover: initialCoverPath,
                   initialTranslationEnabled: initialTranslationEnabled,
                   initialTranslationPatchPath: initialTranslationPatchPath,
@@ -244,6 +247,7 @@ Future<GameEditData?> showGameEditDialog(
       builder: (ctx) => _FluentEditDialog(
         title: title,
         initialName: initialName,
+        engine: engine,
         initialCover: initialCoverPath,
         initialTranslationEnabled: initialTranslationEnabled,
         initialTranslationPatchPath: initialTranslationPatchPath,
@@ -260,6 +264,7 @@ Future<GameEditData?> showGameEditDialog(
       context,
       title: title,
       initialName: initialName,
+      engine: engine,
       initialCoverPath: initialCoverPath,
       initialTranslationEnabled: initialTranslationEnabled,
       initialTranslationPatchPath: initialTranslationPatchPath,
@@ -276,6 +281,7 @@ Future<GameEditData?> showGameEditDialog(
       builder: (ctx) => _CupertinoEditDialog(
         title: title,
         initialName: initialName,
+        engine: engine,
         initialCover: initialCoverPath,
         initialTranslationEnabled: initialTranslationEnabled,
         initialTranslationPatchPath: initialTranslationPatchPath,
@@ -292,6 +298,7 @@ Future<GameEditData?> showGameEditDialog(
     builder: (ctx) => _MaterialEditDialog(
       title: title,
       initialName: initialName,
+      engine: engine,
       initialCover: initialCoverPath,
       initialTranslationEnabled: initialTranslationEnabled,
       initialTranslationPatchPath: initialTranslationPatchPath,
@@ -309,6 +316,7 @@ Future<GameEditData?> showGameEditDialog(
 class _MacosEditDialog extends StatefulWidget {
   final String title;
   final String initialName;
+  final GameEngineKind engine;
   final String? initialCover;
   final bool initialTranslationEnabled;
   final String initialTranslationPatchPath;
@@ -321,6 +329,7 @@ class _MacosEditDialog extends StatefulWidget {
   const _MacosEditDialog({
     required this.title,
     required this.initialName,
+    required this.engine,
     this.initialCover,
     required this.initialTranslationEnabled,
     required this.initialTranslationPatchPath,
@@ -399,6 +408,26 @@ class _MacosEditDialogState extends State<_MacosEditDialog> {
   Widget build(BuildContext context) {
     final theme = MacosTheme.of(context);
     final dark = theme.brightness == Brightness.dark;
+    final fields = widget.engine.supportedGameSettings;
+    final showTranslation = fields.contains(
+      GameSettingField.translationEnabled,
+    );
+    final showEnvironmentPatch = fields.contains(
+      GameSettingField.environmentPatch,
+    );
+    final showRuntimePlatform = fields.contains(
+      GameSettingField.runtimePlatform,
+    );
+    final showInputGate = fields.contains(GameSettingField.inputGate);
+    final showReportedOs = fields.contains(GameSettingField.reportedOs);
+    final showExperimental = fields.contains(
+      GameSettingField.experimentalEluna,
+    );
+    final showCompat =
+        showEnvironmentPatch ||
+        showRuntimePlatform ||
+        showInputGate ||
+        showReportedOs;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -458,143 +487,155 @@ class _MacosEditDialogState extends State<_MacosEditDialog> {
                     ),
                   ],
                 ),
-                _MacosFormSection(
-                  title: '翻译',
-                  children: [
-                    _MacosFormRow(
-                      label: '启用文本翻译',
-                      control: MacosSwitch(
-                        value: _translationEnabled,
-                        onChanged: (value) =>
-                            setState(() => _translationEnabled = value),
-                      ),
-                    ),
-                    if (_translationEnabled)
+                if (showTranslation)
+                  _MacosFormSection(
+                    title: '翻译',
+                    children: [
                       _MacosFormRow(
-                        label: '对照文件',
-                        caption: _translationPatchPath.isEmpty
-                            ? '未选择对照文件'
-                            : _translationPatchPath,
-                        control: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (_translationPatchPath.isNotEmpty) ...[
+                        label: '启用文本翻译',
+                        control: MacosSwitch(
+                          value: _translationEnabled,
+                          onChanged: (value) =>
+                              setState(() => _translationEnabled = value),
+                        ),
+                      ),
+                      if (_translationEnabled)
+                        _MacosFormRow(
+                          label: '对照文件',
+                          caption: _translationPatchPath.isEmpty
+                              ? '未选择对照文件'
+                              : _translationPatchPath,
+                          control: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (_translationPatchPath.isNotEmpty) ...[
+                                PushButton(
+                                  controlSize: ControlSize.small,
+                                  secondary: true,
+                                  onPressed: () => setState(
+                                    () => _translationPatchPath = '',
+                                  ),
+                                  child: const Text('清除'),
+                                ),
+                                const SizedBox(width: 6),
+                              ],
                               PushButton(
                                 controlSize: ControlSize.small,
                                 secondary: true,
-                                onPressed: () =>
-                                    setState(() => _translationPatchPath = ''),
-                                child: const Text('清除'),
+                                onPressed: () async {
+                                  final path =
+                                      await _pickTranslationPatchFile();
+                                  if (path != null) {
+                                    setState(
+                                      () => _translationPatchPath = path,
+                                    );
+                                  }
+                                },
+                                child: const Text('选择'),
                               ),
-                              const SizedBox(width: 6),
                             ],
-                            PushButton(
-                              controlSize: ControlSize.small,
-                              secondary: true,
-                              onPressed: () async {
-                                final path = await _pickTranslationPatchFile();
-                                if (path != null) {
-                                  setState(() => _translationPatchPath = path);
+                          ),
+                        ),
+                    ],
+                  ),
+                if (showCompat)
+                  _MacosFormSection(
+                    title: '兼容',
+                    children: [
+                      if (showEnvironmentPatch)
+                        _MacosFormRow(
+                          label: '环境兼容补丁',
+                          caption: '按项目补丁调整运行环境',
+                          control: MacosSwitch(
+                            value: _environmentPatchEnabled,
+                            onChanged: (value) => setState(
+                              () => _environmentPatchEnabled = value,
+                            ),
+                          ),
+                        ),
+                      if (showRuntimePlatform)
+                        _MacosFormRow(
+                          label: '启动 OS',
+                          caption: '写入 system.ini 的启动段',
+                          control: _MacosPopupWrap(
+                            child: MacosPopupButton<String>(
+                              value: runtimePlatforms.contains(_runtimePlatform)
+                                  ? _runtimePlatform
+                                  : 'WINDOWS',
+                              items: [
+                                for (final platform in runtimePlatforms)
+                                  MacosPopupMenuItem(
+                                    value: platform,
+                                    child: Text(platform),
+                                  ),
+                              ],
+                              onChanged: (platform) {
+                                if (platform != null) {
+                                  setState(() => _runtimePlatform = platform);
                                 }
                               },
-                              child: const Text('选择'),
                             ),
-                          ],
+                          ),
+                        ),
+                      if (showInputGate)
+                        _MacosFormRow(
+                          label: '输入方式',
+                          caption: _inputGate.knownProfile == null
+                              ? '自定义规则（来自补丁）'
+                              : '触屏移植会关掉键盘默认键',
+                          control: _MacosPopupWrap(
+                            child: MacosPopupButton<InputGateProfile>(
+                              value: _inputGate.knownProfile,
+                              hint: const Text('自定义'),
+                              items: [
+                                for (final profile in InputGateProfile.values)
+                                  MacosPopupMenuItem(
+                                    value: profile,
+                                    child: Text(profile.label),
+                                  ),
+                              ],
+                              onChanged: _selectInputGateProfile,
+                            ),
+                          ),
+                        ),
+                      if (showReportedOs)
+                        _MacosFormRow(
+                          label: '机种上报',
+                          caption: '脚本读取到的平台标识',
+                          control: _MacosPopupWrap(
+                            child: MacosPopupButton<String>(
+                              value: _reportedOs,
+                              items: [
+                                for (final entry in reportedOsOptions.entries)
+                                  MacosPopupMenuItem(
+                                    value: entry.key,
+                                    child: Text(entry.value),
+                                  ),
+                              ],
+                              onChanged: (os) {
+                                if (os == null) return;
+                                setState(() => _reportedOs = os);
+                              },
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                if (showExperimental)
+                  _MacosFormSection(
+                    title: '实验',
+                    children: [
+                      _MacosFormRow(
+                        label: 'Eluna E-Mote',
+                        caption: '实验性立绘后端，可能不稳定',
+                        control: MacosSwitch(
+                          value: _experimentalElunaEnabled,
+                          onChanged: (value) =>
+                              setState(() => _experimentalElunaEnabled = value),
                         ),
                       ),
-                  ],
-                ),
-                _MacosFormSection(
-                  title: '兼容',
-                  children: [
-                    _MacosFormRow(
-                      label: '环境兼容补丁',
-                      caption: '按项目补丁调整运行环境',
-                      control: MacosSwitch(
-                        value: _environmentPatchEnabled,
-                        onChanged: (value) =>
-                            setState(() => _environmentPatchEnabled = value),
-                      ),
-                    ),
-                    _MacosFormRow(
-                      label: '启动 OS',
-                      caption: '写入 system.ini 的启动段',
-                      control: _MacosPopupWrap(
-                        child: MacosPopupButton<String>(
-                          value: runtimePlatforms.contains(_runtimePlatform)
-                              ? _runtimePlatform
-                              : 'WINDOWS',
-                          items: [
-                            for (final platform in runtimePlatforms)
-                              MacosPopupMenuItem(
-                                value: platform,
-                                child: Text(platform),
-                              ),
-                          ],
-                          onChanged: (platform) {
-                            if (platform != null) {
-                              setState(() => _runtimePlatform = platform);
-                            }
-                          },
-                        ),
-                      ),
-                    ),
-                    _MacosFormRow(
-                      label: '输入方式',
-                      caption: _inputGate.knownProfile == null
-                          ? '自定义规则（来自补丁）'
-                          : '触屏移植会关掉键盘默认键',
-                      control: _MacosPopupWrap(
-                        child: MacosPopupButton<InputGateProfile>(
-                          value: _inputGate.knownProfile,
-                          hint: const Text('自定义'),
-                          items: [
-                            for (final profile in InputGateProfile.values)
-                              MacosPopupMenuItem(
-                                value: profile,
-                                child: Text(profile.label),
-                              ),
-                          ],
-                          onChanged: _selectInputGateProfile,
-                        ),
-                      ),
-                    ),
-                    _MacosFormRow(
-                      label: '机种上报',
-                      caption: '脚本读取到的平台标识',
-                      control: _MacosPopupWrap(
-                        child: MacosPopupButton<String>(
-                          value: _reportedOs,
-                          items: [
-                            for (final entry in reportedOsOptions.entries)
-                              MacosPopupMenuItem(
-                                value: entry.key,
-                                child: Text(entry.value),
-                              ),
-                          ],
-                          onChanged: (os) {
-                            if (os == null) return;
-                            setState(() => _reportedOs = os);
-                          },
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                _MacosFormSection(
-                  title: '实验',
-                  children: [
-                    _MacosFormRow(
-                      label: 'Eluna E-Mote',
-                      caption: '实验性立绘后端，可能不稳定',
-                      control: MacosSwitch(
-                        value: _experimentalElunaEnabled,
-                        onChanged: (value) =>
-                            setState(() => _experimentalElunaEnabled = value),
-                      ),
-                    ),
-                  ],
-                ),
+                    ],
+                  ),
               ],
             ),
           ),
@@ -755,6 +796,7 @@ class _MacosPopupWrap extends StatelessWidget {
 class _CupertinoEditDialog extends StatefulWidget {
   final String title;
   final String initialName;
+  final GameEngineKind engine;
   final String? initialCover;
   final bool initialTranslationEnabled;
   final String initialTranslationPatchPath;
@@ -767,6 +809,7 @@ class _CupertinoEditDialog extends StatefulWidget {
   const _CupertinoEditDialog({
     required this.title,
     required this.initialName,
+    required this.engine,
     this.initialCover,
     required this.initialTranslationEnabled,
     required this.initialTranslationPatchPath,
@@ -867,6 +910,21 @@ class _CupertinoEditDialogState extends State<_CupertinoEditDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final fields = widget.engine.supportedGameSettings;
+    final showTranslation = fields.contains(
+      GameSettingField.translationEnabled,
+    );
+    final showEnvironmentPatch = fields.contains(
+      GameSettingField.environmentPatch,
+    );
+    final showRuntimePlatform = fields.contains(
+      GameSettingField.runtimePlatform,
+    );
+    final showInputGate = fields.contains(GameSettingField.inputGate);
+    final showReportedOs = fields.contains(GameSettingField.reportedOs);
+    final showExperimental = fields.contains(
+      GameSettingField.experimentalEluna,
+    );
     return CupertinoAlertDialog(
       title: Text(widget.title),
       content: Column(
@@ -904,122 +962,135 @@ class _CupertinoEditDialogState extends State<_CupertinoEditDialog> {
                 ),
             ],
           ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              const Expanded(child: Text('启用文本翻译')),
-              CupertinoSwitch(
-                value: _translationEnabled,
-                onChanged: (value) =>
-                    setState(() => _translationEnabled = value),
+          if (showTranslation) ...[
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                const Expanded(child: Text('启用文本翻译')),
+                CupertinoSwitch(
+                  value: _translationEnabled,
+                  onChanged: (value) =>
+                      setState(() => _translationEnabled = value),
+                ),
+              ],
+            ),
+            if (_translationEnabled) ...[
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      _translationPatchPath.isEmpty
+                          ? '未选择对照文件'
+                          : _translationPatchPath,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  CupertinoButton(
+                    sizeStyle: CupertinoButtonSize.small,
+                    padding: const EdgeInsets.symmetric(horizontal: 6),
+                    onPressed: () async {
+                      final path = await _pickTranslationPatchFile();
+                      if (path != null) {
+                        setState(() => _translationPatchPath = path);
+                      }
+                    },
+                    child: const Text('选择'),
+                  ),
+                  if (_translationPatchPath.isNotEmpty)
+                    CupertinoButton(
+                      sizeStyle: CupertinoButtonSize.small,
+                      padding: const EdgeInsets.symmetric(horizontal: 6),
+                      onPressed: () =>
+                          setState(() => _translationPatchPath = ''),
+                      child: const Text('清除'),
+                    ),
+                ],
               ),
             ],
-          ),
-          if (_translationEnabled) ...[
+          ],
+          if (showEnvironmentPatch) ...[
             const SizedBox(height: 8),
             Row(
               children: [
-                Expanded(
-                  child: Text(
-                    _translationPatchPath.isEmpty
-                        ? '未选择对照文件'
-                        : _translationPatchPath,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
+                const Expanded(child: Text('环境兼容补丁')),
+                CupertinoSwitch(
+                  value: _environmentPatchEnabled,
+                  onChanged: (value) =>
+                      setState(() => _environmentPatchEnabled = value),
                 ),
+              ],
+            ),
+          ],
+          if (showRuntimePlatform) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                const Expanded(child: Text('启动 OS')),
                 CupertinoButton(
                   sizeStyle: CupertinoButtonSize.small,
                   padding: const EdgeInsets.symmetric(horizontal: 6),
                   onPressed: () async {
-                    final path = await _pickTranslationPatchFile();
-                    if (path != null) {
-                      setState(() => _translationPatchPath = path);
+                    final platform = await _pickRuntimePlatform();
+                    if (platform != null) {
+                      setState(() => _runtimePlatform = platform);
                     }
                   },
-                  child: const Text('选择'),
+                  child: Text(_runtimePlatform),
                 ),
-                if (_translationPatchPath.isNotEmpty)
-                  CupertinoButton(
-                    sizeStyle: CupertinoButtonSize.small,
-                    padding: const EdgeInsets.symmetric(horizontal: 6),
-                    onPressed: () => setState(() => _translationPatchPath = ''),
-                    child: const Text('清除'),
-                  ),
               ],
             ),
           ],
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              const Expanded(child: Text('环境兼容补丁')),
-              CupertinoSwitch(
-                value: _environmentPatchEnabled,
-                onChanged: (value) =>
-                    setState(() => _environmentPatchEnabled = value),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              const Expanded(child: Text('启动 OS')),
-              CupertinoButton(
-                sizeStyle: CupertinoButtonSize.small,
-                padding: const EdgeInsets.symmetric(horizontal: 6),
-                onPressed: () async {
-                  final platform = await _pickRuntimePlatform();
-                  if (platform != null) {
-                    setState(() => _runtimePlatform = platform);
-                  }
-                },
-                child: Text(_runtimePlatform),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              const Expanded(child: Text('实验性 Eluna E-Mote')),
-              CupertinoSwitch(
-                value: _experimentalElunaEnabled,
-                onChanged: (value) =>
-                    setState(() => _experimentalElunaEnabled = value),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              const Expanded(child: Text('输入方式')),
-              CupertinoSlidingSegmentedControl<InputGateProfile>(
-                groupValue: _inputGate.knownProfile,
-                children: {
-                  for (final profile in InputGateProfile.values)
-                    profile: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                      child: Text(profile.label),
-                    ),
-                },
-                onValueChanged: _selectInputGateProfile,
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              const Expanded(child: Text('机种上报')),
-              CupertinoButton(
-                sizeStyle: CupertinoButtonSize.small,
-                padding: const EdgeInsets.symmetric(horizontal: 6),
-                onPressed: () async {
-                  final os = await _pickReportedOs();
-                  if (os != null) setState(() => _reportedOs = os);
-                },
-                child: Text(reportedOsOptions[_reportedOs] ?? _reportedOs),
-              ),
-            ],
-          ),
+          if (showExperimental) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                const Expanded(child: Text('实验性 Eluna E-Mote')),
+                CupertinoSwitch(
+                  value: _experimentalElunaEnabled,
+                  onChanged: (value) =>
+                      setState(() => _experimentalElunaEnabled = value),
+                ),
+              ],
+            ),
+          ],
+          if (showInputGate) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                const Expanded(child: Text('输入方式')),
+                CupertinoSlidingSegmentedControl<InputGateProfile>(
+                  groupValue: _inputGate.knownProfile,
+                  children: {
+                    for (final profile in InputGateProfile.values)
+                      profile: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        child: Text(profile.label),
+                      ),
+                  },
+                  onValueChanged: _selectInputGateProfile,
+                ),
+              ],
+            ),
+          ],
+          if (showReportedOs) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                const Expanded(child: Text('机种上报')),
+                CupertinoButton(
+                  sizeStyle: CupertinoButtonSize.small,
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  onPressed: () async {
+                    final os = await _pickReportedOs();
+                    if (os != null) setState(() => _reportedOs = os);
+                  },
+                  child: Text(reportedOsOptions[_reportedOs] ?? _reportedOs),
+                ),
+              ],
+            ),
+          ],
         ],
       ),
       actions: [
@@ -1054,6 +1125,7 @@ class _CupertinoEditDialogState extends State<_CupertinoEditDialog> {
 class _MaterialEditDialog extends StatefulWidget {
   final String title;
   final String initialName;
+  final GameEngineKind engine;
   final String? initialCover;
   final bool initialTranslationEnabled;
   final String initialTranslationPatchPath;
@@ -1066,6 +1138,7 @@ class _MaterialEditDialog extends StatefulWidget {
   const _MaterialEditDialog({
     required this.title,
     required this.initialName,
+    required this.engine,
     this.initialCover,
     required this.initialTranslationEnabled,
     required this.initialTranslationPatchPath,
@@ -1126,6 +1199,21 @@ class _MaterialEditDialogState extends State<_MaterialEditDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final fields = widget.engine.supportedGameSettings;
+    final showTranslation = fields.contains(
+      GameSettingField.translationEnabled,
+    );
+    final showEnvironmentPatch = fields.contains(
+      GameSettingField.environmentPatch,
+    );
+    final showRuntimePlatform = fields.contains(
+      GameSettingField.runtimePlatform,
+    );
+    final showInputGate = fields.contains(GameSettingField.inputGate);
+    final showReportedOs = fields.contains(GameSettingField.reportedOs);
+    final showExperimental = fields.contains(
+      GameSettingField.experimentalEluna,
+    );
     return AlertDialog(
       title: Text(widget.title),
       content: SizedBox(
@@ -1165,14 +1253,15 @@ class _MaterialEditDialogState extends State<_MaterialEditDialog> {
                     ),
                 ],
               ),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('启用文本翻译'),
-                value: _translationEnabled,
-                onChanged: (value) =>
-                    setState(() => _translationEnabled = value),
-              ),
-              if (_translationEnabled)
+              if (showTranslation)
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('启用文本翻译'),
+                  value: _translationEnabled,
+                  onChanged: (value) =>
+                      setState(() => _translationEnabled = value),
+                ),
+              if (showTranslation && _translationEnabled)
                 ListTile(
                   contentPadding: EdgeInsets.zero,
                   title: Text(
@@ -1205,74 +1294,82 @@ class _MaterialEditDialogState extends State<_MaterialEditDialog> {
                     ],
                   ),
                 ),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('环境兼容补丁'),
-                value: _environmentPatchEnabled,
-                onChanged: (value) =>
-                    setState(() => _environmentPatchEnabled = value),
-              ),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('实验性 Eluna E-Mote'),
-                value: _experimentalElunaEnabled,
-                onChanged: (value) =>
-                    setState(() => _experimentalElunaEnabled = value),
-              ),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('输入方式'),
-                subtitle: _inputGate.knownProfile == null
-                    ? const Text('自定义规则（来自补丁）')
-                    : null,
-                trailing: DropdownButton<InputGateProfile>(
-                  value: _inputGate.knownProfile,
-                  hint: const Text('自定义'),
-                  items: [
-                    for (final profile in InputGateProfile.values)
-                      DropdownMenuItem(
-                        value: profile,
-                        child: Text(profile.label),
-                      ),
-                  ],
-                  onChanged: _selectInputGateProfile,
+              if (showEnvironmentPatch)
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('环境兼容补丁'),
+                  value: _environmentPatchEnabled,
+                  onChanged: (value) =>
+                      setState(() => _environmentPatchEnabled = value),
                 ),
-              ),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('机种上报'),
-                trailing: DropdownButton<String>(
-                  value: _reportedOs,
-                  items: [
-                    for (final entry in reportedOsOptions.entries)
-                      DropdownMenuItem(
-                        value: entry.key,
-                        child: Text(entry.value),
-                      ),
-                  ],
-                  onChanged: (os) {
-                    if (os != null) setState(() => _reportedOs = os);
-                  },
+              if (showExperimental)
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('实验性 Eluna E-Mote'),
+                  value: _experimentalElunaEnabled,
+                  onChanged: (value) =>
+                      setState(() => _experimentalElunaEnabled = value),
                 ),
-              ),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('启动 OS'),
-                trailing: DropdownButton<String>(
-                  value: runtimePlatforms.contains(_runtimePlatform)
-                      ? _runtimePlatform
-                      : 'WINDOWS',
-                  items: [
-                    for (final platform in runtimePlatforms)
-                      DropdownMenuItem(value: platform, child: Text(platform)),
-                  ],
-                  onChanged: (platform) {
-                    if (platform != null) {
-                      setState(() => _runtimePlatform = platform);
-                    }
-                  },
+              if (showInputGate)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('输入方式'),
+                  subtitle: _inputGate.knownProfile == null
+                      ? const Text('自定义规则（来自补丁）')
+                      : null,
+                  trailing: DropdownButton<InputGateProfile>(
+                    value: _inputGate.knownProfile,
+                    hint: const Text('自定义'),
+                    items: [
+                      for (final profile in InputGateProfile.values)
+                        DropdownMenuItem(
+                          value: profile,
+                          child: Text(profile.label),
+                        ),
+                    ],
+                    onChanged: _selectInputGateProfile,
+                  ),
                 ),
-              ),
+              if (showReportedOs)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('机种上报'),
+                  trailing: DropdownButton<String>(
+                    value: _reportedOs,
+                    items: [
+                      for (final entry in reportedOsOptions.entries)
+                        DropdownMenuItem(
+                          value: entry.key,
+                          child: Text(entry.value),
+                        ),
+                    ],
+                    onChanged: (os) {
+                      if (os != null) setState(() => _reportedOs = os);
+                    },
+                  ),
+                ),
+              if (showRuntimePlatform)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('启动 OS'),
+                  trailing: DropdownButton<String>(
+                    value: runtimePlatforms.contains(_runtimePlatform)
+                        ? _runtimePlatform
+                        : 'WINDOWS',
+                    items: [
+                      for (final platform in runtimePlatforms)
+                        DropdownMenuItem(
+                          value: platform,
+                          child: Text(platform),
+                        ),
+                    ],
+                    onChanged: (platform) {
+                      if (platform != null) {
+                        setState(() => _runtimePlatform = platform);
+                      }
+                    },
+                  ),
+                ),
             ],
           ),
         ),
@@ -1387,6 +1484,7 @@ class _CoverThumb extends StatelessWidget {
 class _FluentEditDialog extends StatefulWidget {
   final String title;
   final String initialName;
+  final GameEngineKind engine;
   final String? initialCover;
   final bool initialTranslationEnabled;
   final String initialTranslationPatchPath;
@@ -1399,6 +1497,7 @@ class _FluentEditDialog extends StatefulWidget {
   const _FluentEditDialog({
     required this.title,
     required this.initialName,
+    required this.engine,
     this.initialCover,
     required this.initialTranslationEnabled,
     required this.initialTranslationPatchPath,
@@ -1459,6 +1558,21 @@ class _FluentEditDialogState extends State<_FluentEditDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final fields = widget.engine.supportedGameSettings;
+    final showTranslation = fields.contains(
+      GameSettingField.translationEnabled,
+    );
+    final showEnvironmentPatch = fields.contains(
+      GameSettingField.environmentPatch,
+    );
+    final showRuntimePlatform = fields.contains(
+      GameSettingField.runtimePlatform,
+    );
+    final showInputGate = fields.contains(GameSettingField.inputGate);
+    final showReportedOs = fields.contains(GameSettingField.reportedOs);
+    final showExperimental = fields.contains(
+      GameSettingField.experimentalEluna,
+    );
     return fluent.ContentDialog(
       title: Text(widget.title),
       content: SizedBox(
@@ -1498,133 +1612,145 @@ class _FluentEditDialogState extends State<_FluentEditDialog> {
                     ),
                 ],
               ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  const Expanded(child: Text('启用文本翻译')),
-                  fluent.ToggleSwitch(
-                    checked: _translationEnabled,
-                    onChanged: (value) =>
-                        setState(() => _translationEnabled = value),
+              if (showTranslation) ...[
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    const Expanded(child: Text('启用文本翻译')),
+                    fluent.ToggleSwitch(
+                      checked: _translationEnabled,
+                      onChanged: (value) =>
+                          setState(() => _translationEnabled = value),
+                    ),
+                  ],
+                ),
+                if (_translationEnabled) ...[
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          _translationPatchPath.isEmpty
+                              ? '未选择对照文件'
+                              : _translationPatchPath,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      if (_translationPatchPath.isNotEmpty) ...[
+                        const SizedBox(width: 6),
+                        fluent.Button(
+                          onPressed: () =>
+                              setState(() => _translationPatchPath = ''),
+                          child: const Text('清除'),
+                        ),
+                      ],
+                      const SizedBox(width: 6),
+                      fluent.Button(
+                        onPressed: () async {
+                          final path = await _pickTranslationPatchFile();
+                          if (path != null) {
+                            setState(() => _translationPatchPath = path);
+                          }
+                        },
+                        child: const Text('选择对照文件'),
+                      ),
+                    ],
                   ),
                 ],
-              ),
-              if (_translationEnabled) ...[
+              ],
+              if (showEnvironmentPatch) ...[
                 const SizedBox(height: 8),
                 Row(
                   children: [
-                    Expanded(
-                      child: Text(
-                        _translationPatchPath.isEmpty
-                            ? '未选择对照文件'
-                            : _translationPatchPath,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    if (_translationPatchPath.isNotEmpty) ...[
-                      const SizedBox(width: 6),
-                      fluent.Button(
-                        onPressed: () =>
-                            setState(() => _translationPatchPath = ''),
-                        child: const Text('清除'),
-                      ),
-                    ],
-                    const SizedBox(width: 6),
-                    fluent.Button(
-                      onPressed: () async {
-                        final path = await _pickTranslationPatchFile();
-                        if (path != null) {
-                          setState(() => _translationPatchPath = path);
-                        }
-                      },
-                      child: const Text('选择对照文件'),
+                    const Expanded(child: Text('环境兼容补丁')),
+                    fluent.ToggleSwitch(
+                      checked: _environmentPatchEnabled,
+                      onChanged: (value) =>
+                          setState(() => _environmentPatchEnabled = value),
                     ),
                   ],
                 ),
               ],
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  const Expanded(child: Text('环境兼容补丁')),
-                  fluent.ToggleSwitch(
-                    checked: _environmentPatchEnabled,
-                    onChanged: (value) =>
-                        setState(() => _environmentPatchEnabled = value),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  const Expanded(child: Text('启动 OS')),
-                  fluent.ComboBox<String>(
-                    value: runtimePlatforms.contains(_runtimePlatform)
-                        ? _runtimePlatform
-                        : 'WINDOWS',
-                    items: [
-                      for (final platform in runtimePlatforms)
-                        fluent.ComboBoxItem(
-                          value: platform,
-                          child: Text(platform),
-                        ),
-                    ],
-                    onChanged: (platform) {
-                      if (platform != null) {
-                        setState(() => _runtimePlatform = platform);
-                      }
-                    },
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  const Expanded(child: Text('实验性 Eluna E-Mote')),
-                  fluent.ToggleSwitch(
-                    checked: _experimentalElunaEnabled,
-                    onChanged: (value) =>
-                        setState(() => _experimentalElunaEnabled = value),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  const Expanded(child: Text('输入方式')),
-                  fluent.ComboBox<InputGateProfile>(
-                    value: _inputGate.knownProfile,
-                    placeholder: const Text('自定义（补丁）'),
-                    items: [
-                      for (final profile in InputGateProfile.values)
-                        fluent.ComboBoxItem(
-                          value: profile,
-                          child: Text(profile.label),
-                        ),
-                    ],
-                    onChanged: _selectInputGateProfile,
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  const Expanded(child: Text('机种上报')),
-                  fluent.ComboBox<String>(
-                    value: _reportedOs,
-                    items: [
-                      for (final entry in reportedOsOptions.entries)
-                        fluent.ComboBoxItem(
-                          value: entry.key,
-                          child: Text(entry.value),
-                        ),
-                    ],
-                    onChanged: (os) {
-                      if (os != null) setState(() => _reportedOs = os);
-                    },
-                  ),
-                ],
-              ),
+              if (showRuntimePlatform) ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    const Expanded(child: Text('启动 OS')),
+                    fluent.ComboBox<String>(
+                      value: runtimePlatforms.contains(_runtimePlatform)
+                          ? _runtimePlatform
+                          : 'WINDOWS',
+                      items: [
+                        for (final platform in runtimePlatforms)
+                          fluent.ComboBoxItem(
+                            value: platform,
+                            child: Text(platform),
+                          ),
+                      ],
+                      onChanged: (platform) {
+                        if (platform != null) {
+                          setState(() => _runtimePlatform = platform);
+                        }
+                      },
+                    ),
+                  ],
+                ),
+              ],
+              if (showExperimental) ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    const Expanded(child: Text('实验性 Eluna E-Mote')),
+                    fluent.ToggleSwitch(
+                      checked: _experimentalElunaEnabled,
+                      onChanged: (value) =>
+                          setState(() => _experimentalElunaEnabled = value),
+                    ),
+                  ],
+                ),
+              ],
+              if (showInputGate) ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    const Expanded(child: Text('输入方式')),
+                    fluent.ComboBox<InputGateProfile>(
+                      value: _inputGate.knownProfile,
+                      placeholder: const Text('自定义（补丁）'),
+                      items: [
+                        for (final profile in InputGateProfile.values)
+                          fluent.ComboBoxItem(
+                            value: profile,
+                            child: Text(profile.label),
+                          ),
+                      ],
+                      onChanged: _selectInputGateProfile,
+                    ),
+                  ],
+                ),
+              ],
+              if (showReportedOs) ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    const Expanded(child: Text('机种上报')),
+                    fluent.ComboBox<String>(
+                      value: _reportedOs,
+                      items: [
+                        for (final entry in reportedOsOptions.entries)
+                          fluent.ComboBoxItem(
+                            value: entry.key,
+                            child: Text(entry.value),
+                          ),
+                      ],
+                      onChanged: (os) {
+                        if (os != null) setState(() => _reportedOs = os);
+                      },
+                    ),
+                  ],
+                ),
+              ],
             ],
           ),
         ),
@@ -1659,6 +1785,7 @@ Future<GameEditData?> showMiuixGameEditDialog(
   BuildContext context, {
   required String title,
   required String initialName,
+  required GameEngineKind engine,
   String? initialCoverPath,
   required bool initialTranslationEnabled,
   required String initialTranslationPatchPath,
@@ -1680,6 +1807,7 @@ Future<GameEditData?> showMiuixGameEditDialog(
         content: _MiuixEditForm(
           initialName: initialName,
           initialCover: initialCoverPath,
+          engine: engine,
           initialTranslationEnabled: initialTranslationEnabled,
           initialTranslationPatchPath: initialTranslationPatchPath,
           initialEnvironmentPatchEnabled: initialEnvironmentPatchEnabled,
@@ -1699,6 +1827,7 @@ class _MiuixEditForm extends StatefulWidget {
   const _MiuixEditForm({
     required this.initialName,
     required this.initialCover,
+    required this.engine,
     required this.initialTranslationEnabled,
     required this.initialTranslationPatchPath,
     required this.initialEnvironmentPatchEnabled,
@@ -1712,6 +1841,7 @@ class _MiuixEditForm extends StatefulWidget {
 
   final String initialName;
   final String? initialCover;
+  final GameEngineKind engine;
   final bool initialTranslationEnabled;
   final String initialTranslationPatchPath;
   final bool initialEnvironmentPatchEnabled;
@@ -1785,6 +1915,21 @@ class _MiuixEditFormState extends State<_MiuixEditForm> {
   @override
   Widget build(BuildContext context) {
     final theme = MiuixTheme.of(context);
+    final fields = widget.engine.supportedGameSettings;
+    final showTranslation = fields.contains(
+      GameSettingField.translationEnabled,
+    );
+    final showEnvironmentPatch = fields.contains(
+      GameSettingField.environmentPatch,
+    );
+    final showRuntimePlatform = fields.contains(
+      GameSettingField.runtimePlatform,
+    );
+    final showInputGate = fields.contains(GameSettingField.inputGate);
+    final showReportedOs = fields.contains(GameSettingField.reportedOs);
+    final showExperimental = fields.contains(
+      GameSettingField.experimentalEluna,
+    );
     final reportedKeys = reportedOsOptions.keys.toList();
     final runtimeIndex = runtimePlatforms.contains(_runtimePlatform)
         ? runtimePlatforms.indexOf(_runtimePlatform)
@@ -1851,13 +1996,14 @@ class _MiuixEditFormState extends State<_MiuixEditForm> {
                       ],
                     ),
                   ),
-                  MiuixSwitchPreference(
-                    title: '启用文本翻译',
-                    value: _translationEnabled,
-                    onChanged: (value) =>
-                        setState(() => _translationEnabled = value),
-                  ),
-                  if (_translationEnabled)
+                  if (showTranslation)
+                    MiuixSwitchPreference(
+                      title: '启用文本翻译',
+                      value: _translationEnabled,
+                      onChanged: (value) =>
+                          setState(() => _translationEnabled = value),
+                    ),
+                  if (showTranslation && _translationEnabled)
                     MiuixBasicComponent(
                       title: '对照文件',
                       summary: _translationPatchPath.isEmpty
@@ -1881,57 +2027,62 @@ class _MiuixEditFormState extends State<_MiuixEditForm> {
                           ),
                       ],
                     ),
-                  MiuixSwitchPreference(
-                    title: '环境兼容补丁',
-                    value: _environmentPatchEnabled,
-                    onChanged: (value) =>
-                        setState(() => _environmentPatchEnabled = value),
-                  ),
-                  MiuixSwitchPreference(
-                    title: '实验性 Eluna E-Mote',
-                    value: _experimentalElunaEnabled,
-                    onChanged: (value) =>
-                        setState(() => _experimentalElunaEnabled = value),
-                  ),
-                  MiuixOverlayDropdownPreference(
-                    title: '输入方式',
-                    summary: _inputGate.knownProfile == null
-                        ? '自定义规则（来自补丁）'
-                        : null,
-                    items: [
-                      for (final profile in InputGateProfile.values)
-                        profile.label,
-                    ],
-                    selectedIndex: _inputGate.knownProfile?.index ?? 0,
-                    renderInRootScaffold: false,
-                    onSelectedIndexChange: (index) {
-                      _selectInputGateProfile(InputGateProfile.values[index]);
-                    },
-                  ),
-                  MiuixOverlayDropdownPreference(
-                    title: '机种上报',
-                    items: [
-                      for (final label in reportedOsOptions.values) label,
-                    ],
-                    selectedIndex: reportedKeys
-                        .indexOf(_reportedOs)
-                        .clamp(0, reportedKeys.length - 1),
-                    renderInRootScaffold: false,
-                    onSelectedIndexChange: (index) {
-                      setState(() => _reportedOs = reportedKeys[index]);
-                    },
-                  ),
-                  MiuixOverlayDropdownPreference(
-                    title: '启动 OS',
-                    items: runtimePlatforms,
-                    selectedIndex: runtimeIndex,
-                    renderInRootScaffold: false,
-                    onSelectedIndexChange: (index) {
-                      setState(
-                        () => _runtimePlatform = runtimePlatforms[index],
-                      );
-                    },
-                  ),
+                  if (showEnvironmentPatch)
+                    MiuixSwitchPreference(
+                      title: '环境兼容补丁',
+                      value: _environmentPatchEnabled,
+                      onChanged: (value) =>
+                          setState(() => _environmentPatchEnabled = value),
+                    ),
+                  if (showExperimental)
+                    MiuixSwitchPreference(
+                      title: '实验性 Eluna E-Mote',
+                      value: _experimentalElunaEnabled,
+                      onChanged: (value) =>
+                          setState(() => _experimentalElunaEnabled = value),
+                    ),
+                  if (showInputGate)
+                    MiuixOverlayDropdownPreference(
+                      title: '输入方式',
+                      summary: _inputGate.knownProfile == null
+                          ? '自定义规则（来自补丁）'
+                          : null,
+                      items: [
+                        for (final profile in InputGateProfile.values)
+                          profile.label,
+                      ],
+                      selectedIndex: _inputGate.knownProfile?.index ?? 0,
+                      renderInRootScaffold: false,
+                      onSelectedIndexChange: (index) {
+                        _selectInputGateProfile(InputGateProfile.values[index]);
+                      },
+                    ),
+                  if (showReportedOs)
+                    MiuixOverlayDropdownPreference(
+                      title: '机种上报',
+                      items: [
+                        for (final label in reportedOsOptions.values) label,
+                      ],
+                      selectedIndex: reportedKeys
+                          .indexOf(_reportedOs)
+                          .clamp(0, reportedKeys.length - 1),
+                      renderInRootScaffold: false,
+                      onSelectedIndexChange: (index) {
+                        setState(() => _reportedOs = reportedKeys[index]);
+                      },
+                    ),
+                  if (showRuntimePlatform)
+                    MiuixOverlayDropdownPreference(
+                      title: '启动 OS',
+                      items: runtimePlatforms,
+                      selectedIndex: runtimeIndex,
+                      renderInRootScaffold: false,
+                      onSelectedIndexChange: (index) {
+                        setState(
+                          () => _runtimePlatform = runtimePlatforms[index],
+                        );
+                      },
+                    ),
                 ],
               ),
             ),

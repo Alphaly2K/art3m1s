@@ -121,25 +121,52 @@ class GameManifest {
     );
   }
 
-  Map<String, dynamic> toJson() => {
-    if (name != null && name!.isNotEmpty) 'name': name,
-    if (vndbId != null && vndbId!.isNotEmpty) 'vndbId': vndbId,
-    if (engine != null) 'engine': engine!.id,
-    if (translationEnabled != null) 'translationEnabled': translationEnabled,
-    if (translationPatchPath != null && translationPatchPath!.isNotEmpty)
-      'translationPatchPath': translationPatchPath,
-    if (environmentPatchEnabled != null)
-      'environmentPatchEnabled': environmentPatchEnabled,
-    if (experimentalElunaEnabled != null)
-      'experimentalElunaEnabled': experimentalElunaEnabled,
-    if (fontOverride != null && fontOverride!.isNotEmpty)
-      'fontOverride': fontOverride,
-    if (inputGate != null && !inputGate!.isFull)
-      'inputGate': inputGate!.toJson(),
-    if (reportedOs != null && reportedOs!.isNotEmpty) 'reportedOs': reportedOs,
-    if (runtimePlatform != null && runtimePlatform!.isNotEmpty)
-      'runtimePlatform': runtimePlatform!.toUpperCase(),
-  };
+  /// 该键是否属于指定引擎的能力范围;通用键(name/vndbId/engine)总是允许。
+  static bool _supports(GameEngineKind? engine, GameSettingField field) {
+    return (engine ?? GameEngineKind.art3m1s).supportedGameSettings.contains(
+      field,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    // 只写当前引擎支持的键:引擎不支持的开关留在清单里只会误导。
+    // engine 本身永远写入真实 id,不再省略。
+    final kind = engine;
+    return {
+      if (name != null && name!.isNotEmpty) 'name': name,
+      if (vndbId != null && vndbId!.isNotEmpty) 'vndbId': vndbId,
+      if (kind != null) 'engine': kind.id,
+      if (_supports(kind, GameSettingField.translationEnabled) &&
+          translationEnabled != null)
+        'translationEnabled': translationEnabled,
+      if (_supports(kind, GameSettingField.translationPatchPath) &&
+          translationPatchPath != null &&
+          translationPatchPath!.isNotEmpty)
+        'translationPatchPath': translationPatchPath,
+      if (_supports(kind, GameSettingField.environmentPatch) &&
+          environmentPatchEnabled != null)
+        'environmentPatchEnabled': environmentPatchEnabled,
+      if (_supports(kind, GameSettingField.experimentalEluna) &&
+          experimentalElunaEnabled != null)
+        'experimentalElunaEnabled': experimentalElunaEnabled,
+      if (_supports(kind, GameSettingField.fontOverride) &&
+          fontOverride != null &&
+          fontOverride!.isNotEmpty)
+        'fontOverride': fontOverride,
+      if (_supports(kind, GameSettingField.inputGate) &&
+          inputGate != null &&
+          !inputGate!.isFull)
+        'inputGate': inputGate!.toJson(),
+      if (_supports(kind, GameSettingField.reportedOs) &&
+          reportedOs != null &&
+          reportedOs!.isNotEmpty)
+        'reportedOs': reportedOs,
+      if (_supports(kind, GameSettingField.runtimePlatform) &&
+          runtimePlatform != null &&
+          runtimePlatform!.isNotEmpty)
+        'runtimePlatform': runtimePlatform!.toUpperCase(),
+    };
+  }
 
   factory GameManifest.fromGameEntry(GameEntry entry) => GameManifest(
     name: entry.displayNameOrName,
@@ -157,22 +184,44 @@ class GameManifest {
     runtimePlatform: entry.runtimePlatform,
   );
 
-  GameEntry applyTo(GameEntry entry, {String? manifestPath}) => entry.copyWith(
-    displayName: name ?? entry.displayName,
-    translationEnabled: translationEnabled ?? entry.translationEnabled,
-    translationPatchPath: translationPatchPath ?? entry.translationPatchPath,
-    environmentPatchEnabled:
-        environmentPatchEnabled ?? entry.environmentPatchEnabled,
-    experimentalElunaEnabled:
-        experimentalElunaEnabled ?? entry.experimentalElunaEnabled,
-    inputGate: inputGate ?? entry.inputGate,
-    vndbId: vndbId ?? entry.vndbId,
-    engine: engine ?? entry.engine,
-    fontOverridePath: fontOverride ?? entry.fontOverridePath,
-    reportedOs: reportedOs ?? entry.reportedOs,
-    runtimePlatform: runtimePlatform ?? entry.runtimePlatform,
-    manifestPath: manifestPath ?? entry.manifestPath,
-  );
+  GameEntry applyTo(GameEntry entry, {String? manifestPath}) {
+    // 按条目引擎过滤:RFVP 等引擎不支持的字段即使在旧清单里存在也不应用。
+    final kind = engine ?? entry.engine;
+    return entry.copyWith(
+      displayName: name ?? entry.displayName,
+      translationEnabled:
+          _supports(kind, GameSettingField.translationEnabled)
+          ? translationEnabled ?? entry.translationEnabled
+          : entry.translationEnabled,
+      translationPatchPath:
+          _supports(kind, GameSettingField.translationPatchPath)
+          ? translationPatchPath ?? entry.translationPatchPath
+          : entry.translationPatchPath,
+      environmentPatchEnabled:
+          _supports(kind, GameSettingField.environmentPatch)
+          ? environmentPatchEnabled ?? entry.environmentPatchEnabled
+          : entry.environmentPatchEnabled,
+      experimentalElunaEnabled:
+          _supports(kind, GameSettingField.experimentalEluna)
+          ? experimentalElunaEnabled ?? entry.experimentalElunaEnabled
+          : entry.experimentalElunaEnabled,
+      inputGate: _supports(kind, GameSettingField.inputGate)
+          ? inputGate ?? entry.inputGate
+          : entry.inputGate,
+      vndbId: vndbId ?? entry.vndbId,
+      engine: engine ?? entry.engine,
+      fontOverridePath: _supports(kind, GameSettingField.fontOverride)
+          ? fontOverride ?? entry.fontOverridePath
+          : entry.fontOverridePath,
+      reportedOs: _supports(kind, GameSettingField.reportedOs)
+          ? reportedOs ?? entry.reportedOs
+          : entry.reportedOs,
+      runtimePlatform: _supports(kind, GameSettingField.runtimePlatform)
+          ? runtimePlatform ?? entry.runtimePlatform
+          : entry.runtimePlatform,
+      manifestPath: manifestPath ?? entry.manifestPath,
+    );
+  }
 
   /// 解析清单字节；空内容/非 JSON 对象返回 null。
   static GameManifest? parse(Uint8List bytes) {
