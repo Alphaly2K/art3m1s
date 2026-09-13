@@ -6,9 +6,9 @@ import 'dart:typed_data';
 import 'package:audioplayers/audioplayers.dart' as audio;
 import 'package:flutter/widgets.dart';
 
-import '../services/logger.dart';
-import 'backends/art3m1s/file_provider.dart';
-import 'engine_runtime.dart';
+import '../../../services/logger.dart';
+import '../../engine_runtime.dart';
+import 'file_provider.dart';
 
 typedef MediaFinishedCallback = void Function(String? id);
 
@@ -629,6 +629,7 @@ class _AudioHandle {
   _AudioHandle({
     required this.id,
     required this.player,
+    required this.loopPlayer,
     required this.channel,
     required this.loop,
     required this.loopFile,
@@ -639,6 +640,7 @@ class _AudioHandle {
 
   final String? id;
   final audio.AudioPlayer player;
+  final audio.AudioPlayer? loopPlayer;
   final String channel;
   final bool loop;
   final File? loopFile;
@@ -668,9 +670,11 @@ class _AudioHandle {
   }) async {
     assert(file != null || bytes != null);
     final player = audio.AudioPlayer();
+    final loopPlayer = loopFile == null ? null : audio.AudioPlayer();
     final handle = _AudioHandle(
       id: id,
       player: player,
+      loopPlayer: loopPlayer,
       channel: channel,
       loop: loop,
       loopFile: loopFile,
@@ -682,6 +686,13 @@ class _AudioHandle {
       unawaited(handle._handleCompletion());
     });
     try {
+      if (loopPlayer != null) {
+        // Prepare the B segment on its own player before A starts. Advancing
+        // only this preloaded player when A completes avoids the source-open
+        // and buffering gap caused by reusing the completed A player.
+        await loopPlayer.setReleaseMode(audio.ReleaseMode.loop);
+        await loopPlayer.setSource(audio.DeviceFileSource(loopFile!.path));
+      }
       await player.setReleaseMode(
         loop && loopFile == null
             ? audio.ReleaseMode.loop
@@ -708,11 +719,12 @@ class _AudioHandle {
       if (next == null) return;
       _loopSegmentStarted = true;
       try {
-        await player.setReleaseMode(audio.ReleaseMode.loop);
-        await player.setSource(audio.DeviceFileSource(next.path));
-        await setPan(pan);
-        await setEffectiveVolume(_effectiveVolume);
-        await player.resume();
+        final nextPlayer = loopPlayer;
+        if (nextPlayer == null) {
+          await _complete();
+          return;
+        }
+        await nextPlayer.resume();
         Log.debug('[MediaBridge] BGM 已进入 B 段循环: ${next.path}');
       } catch (error, stackTrace) {
         Log.warn(
@@ -736,12 +748,18 @@ class _AudioHandle {
 
   Future<void> setEffectiveVolume(double volume) async {
     _effectiveVolume = volume.clamp(0, 1);
-    await player.setVolume(_effectiveVolume);
+    await Future.wait([
+      player.setVolume(_effectiveVolume),
+      if (loopPlayer != null) loopPlayer!.setVolume(_effectiveVolume),
+    ]);
   }
 
   Future<void> setPan(double value) async {
     pan = value.clamp(-1, 1);
-    await player.setBalance(pan);
+    await Future.wait([
+      player.setBalance(pan),
+      if (loopPlayer != null) loopPlayer!.setBalance(pan),
+    ]);
   }
 
   Future<void> panTo(double target, int durationMs) async {
@@ -816,7 +834,10 @@ class _AudioHandle {
     _cancelPan();
     await _completionSubscription?.cancel();
     _completionSubscription = null;
-    await player.dispose();
+    await Future.wait([
+      player.dispose(),
+      if (loopPlayer != null) loopPlayer!.dispose(),
+    ]);
   }
 }
 
