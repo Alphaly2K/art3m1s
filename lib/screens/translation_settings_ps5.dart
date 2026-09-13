@@ -96,6 +96,20 @@ class _Ps5TranslationSettingsScreenState
     setState(() => _value = value);
   }
 
+  Future<void> _pickMode() async {
+    final mode = await showPs5OptionPicker<TranslationMode>(
+      context,
+      title: '工作模式',
+      selected: _value.mode,
+      options: [
+        for (final mode in TranslationMode.values)
+          (value: mode, label: mode.label, caption: null),
+      ],
+    );
+    if (mode == null || !mounted || mode == _value.mode) return;
+    _apply(_value.copyWith(mode: mode), immediate: true);
+  }
+
   Future<void> _pickLanguage({
     required String title,
     required String current,
@@ -124,185 +138,126 @@ class _Ps5TranslationSettingsScreenState
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Ps5Colors.background,
-      body: SafeArea(
-        child: Column(
-          children: [
-            SizedBox(
-              height: 82,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Row(
-                  children: [
-                    Ps5IconButton(
-                      icon: Icons.arrow_back_rounded,
-                      tooltip: '返回',
-                      onPressed: () => Navigator.of(context).pop(),
-                    ),
-                    const SizedBox(width: 16),
-                    const Text(
-                      '文本翻译',
-                      style: TextStyle(
-                        color: Ps5Colors.text,
-                        fontSize: 27,
-                        fontWeight: FontWeight.w700,
+    return Ps5SettingsFrame(
+      title: '文本翻译',
+      child: Scrollbar(
+        thumbVisibility: true,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(48, 30, 48, 72),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 1200),
+              child: Column(
+                children: [
+                  Ps5Section(
+                    title: '翻译模式',
+                    children: [
+                      Ps5SettingRow(
+                        label: '工作模式',
+                        caption: '选择关闭、使用对照文件或在线服务',
+                        trailing: _value.mode.label,
+                        onPressed: _pickMode,
                       ),
+                    ],
+                  ),
+                  if (_value.mode == TranslationMode.online) ...[
+                    const SizedBox(height: 26),
+                    Ps5Section(
+                      title: '在线服务',
+                      children: [
+                        Ps5SettingRow(
+                          label: '服务提供商',
+                          caption: _value.provider.defaultEndpoint,
+                          trailing: _value.provider.label,
+                          onPressed: _pickProvider,
+                        ),
+                        if (_value.provider.endpointEditable)
+                          _FieldSetting(
+                            label: 'Endpoint',
+                            controller: _endpoint,
+                            hintText: 'API endpoint',
+                            onChanged: (text) =>
+                                _apply(_value.copyWith(endpoint: text)),
+                          ),
+                        if (_value.provider.usesApiKey)
+                          _FieldSetting(
+                            label: switch (_value.provider) {
+                              TranslationProvider.google => 'Google API Key',
+                              TranslationProvider.deepL => 'DeepL Auth Key',
+                              _ => 'API Key',
+                            },
+                            controller: _apiKey,
+                            hintText: '输入密钥',
+                            obscureText: true,
+                            onChanged: (text) =>
+                                _apply(_value.copyWith(apiKey: text)),
+                          ),
+                        if (_value.provider.usesAppCredentials) ...[
+                          _FieldSetting(
+                            label: _value.provider == TranslationProvider.baidu
+                                ? 'APP ID'
+                                : '应用 ID / App Key',
+                            controller: _appId,
+                            hintText: '输入应用 ID',
+                            onChanged: (text) =>
+                                _apply(_value.copyWith(appId: text)),
+                          ),
+                          _FieldSetting(
+                            label: _value.provider == TranslationProvider.baidu
+                                ? '密钥'
+                                : '应用密钥',
+                            controller: _appSecret,
+                            hintText: '输入应用密钥',
+                            obscureText: true,
+                            onChanged: (text) =>
+                                _apply(_value.copyWith(appSecret: text)),
+                          ),
+                        ],
+                        if (_value.provider.usesModel)
+                          _FieldSetting(
+                            label: 'Model',
+                            controller: _model,
+                            hintText: '输入模型名',
+                            onChanged: (text) =>
+                                _apply(_value.copyWith(model: text)),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 26),
+                    Ps5Section(
+                      title: '语言',
+                      children: [
+                        Ps5SettingRow(
+                          label: '源语言',
+                          caption: '游戏文本的原始语言',
+                          trailing: _value.sourceLanguage,
+                          onPressed: () => _pickLanguage(
+                            title: '源语言',
+                            current: _value.sourceLanguage,
+                            options: translationSourceLanguages,
+                            update: (value, language) =>
+                                value.copyWith(sourceLanguage: language),
+                          ),
+                        ),
+                        Ps5SettingRow(
+                          label: '目标语言',
+                          caption: '翻译结果显示的语言',
+                          trailing: _value.targetLanguage,
+                          onPressed: () => _pickLanguage(
+                            title: '目标语言',
+                            current: _value.targetLanguage,
+                            options: translationTargetLanguages,
+                            update: (value, language) =>
+                                value.copyWith(targetLanguage: language),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
-                ),
+                ],
               ),
             ),
-            const Divider(height: 1, color: Ps5Colors.line),
-            Expanded(
-              child: Scrollbar(
-                thumbVisibility: true,
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(30, 28, 42, 42),
-                  child: Align(
-                    alignment: Alignment.topCenter,
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 980),
-                      child: Column(
-                        children: [
-                          Ps5Section(
-                            title: '翻译模式',
-                            children: [
-                              Ps5SettingRow(
-                                label: '工作模式',
-                                caption: '选择关闭、使用对照文件或在线服务',
-                                control: Ps5SegmentedControl<TranslationMode>(
-                                  value: _value.mode,
-                                  onChanged: (mode) => _apply(
-                                    _value.copyWith(mode: mode),
-                                    immediate: true,
-                                  ),
-                                  options: [
-                                    for (final mode in TranslationMode.values)
-                                      (value: mode, label: mode.label),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                          if (_value.mode == TranslationMode.online) ...[
-                            const SizedBox(height: 26),
-                            Ps5Section(
-                              title: '在线服务',
-                              children: [
-                                Ps5SettingRow(
-                                  label: '服务提供商',
-                                  caption: _value.provider.label,
-                                  control: Ps5Button(
-                                    icon: Icons.cloud_outlined,
-                                    onPressed: _pickProvider,
-                                    child: const Text('更换服务'),
-                                  ),
-                                ),
-                                if (_value.provider.endpointEditable)
-                                  _FieldSetting(
-                                    label: 'Endpoint',
-                                    controller: _endpoint,
-                                    hintText: 'API endpoint',
-                                    onChanged: (text) =>
-                                        _apply(_value.copyWith(endpoint: text)),
-                                  ),
-                                if (_value.provider.usesApiKey)
-                                  _FieldSetting(
-                                    label: switch (_value.provider) {
-                                      TranslationProvider.google =>
-                                        'Google API Key',
-                                      TranslationProvider.deepL =>
-                                        'DeepL Auth Key',
-                                      _ => 'API Key',
-                                    },
-                                    controller: _apiKey,
-                                    hintText: '输入密钥',
-                                    obscureText: true,
-                                    onChanged: (text) =>
-                                        _apply(_value.copyWith(apiKey: text)),
-                                  ),
-                                if (_value.provider.usesAppCredentials) ...[
-                                  _FieldSetting(
-                                    label:
-                                        _value.provider ==
-                                            TranslationProvider.baidu
-                                        ? 'APP ID'
-                                        : '应用 ID / App Key',
-                                    controller: _appId,
-                                    hintText: '输入应用 ID',
-                                    onChanged: (text) =>
-                                        _apply(_value.copyWith(appId: text)),
-                                  ),
-                                  _FieldSetting(
-                                    label:
-                                        _value.provider ==
-                                            TranslationProvider.baidu
-                                        ? '密钥'
-                                        : '应用密钥',
-                                    controller: _appSecret,
-                                    hintText: '输入应用密钥',
-                                    obscureText: true,
-                                    onChanged: (text) => _apply(
-                                      _value.copyWith(appSecret: text),
-                                    ),
-                                  ),
-                                ],
-                                if (_value.provider.usesModel)
-                                  _FieldSetting(
-                                    label: 'Model',
-                                    controller: _model,
-                                    hintText: '输入模型名',
-                                    onChanged: (text) =>
-                                        _apply(_value.copyWith(model: text)),
-                                  ),
-                              ],
-                            ),
-                            const SizedBox(height: 26),
-                            Ps5Section(
-                              title: '语言',
-                              children: [
-                                Ps5SettingRow(
-                                  label: '源语言',
-                                  caption: _value.sourceLanguage,
-                                  control: Ps5Button(
-                                    icon: Icons.language_rounded,
-                                    onPressed: () => _pickLanguage(
-                                      title: '源语言',
-                                      current: _value.sourceLanguage,
-                                      options: translationSourceLanguages,
-                                      update: (value, language) => value
-                                          .copyWith(sourceLanguage: language),
-                                    ),
-                                    child: const Text('选择'),
-                                  ),
-                                ),
-                                Ps5SettingRow(
-                                  label: '目标语言',
-                                  caption: _value.targetLanguage,
-                                  control: Ps5Button(
-                                    icon: Icons.translate_rounded,
-                                    onPressed: () => _pickLanguage(
-                                      title: '目标语言',
-                                      current: _value.targetLanguage,
-                                      options: translationTargetLanguages,
-                                      update: (value, language) => value
-                                          .copyWith(targetLanguage: language),
-                                    ),
-                                    child: const Text('选择'),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -327,7 +282,7 @@ class _FieldSetting extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
       child: Ps5Field(
         controller: controller,
         label: label,

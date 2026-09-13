@@ -36,10 +36,20 @@ class _Ps5GameLibraryPageState extends ConsumerState<Ps5GameLibraryPage> {
   GameLibraryPlatformFilter _platform = GameLibraryPlatformFilter.all;
   GameLibrarySourceFilter _source = GameLibrarySourceFilter.all;
   int _selectedIndex = 0;
+  int _tabDirection = 1;
 
   bool get _filtersActive =>
       _platform != GameLibraryPlatformFilter.all ||
       _source != GameLibrarySourceFilter.all;
+
+  void _selectTab(GameLibraryTab tab) {
+    if (tab == _tab) return;
+    setState(() {
+      _tabDirection = tab.index >= _tab.index ? 1 : -1;
+      _tab = tab;
+      _selectedIndex = 0;
+    });
+  }
 
   String get _sortLabel => switch (_sort) {
     GameLibrarySort.mostRecent => 'Most Recent',
@@ -224,6 +234,43 @@ class _Ps5GameLibraryPageState extends ConsumerState<Ps5GameLibraryPage> {
   Future<void> _openGameMenu(GameEntry entry, LibraryActions actions) async {
     final result = await showPs5ListMenu<int>(
       context,
+      header: Row(
+        children: [
+          SizedBox.square(
+            dimension: 52,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(3),
+              child: Ps5CoverArt(entry: entry),
+            ),
+          ),
+          const SizedBox(width: 13),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  entry.displayNameOrName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Ps5Colors.text,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  entry.engine.label,
+                  style: const TextStyle(
+                    color: Ps5Colors.menuMuted,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
       sections: [
         Ps5MenuSection(
           items: [
@@ -274,24 +321,7 @@ class _Ps5GameLibraryPageState extends ConsumerState<Ps5GameLibraryPage> {
         key: const ValueKey('ps5-game-library-page'),
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(48, 8, 48, 0),
-            child: Row(
-              children: [
-                _HeaderIconButton(onPressed: widget.onClose),
-                const SizedBox(width: 16),
-                const Text(
-                  'Game Library',
-                  style: TextStyle(
-                    color: Ps5Colors.text,
-                    fontSize: 28,
-                    fontWeight: FontWeight.w400,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 22),
+          const SizedBox(height: 112),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 48),
             child: Row(
@@ -307,10 +337,7 @@ class _Ps5GameLibraryPageState extends ConsumerState<Ps5GameLibraryPage> {
                       GameLibraryTab.fvp => 'FVP',
                     },
                     selected: _tab == tab,
-                    onPressed: () => setState(() {
-                      _tab = tab;
-                      _selectedIndex = 0;
-                    }),
+                    onPressed: () => _selectTab(tab),
                   ),
                 ],
               ],
@@ -341,70 +368,72 @@ class _Ps5GameLibraryPageState extends ConsumerState<Ps5GameLibraryPage> {
           ),
           const SizedBox(height: 18),
           Expanded(
-            child: games.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Text(
-                          '没有匹配的游戏',
-                          style: TextStyle(
-                            color: Ps5Colors.text,
-                            fontSize: 22,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        Ps5Button(
-                          primary: true,
-                          icon: Icons.folder_open_rounded,
-                          onPressed: actions.pickDirectory,
-                          child: const Text('选择游戏文件夹'),
-                        ),
-                      ],
-                    ),
-                  )
-                : Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.only(
-                          left: 28,
-                          right: 8,
-                          top: 8,
-                        ),
-                        child: _FilterButton(onPressed: _openFilterMenu),
-                      ),
-                      Expanded(
-                        child: GridView.builder(
-                          padding: const EdgeInsets.fromLTRB(8, 8, 48, 36),
-                          gridDelegate:
-                              const SliverGridDelegateWithMaxCrossAxisExtent(
-                                maxCrossAxisExtent: 286,
-                                mainAxisSpacing: 20,
-                                crossAxisSpacing: 18,
-                                childAspectRatio: 1,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(left: 28, right: 8, top: 8),
+                  child: _FilterButton(onPressed: _openFilterMenu),
+                ),
+                Expanded(
+                  child: ClipRect(
+                    child: _Ps5TabSlide(
+                      tabIndex: _tab.index,
+                      direction: _tabDirection,
+                      child: games.isEmpty
+                          ? Center(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Text(
+                                    '没有匹配的游戏',
+                                    style: TextStyle(
+                                      color: Ps5Colors.text,
+                                      fontSize: 22,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 16),
+                                  Ps5Button(
+                                    primary: true,
+                                    icon: Icons.folder_open_rounded,
+                                    onPressed: actions.pickDirectory,
+                                    child: const Text('选择游戏文件夹'),
+                                  ),
+                                ],
                               ),
-                          itemCount: games.length,
-                          itemBuilder: (context, index) {
-                            final entry = games[index];
-                            return _LibraryGridTile(
-                              entry: entry,
-                              selected: index == _selectedIndex,
-                              autofocus: index == _selectedIndex,
-                              onFocus: () {
-                                if (_selectedIndex != index) {
-                                  setState(() => _selectedIndex = index);
-                                }
+                            )
+                          : GridView.builder(
+                              padding: const EdgeInsets.fromLTRB(8, 8, 48, 36),
+                              gridDelegate:
+                                  const SliverGridDelegateWithMaxCrossAxisExtent(
+                                    maxCrossAxisExtent: 286,
+                                    mainAxisSpacing: 20,
+                                    crossAxisSpacing: 18,
+                                    childAspectRatio: 1,
+                                  ),
+                              itemCount: games.length,
+                              itemBuilder: (context, index) {
+                                final entry = games[index];
+                                return _LibraryGridTile(
+                                  entry: entry,
+                                  selected: index == _selectedIndex,
+                                  autofocus: index == _selectedIndex,
+                                  onFocus: () {
+                                    if (_selectedIndex != index) {
+                                      setState(() => _selectedIndex = index);
+                                    }
+                                  },
+                                  onOpen: () => actions.launch(entry),
+                                  onMenu: () => _openGameMenu(entry, actions),
+                                );
                               },
-                              onOpen: () => actions.launch(entry),
-                              onMenu: () => _openGameMenu(entry, actions),
-                            );
-                          },
-                        ),
-                      ),
-                    ],
+                            ),
+                    ),
                   ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -412,53 +441,50 @@ class _Ps5GameLibraryPageState extends ConsumerState<Ps5GameLibraryPage> {
   }
 }
 
-class _HeaderIconButton extends StatefulWidget {
-  const _HeaderIconButton({required this.onPressed});
+class _Ps5TabSlide extends StatelessWidget {
+  const _Ps5TabSlide({
+    required this.tabIndex,
+    required this.direction,
+    required this.child,
+  });
 
-  final VoidCallback onPressed;
+  final int tabIndex;
+  final int direction;
+  final Widget child;
 
-  @override
-  State<_HeaderIconButton> createState() => _HeaderIconButtonState();
-}
-
-class _HeaderIconButtonState extends State<_HeaderIconButton> {
-  bool _focused = false;
+  static const Curve _inCurve = Cubic(0.16, 1, 0.3, 1);
+  static const Curve _outCurve = Cubic(0.7, 0, 0.84, 0);
 
   @override
   Widget build(BuildContext context) {
-    return FocusableActionDetector(
-      onFocusChange: (value) => setState(() => _focused = value),
-      shortcuts: const {
-        SingleActivator(LogicalKeyboardKey.enter): ActivateIntent(),
-        SingleActivator(LogicalKeyboardKey.space): ActivateIntent(),
-        SingleActivator(LogicalKeyboardKey.gameButtonA): ActivateIntent(),
+    return AnimatedSwitcher(
+      key: const ValueKey('ps5-library-tab-slide'),
+      duration: const Duration(milliseconds: 460),
+      switchInCurve: _inCurve,
+      switchOutCurve: _outCurve,
+      layoutBuilder: (currentChild, previousChildren) {
+        return Stack(
+          fit: StackFit.expand,
+          clipBehavior: Clip.hardEdge,
+          children: [
+            ...previousChildren,
+            if (currentChild != null) currentChild,
+          ],
+        );
       },
-      actions: {
-        ActivateIntent: CallbackAction<ActivateIntent>(
-          onInvoke: (_) {
-            widget.onPressed();
-            return null;
-          },
-        ),
+      transitionBuilder: (child, animation) {
+        final currentKey = (child.key as ValueKey<int>?)?.value;
+        final incoming = currentKey == tabIndex;
+        final beginDx = incoming ? direction.toDouble() : -direction.toDouble();
+        return SlideTransition(
+          position: Tween<Offset>(
+            begin: Offset(beginDx, 0),
+            end: Offset.zero,
+          ).animate(animation),
+          child: child,
+        );
       },
-      child: GestureDetector(
-        onTap: widget.onPressed,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
-          width: 52,
-          height: 52,
-          decoration: BoxDecoration(
-            color: _focused ? const Color(0xFFE8EEF6) : const Color(0xFF1B1F27),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Center(
-            child: Ps5GameLibraryGlyph(
-              size: 28,
-              color: _focused ? Ps5Colors.background : Colors.white,
-            ),
-          ),
-        ),
-      ),
+      child: KeyedSubtree(key: ValueKey(tabIndex), child: child),
     );
   }
 }

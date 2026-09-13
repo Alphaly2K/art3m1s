@@ -20,6 +20,7 @@ import '../services/app_info.dart';
 import '../services/logger.dart';
 import '../widgets/debug_overlay_host.dart';
 import '../widgets/license_data.dart';
+import '../widgets/ps5_osk.dart';
 import 'ps5_game_library.dart';
 
 /// 桌面平台的 PS5 风格大屏壳。
@@ -184,7 +185,7 @@ class _Ps5HomeState extends ConsumerState<_Ps5Home>
     unawaited(
       Navigator.of(context).push<void>(
         _ps5SettingsRoute(
-          const _Ps5SettingsFrame(title: '关于', child: _Ps5AboutPage()),
+          const Ps5SettingsFrame(title: '关于', child: _Ps5AboutPage()),
         ),
       ),
     );
@@ -199,8 +200,16 @@ class _Ps5HomeState extends ConsumerState<_Ps5Home>
       setState(() => _searchOpen = false);
       return KeyEventResult.handled;
     }
+    // Esc 永远不退出大屏：对话框与子页面各自处理返回键；首页上的 Esc
+    // 直接吞掉。只有手柄 B（circle）在首页路由为当前路由时才退出大屏，
+    // 避免对话框开着时按键穿透到首页触发退出。
+    if (event.logicalKey == LogicalKeyboardKey.escape) {
+      return KeyEventResult.handled;
+    }
     if (action == Ps5InputAction.back && widget.onExitBigScreen != null) {
-      unawaited(widget.onExitBigScreen!());
+      if (ModalRoute.of(context)?.isCurrent == true) {
+        unawaited(widget.onExitBigScreen!());
+      }
       return KeyEventResult.handled;
     }
     return KeyEventResult.ignored;
@@ -247,74 +256,79 @@ class _Ps5HomeState extends ConsumerState<_Ps5Home>
                   child: SlideTransition(
                     position: _introSlide,
                     child: SafeArea(
-                      child: AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 360),
-                        switchInCurve: Curves.linear,
-                        switchOutCurve: Curves.linear,
-                        layoutBuilder: (currentChild, previousChildren) =>
-                            Stack(
-                              fit: StackFit.expand,
-                              children: [...previousChildren, ?currentChild],
-                            ),
-                        transitionBuilder: (child, animation) {
-                          final fade = CurvedAnimation(
-                            parent: animation,
-                            curve: const Interval(
-                              0,
-                              0.78,
-                              curve: Curves.easeOut,
-                            ),
-                            reverseCurve: Curves.easeInCubic,
-                          );
-                          final motion = CurvedAnimation(
-                            parent: animation,
-                            curve: Curves.easeOutBack,
-                            reverseCurve: Curves.easeInCubic,
-                          );
-                          return FadeTransition(
-                            opacity: fade,
-                            child: SlideTransition(
-                              position: Tween<Offset>(
-                                begin: const Offset(0.018, 0.012),
-                                end: Offset.zero,
-                              ).animate(motion),
-                              child: ScaleTransition(
-                                scale: Tween<double>(
-                                  begin: 0.992,
-                                  end: 1,
-                                ).animate(motion),
-                                child: child,
-                              ),
-                            ),
-                          );
-                        },
-                        child: _tab == 0
-                            ? Column(
-                                key: const ValueKey('games'),
-                                children: [
-                                  _Ps5TopBar(
-                                    tab: _tab,
-                                    onTab: (value) =>
-                                        setState(() => _tab = value),
-                                    onSearch: () =>
-                                        setState(() => _searchOpen = true),
-                                    onSettings: _openSettings,
-                                    onProfile: _openAbout,
-                                    onExitBigScreen: widget.onExitBigScreen,
+                      child: Stack(
+                        children: [
+                          Positioned.fill(
+                            child: AnimatedSwitcher(
+                              duration: const Duration(milliseconds: 360),
+                              switchInCurve: Curves.linear,
+                              switchOutCurve: Curves.linear,
+                              layoutBuilder: (currentChild, previousChildren) =>
+                                  Stack(
+                                    fit: StackFit.expand,
+                                    children: [
+                                      ...previousChildren,
+                                      ?currentChild,
+                                    ],
                                   ),
-                                  Expanded(
-                                    child: ClipRect(
+                              transitionBuilder: (child, animation) {
+                                final fade = CurvedAnimation(
+                                  parent: animation,
+                                  curve: const Interval(
+                                    0,
+                                    0.78,
+                                    curve: Curves.easeOut,
+                                  ),
+                                  reverseCurve: Curves.easeInCubic,
+                                );
+                                final motion = CurvedAnimation(
+                                  parent: animation,
+                                  curve: Curves.easeOutBack,
+                                  reverseCurve: Curves.easeInCubic,
+                                );
+                                return FadeTransition(
+                                  opacity: fade,
+                                  child: SlideTransition(
+                                    position: Tween<Offset>(
+                                      begin: const Offset(0.018, 0.012),
+                                      end: Offset.zero,
+                                    ).animate(motion),
+                                    child: ScaleTransition(
+                                      scale: Tween<double>(
+                                        begin: 0.992,
+                                        end: 1,
+                                      ).animate(motion),
+                                      child: child,
+                                    ),
+                                  ),
+                                );
+                              },
+                              child: _tab == 0
+                                  ? ClipRect(
+                                      key: const ValueKey('games'),
                                       child: _Ps5LibraryPage(
                                         query: _searchQuery,
                                       ),
+                                    )
+                                  : Ps5GameLibraryPage(
+                                      key: const ValueKey('game-library'),
+                                      onClose: () => setState(() => _tab = 0),
                                     ),
-                                  ),
-                                ],
-                              )
-                            : Ps5GameLibraryPage(
-                                key: const ValueKey('game-library'),
-                                onClose: () => setState(() => _tab = 0),
-                              ),
+                            ),
+                          ),
+                          Align(
+                            alignment: Alignment.topCenter,
+                            child: _Ps5TopBar(
+                              tab: _tab,
+                              onTab: (value) => setState(() => _tab = value),
+                              onSearch: () =>
+                                  setState(() => _searchOpen = true),
+                              onSettings: _openSettings,
+                              onProfile: _openAbout,
+                              onExitBigScreen: widget.onExitBigScreen,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
@@ -742,6 +756,15 @@ class _Ps5LibraryPageState extends ConsumerState<_Ps5LibraryPage> {
 
   int _selectedIndex = 0;
 
+  /// 指针悬停/键盘焦点进入某张卡片时，只朝该卡方向步进一格；卡片滑动后
+  /// 指针下的下一张卡会继续触发，从而形成逐卡步进而非跳变。
+  void _stepSelectionToward(int index) {
+    if (index == _selectedIndex) return;
+    setState(() {
+      _selectedIndex += index > _selectedIndex ? 1 : -1;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final library = ref.watch(libraryProvider);
@@ -834,6 +857,7 @@ class _Ps5LibraryPageState extends ConsumerState<_Ps5LibraryPage> {
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            const SizedBox(height: 96),
             SizedBox(
               height: 216,
               child: LayoutBuilder(
@@ -850,7 +874,7 @@ class _Ps5LibraryPageState extends ConsumerState<_Ps5LibraryPage> {
                       for (var index = 0; index <= games.length; index++)
                         AnimatedPositioned(
                           key: ValueKey('ps5-carousel-slot-$index'),
-                          duration: const Duration(milliseconds: 220),
+                          duration: const Duration(milliseconds: 360),
                           curve: Curves.easeOutBack,
                           top: top,
                           left:
@@ -868,12 +892,15 @@ class _Ps5LibraryPageState extends ConsumerState<_Ps5LibraryPage> {
                               ? _AddGameTile(
                                   selected: index == _selectedIndex,
                                   autofocus: index == _selectedIndex,
-                                  onFocus: () {
+                                  onFocus: () => _stepSelectionToward(index),
+                                  onPressed: actions.pickDirectory,
+                                  onTap: () {
                                     if (_selectedIndex != index) {
                                       setState(() => _selectedIndex = index);
+                                    } else {
+                                      actions.pickDirectory();
                                     }
                                   },
-                                  onPressed: actions.pickDirectory,
                                 )
                               : _GameTile(
                                   key: ValueKey(
@@ -882,16 +909,19 @@ class _Ps5LibraryPageState extends ConsumerState<_Ps5LibraryPage> {
                                   entry: games[index],
                                   selected: index == _selectedIndex,
                                   autofocus: index == _selectedIndex,
-                                  onFocus: () {
+                                  onFocus: () => _stepSelectionToward(index),
+                                  onOpen: () => actions.launch(games[index]),
+                                  onTap: () {
                                     if (_selectedIndex != index) {
                                       setState(() => _selectedIndex = index);
+                                    } else {
+                                      actions.launch(games[index]);
                                     }
                                   },
-                                  onOpen: () => actions.launch(games[index]),
                                 ),
                         ),
                       AnimatedPositioned(
-                        duration: const Duration(milliseconds: 220),
+                        duration: const Duration(milliseconds: 360),
                         curve: Curves.easeOutBack,
                         left:
                             _carouselFocusX +
@@ -919,125 +949,13 @@ class _Ps5LibraryPageState extends ConsumerState<_Ps5LibraryPage> {
               padding: const EdgeInsets.fromLTRB(56, 20, 56, 58),
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 680),
-                child: AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 340),
-                  switchInCurve: Curves.easeOutCubic,
-                  switchOutCurve: Curves.easeInCubic,
-                  transitionBuilder: (child, animation) => FadeTransition(
-                    opacity: animation,
-                    child: SlideTransition(
-                      position: Tween<Offset>(
-                        begin: const Offset(0, 0.045),
-                        end: Offset.zero,
-                      ).animate(animation),
-                      child: child,
-                    ),
-                  ),
-                  child: Column(
-                    key: ValueKey('ps5-hero-copy-${selected.path}'),
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        selected.displayNameOrName,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Ps5Colors.text,
-                          fontSize: 48,
-                          height: 0.98,
-                          fontWeight: FontWeight.w700,
-                          shadows: [
-                            Shadow(
-                              color: Color(0xAA000000),
-                              blurRadius: 18,
-                              offset: Offset(0, 3),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      Wrap(
-                        spacing: 9,
-                        runSpacing: 8,
-                        children: [
-                          _MetaChip(
-                            icon: Icons.memory_rounded,
-                            label: selected.engine.label,
-                          ),
-                          _MetaChip(
-                            icon: selected.source == GameSource.directory
-                                ? Icons.folder_rounded
-                                : Icons.archive_rounded,
-                            label: selected.source == GameSource.directory
-                                ? '工程目录'
-                                : 'PFS',
-                          ),
-                          if (selected.translationEnabled)
-                            const _MetaChip(
-                              icon: Icons.translate_rounded,
-                              label: '翻译',
-                            ),
-                        ],
-                      ),
-                      const SizedBox(height: 24),
-                      Row(
-                        children: [
-                          _HeroActionButton(
-                            label: 'Play',
-                            icon: Icons.play_arrow_rounded,
-                            onPressed: () => actions.launch(selected),
-                            wide: true,
-                          ),
-                          const SizedBox(width: 12),
-                          _HeroActionButton(
-                            icon: Icons.more_horiz_rounded,
-                            tooltip: '项目操作',
-                            onPressed: () =>
-                                _showGameActionsMenu(selected, actions),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
+                child: _HeroCopySwitcher(entry: selected, actions: actions),
               ),
             ),
           ],
         ),
       ],
     );
-  }
-
-  Future<void> _showGameActionsMenu(
-    GameEntry selected,
-    LibraryActions actions,
-  ) async {
-    final result = await showPs5ListMenu<int>(
-      context,
-      sections: [
-        Ps5MenuSection(
-          items: [
-            const Ps5MenuItem(id: 'play', label: '开始游戏', value: 0),
-            const Ps5MenuItem(id: 'edit', label: '编辑项目', value: 1),
-            const Ps5MenuItem(
-              id: 'delete',
-              label: '从库中移除',
-              value: 2,
-              destructive: true,
-            ),
-          ],
-        ),
-      ],
-    );
-    if (!mounted || result == null) return;
-    switch (result.itemId) {
-      case 'play':
-        actions.launch(selected);
-      case 'edit':
-        actions.editGame(selected);
-      case 'delete':
-        actions.confirmDelete(selected);
-    }
   }
 }
 
@@ -1065,8 +983,8 @@ class _CarouselTitleState extends State<_CarouselTitle>
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 240),
-      reverseDuration: const Duration(milliseconds: 150),
+      duration: const Duration(milliseconds: 300),
+      reverseDuration: const Duration(milliseconds: 180),
     )..forward();
     final curved = CurvedAnimation(
       parent: _controller,
@@ -1121,6 +1039,165 @@ class _CarouselTitleState extends State<_CarouselTitle>
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 左下角游戏简介（大标题 + meta 行 + 操作按钮）：切换选中游戏时先完整
+/// 淡出旧内容，再重建为新内容并播放淡入+上滑动画，避免交叉叠化期间新旧
+/// 文本同帧重叠。模式与 [_CarouselTitle] 一致。
+class _HeroCopySwitcher extends StatefulWidget {
+  const _HeroCopySwitcher({required this.entry, required this.actions});
+
+  final GameEntry entry;
+  final LibraryActions actions;
+
+  @override
+  State<_HeroCopySwitcher> createState() => _HeroCopySwitcherState();
+}
+
+class _HeroCopySwitcherState extends State<_HeroCopySwitcher>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _fade;
+  late final Animation<Offset> _slide;
+  final GlobalKey _gameMenuButtonKey = GlobalKey();
+  late GameEntry _shown = widget.entry;
+  bool _swapping = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 320),
+      reverseDuration: const Duration(milliseconds: 200),
+    )..forward();
+    final curved = CurvedAnimation(
+      parent: _controller,
+      curve: Curves.easeOutCubic,
+      reverseCurve: Curves.easeInCubic,
+    );
+    _fade = curved;
+    _slide = Tween<Offset>(
+      begin: const Offset(0, 0.045),
+      end: Offset.zero,
+    ).animate(curved);
+  }
+
+  @override
+  void didUpdateWidget(_HeroCopySwitcher oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.entry.path == _shown.path || _swapping) return;
+    _swapping = true;
+    _controller.reverse().then((_) {
+      if (!mounted) return;
+      setState(() => _shown = widget.entry);
+      _swapping = false;
+      _controller.forward(from: 0);
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Rect? _gameMenuAnchor() {
+    final box = _gameMenuButtonKey.currentContext?.findRenderObject();
+    if (box is! RenderBox || !box.hasSize) return null;
+    return box.localToGlobal(Offset.zero) & box.size;
+  }
+
+  Future<void> _showGameActionsMenu(GameEntry selected) async {
+    final result = await showPs5ListMenu<int>(
+      context,
+      anchor: _gameMenuAnchor(),
+      sections: [
+        Ps5MenuSection(
+          items: [
+            const Ps5MenuItem(id: 'play', label: '开始游戏', value: 0),
+            const Ps5MenuItem(id: 'edit', label: '编辑项目', value: 1),
+            const Ps5MenuItem(
+              id: 'delete',
+              label: '从库中移除',
+              value: 2,
+              destructive: true,
+            ),
+          ],
+        ),
+      ],
+    );
+    if (!mounted || result == null) return;
+    switch (result.itemId) {
+      case 'play':
+        widget.actions.launch(selected);
+      case 'edit':
+        widget.actions.editGame(selected);
+      case 'delete':
+        widget.actions.confirmDelete(selected);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final meta = <String>[
+      _shown.engine.label,
+      _shown.source == GameSource.directory ? '工程目录' : 'PFS',
+      if (_shown.translationEnabled) '翻译',
+    ].join(' · ');
+    return FadeTransition(
+      opacity: _fade,
+      child: SlideTransition(
+        position: _slide,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              _shown.displayNameOrName,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Ps5Colors.text,
+                fontSize: 48,
+                height: 0.98,
+                fontWeight: FontWeight.w700,
+                shadows: [
+                  Shadow(
+                    color: Color(0xAA000000),
+                    blurRadius: 18,
+                    offset: Offset(0, 3),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
+            Text(
+              meta,
+              style: const TextStyle(color: Ps5Colors.textMuted, fontSize: 14),
+            ),
+            const SizedBox(height: 24),
+            Row(
+              children: [
+                _HeroActionButton(
+                  label: 'Play',
+                  icon: Icons.play_arrow_rounded,
+                  onPressed: () => widget.actions.launch(_shown),
+                  wide: true,
+                ),
+                const SizedBox(width: 12),
+                _HeroActionButton(
+                  key: _gameMenuButtonKey,
+                  icon: Icons.more_horiz_rounded,
+                  tooltip: '项目操作',
+                  onPressed: () => _showGameActionsMenu(_shown),
+                ),
+              ],
+            ),
+          ],
         ),
       ),
     );
@@ -1194,6 +1271,7 @@ class _CoverBackdropFallback extends StatelessWidget {
 
 class _HeroActionButton extends StatefulWidget {
   const _HeroActionButton({
+    super.key,
     required this.onPressed,
     this.icon,
     this.label,
@@ -1406,11 +1484,13 @@ class _Ps5SearchOverlay extends StatefulWidget {
 
 class _Ps5SearchOverlayState extends State<_Ps5SearchOverlay> {
   final TextEditingController _controller = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
   String _query = '';
 
   @override
   void dispose() {
     _controller.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -1494,20 +1574,25 @@ class _Ps5SearchOverlayState extends State<_Ps5SearchOverlay> {
                                   ),
                                 ),
                               )
-                            : ListView.builder(
-                                shrinkWrap: true,
-                                clipBehavior: Clip.none,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
+                            : Scrollbar(
+                                controller: _scrollController,
+                                thumbVisibility: true,
+                                thickness: 3,
+                                radius: const Radius.circular(2),
+                                child: ListView.builder(
+                                  controller: _scrollController,
+                                  shrinkWrap: true,
+                                  clipBehavior: Clip.none,
+                                  padding: const EdgeInsets.only(right: 12),
+                                  itemCount: results.length,
+                                  itemBuilder: (context, index) {
+                                    final entry = results[index];
+                                    return _Ps5SearchResultRow(
+                                      entry: entry,
+                                      onPressed: () => widget.onSelected(entry),
+                                    );
+                                  },
                                 ),
-                                itemCount: results.length,
-                                itemBuilder: (context, index) {
-                                  final entry = results[index];
-                                  return _Ps5SearchResultRow(
-                                    entry: entry,
-                                    onPressed: () => widget.onSelected(entry),
-                                  );
-                                },
                               ),
                       ),
                     ],
@@ -1540,6 +1625,18 @@ class _Ps5SearchFieldState extends State<_Ps5SearchField> {
     if (mounted) setState(() {});
   }
 
+  Future<void> _openKeyboard() async {
+    final result = await showPs5OnScreenKeyboard(
+      context,
+      title: 'Search games',
+      initialValue: widget.controller.text,
+      hintText: 'Search games',
+    );
+    if (!mounted || result == null) return;
+    widget.controller.text = result;
+    widget.onChanged(result);
+  }
+
   @override
   void dispose() {
     _focusNode
@@ -1551,43 +1648,68 @@ class _Ps5SearchFieldState extends State<_Ps5SearchField> {
   @override
   Widget build(BuildContext context) {
     final focused = _focusNode.hasFocus;
-    return Stack(
-      children: [
-        TextField(
-          controller: widget.controller,
-          focusNode: _focusNode,
-          autofocus: true,
-          onChanged: widget.onChanged,
-          style: const TextStyle(color: Ps5Colors.text, fontSize: 20),
-          cursorColor: Ps5Colors.accent,
-          decoration: InputDecoration(
-            hintText: 'Search games',
-            hintStyle: const TextStyle(color: Ps5Colors.textMuted),
-            prefixIcon: const Icon(
-              Icons.search_rounded,
-              color: Ps5Colors.textMuted,
-            ),
-            filled: true,
-            fillColor: focused
-                ? const Color(0xB51B222D)
-                : const Color(0x99101620),
-            border: const OutlineInputBorder(borderSide: BorderSide.none),
-            enabledBorder: const OutlineInputBorder(
-              borderSide: BorderSide(color: Color(0xFF50555D)),
-            ),
-            focusedBorder: const OutlineInputBorder(
-              borderSide: BorderSide(color: Color(0xFF666B73)),
-            ),
+    return Shortcuts(
+      shortcuts: const {
+        SingleActivator(LogicalKeyboardKey.enter): ActivateIntent(),
+        SingleActivator(LogicalKeyboardKey.numpadEnter): ActivateIntent(),
+        SingleActivator(LogicalKeyboardKey.space): ActivateIntent(),
+        SingleActivator(LogicalKeyboardKey.gameButtonA): ActivateIntent(),
+        SingleActivator(LogicalKeyboardKey.gameButton8): ActivateIntent(),
+      },
+      child: Actions(
+        actions: {
+          ActivateIntent: CallbackAction<ActivateIntent>(
+            onInvoke: (_) {
+              unawaited(_openKeyboard());
+              return null;
+            },
           ),
+        },
+        child: Stack(
+          children: [
+            TextField(
+              controller: widget.controller,
+              focusNode: _focusNode,
+              autofocus: true,
+              readOnly: true,
+              onTap: () => unawaited(_openKeyboard()),
+              style: const TextStyle(color: Ps5Colors.text, fontSize: 20),
+              cursorColor: Ps5Colors.accent,
+              decoration: InputDecoration(
+                hintText: 'Search games',
+                hintStyle: const TextStyle(color: Ps5Colors.textMuted),
+                prefixIcon: const Icon(
+                  Icons.search_rounded,
+                  color: Ps5Colors.textMuted,
+                ),
+                filled: true,
+                fillColor: focused
+                    ? const Color(0xB51B222D)
+                    : const Color(0x99101620),
+                border: const OutlineInputBorder(
+                  borderRadius: BorderRadius.all(Radius.circular(1)),
+                  borderSide: BorderSide.none,
+                ),
+                enabledBorder: const OutlineInputBorder(
+                  borderRadius: BorderRadius.all(Radius.circular(1)),
+                  borderSide: BorderSide.none,
+                ),
+                focusedBorder: const OutlineInputBorder(
+                  borderRadius: BorderRadius.all(Radius.circular(1)),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+            ),
+            Positioned.fill(
+              child: Ps5AnimatedFocusBorder(
+                active: focused,
+                borderRadius: 1,
+                strokeWidth: 1.7,
+              ),
+            ),
+          ],
         ),
-        Positioned.fill(
-          child: Ps5AnimatedFocusBorder(
-            active: focused,
-            borderRadius: 1,
-            strokeWidth: 1.7,
-          ),
-        ),
-      ],
+      ),
     );
   }
 }
@@ -1714,51 +1836,28 @@ class _Ps5SearchResultRowState extends State<_Ps5SearchResultRow> {
   }
 }
 
-class _AddGameTile extends StatefulWidget {
+class _AddGameTile extends StatelessWidget {
   const _AddGameTile({
     required this.selected,
     required this.autofocus,
     required this.onFocus,
     required this.onPressed,
+    required this.onTap,
   });
 
   final bool selected;
   final bool autofocus;
   final VoidCallback onFocus;
   final VoidCallback onPressed;
-
-  @override
-  State<_AddGameTile> createState() => _AddGameTileState();
-}
-
-class _AddGameTileState extends State<_AddGameTile> {
-  Timer? _hoverTimer;
-
-  @override
-  void dispose() {
-    _hoverTimer?.cancel();
-    super.dispose();
-  }
-
-  void _scheduleHoverSelection() {
-    _hoverTimer?.cancel();
-    _hoverTimer = Timer(const Duration(milliseconds: 260), () {
-      if (mounted) widget.onFocus();
-    });
-  }
-
-  void _cancelHoverSelection() {
-    _hoverTimer?.cancel();
-    _hoverTimer = null;
-  }
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final active = widget.selected;
+    final active = selected;
     return FocusableActionDetector(
-      autofocus: widget.autofocus,
+      autofocus: autofocus,
       onFocusChange: (value) {
-        if (value) widget.onFocus();
+        if (value) onFocus();
       },
       shortcuts: const {
         SingleActivator(LogicalKeyboardKey.enter): ActivateIntent(),
@@ -1770,7 +1869,7 @@ class _AddGameTileState extends State<_AddGameTile> {
       actions: {
         ActivateIntent: CallbackAction<ActivateIntent>(
           onInvoke: (_) {
-            widget.onPressed();
+            onPressed();
             return null;
           },
         ),
@@ -1778,19 +1877,19 @@ class _AddGameTileState extends State<_AddGameTile> {
       child: AnimatedScale(
         scale: active ? _Ps5LibraryPageState._selectedTileScale : 1,
         alignment: Alignment.topCenter,
-        duration: const Duration(milliseconds: 260),
+        duration: const Duration(milliseconds: 340),
         curve: Curves.easeOutBack,
         child: MouseRegion(
-          onEnter: (_) => _scheduleHoverSelection(),
-          onExit: (_) => _cancelHoverSelection(),
-          child: SizedBox.square(
-            dimension: _Ps5LibraryPageState._carouselTileSize,
-            child: Ps5FocusFrame(
-              selected: active,
-              child: Material(
-                color: Ps5Colors.backgroundRaised.withValues(alpha: 0.66),
-                child: InkWell(
-                  onTap: widget.onPressed,
+          onEnter: (_) => onFocus(),
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: onTap,
+            child: SizedBox.square(
+              dimension: _Ps5LibraryPageState._carouselTileSize,
+              child: Ps5FocusFrame(
+                selected: active,
+                child: Material(
+                  color: Ps5Colors.backgroundRaised.withValues(alpha: 0.66),
                   child: Center(
                     child: Icon(
                       Icons.add_rounded,
@@ -1808,7 +1907,7 @@ class _AddGameTileState extends State<_AddGameTile> {
   }
 }
 
-class _GameTile extends StatefulWidget {
+class _GameTile extends StatelessWidget {
   const _GameTile({
     super.key,
     required this.entry,
@@ -1816,6 +1915,7 @@ class _GameTile extends StatefulWidget {
     required this.autofocus,
     required this.onFocus,
     required this.onOpen,
+    required this.onTap,
   });
 
   final GameEntry entry;
@@ -1823,39 +1923,15 @@ class _GameTile extends StatefulWidget {
   final bool autofocus;
   final VoidCallback onFocus;
   final VoidCallback onOpen;
-
-  @override
-  State<_GameTile> createState() => _GameTileState();
-}
-
-class _GameTileState extends State<_GameTile> {
-  Timer? _hoverTimer;
-
-  @override
-  void dispose() {
-    _hoverTimer?.cancel();
-    super.dispose();
-  }
-
-  void _scheduleHoverSelection() {
-    _hoverTimer?.cancel();
-    _hoverTimer = Timer(const Duration(milliseconds: 260), () {
-      if (mounted) widget.onFocus();
-    });
-  }
-
-  void _cancelHoverSelection() {
-    _hoverTimer?.cancel();
-    _hoverTimer = null;
-  }
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final active = widget.selected;
+    final active = selected;
     return FocusableActionDetector(
-      autofocus: widget.autofocus,
+      autofocus: autofocus,
       onFocusChange: (value) {
-        if (value) widget.onFocus();
+        if (value) onFocus();
       },
       shortcuts: const {
         SingleActivator(LogicalKeyboardKey.enter): ActivateIntent(),
@@ -1867,25 +1943,28 @@ class _GameTileState extends State<_GameTile> {
       actions: {
         ActivateIntent: CallbackAction<ActivateIntent>(
           onInvoke: (_) {
-            widget.onOpen();
+            onOpen();
             return null;
           },
         ),
       },
       child: AnimatedScale(
-        key: ValueKey('ps5-game-tile-${widget.entry.path}'),
+        key: ValueKey('ps5-game-tile-${entry.path}'),
         scale: active ? _Ps5LibraryPageState._selectedTileScale : 1,
         alignment: Alignment.topCenter,
-        duration: const Duration(milliseconds: 260),
+        duration: const Duration(milliseconds: 340),
         curve: Curves.easeOutBack,
         child: MouseRegion(
-          onEnter: (_) => _scheduleHoverSelection(),
-          onExit: (_) => _cancelHoverSelection(),
-          child: SizedBox.square(
-            dimension: _Ps5LibraryPageState._carouselTileSize,
-            child: Ps5FocusFrame(
-              selected: active,
-              child: _CoverArt(entry: widget.entry),
+          onEnter: (_) => onFocus(),
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: onTap,
+            child: SizedBox.square(
+              dimension: _Ps5LibraryPageState._carouselTileSize,
+              child: Ps5FocusFrame(
+                selected: active,
+                child: _CoverArt(entry: entry),
+              ),
             ),
           ),
         ),
@@ -1966,40 +2045,6 @@ class _CoverFallback extends StatelessWidget {
   }
 }
 
-class _MetaChip extends StatelessWidget {
-  const _MetaChip({required this.icon, required this.label});
-
-  final IconData icon;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: Ps5Colors.backgroundRaised,
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: Ps5Colors.line),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 13, color: Ps5Colors.accent),
-          const SizedBox(width: 6),
-          Text(
-            label,
-            style: const TextStyle(
-              color: Ps5Colors.textMuted,
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 Route<T> _ps5SettingsRoute<T>(Widget page) {
   return PageRouteBuilder<T>(
     opaque: true,
@@ -2031,121 +2076,18 @@ Route<T> _ps5SettingsRoute<T>(Widget page) {
   );
 }
 
-class _Ps5SettingsBackdrop extends StatelessWidget {
-  const _Ps5SettingsBackdrop();
-
-  @override
-  Widget build(BuildContext context) {
-    return const Stack(
-      fit: StackFit.expand,
-      children: [
-        DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [Color(0xFF29272B), Color(0xFF161B25), Color(0xFF080B12)],
-              stops: [0, 0.5, 1],
-            ),
-          ),
-        ),
-        DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: RadialGradient(
-              center: Alignment(-0.82, -0.9),
-              radius: 0.9,
-              colors: [Color(0x3DBDAA9C), Color(0x00161B25)],
-              stops: [0, 1],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _Ps5SettingsFrame extends StatelessWidget {
-  const _Ps5SettingsFrame({
-    required this.title,
-    required this.child,
-    this.showBack = true,
-  });
-
-  final String title;
-  final Widget child;
-  final bool showBack;
-
-  @override
-  Widget build(BuildContext context) {
-    return Focus(
-      autofocus: true,
-      onKeyEvent: (node, event) {
-        if ((event is KeyDownEvent || event is KeyRepeatEvent) &&
-            ps5InputAction(event.logicalKey) == Ps5InputAction.back) {
-          Navigator.of(context).maybePop();
-          return KeyEventResult.handled;
-        }
-        return KeyEventResult.ignored;
-      },
-      child: Scaffold(
-        key: const ValueKey('ps5-settings-screen'),
-        backgroundColor: Colors.transparent,
-        body: Stack(
-          children: [
-            const Positioned.fill(child: _Ps5SettingsBackdrop()),
-            SafeArea(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  SizedBox(
-                    height: 112,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 72),
-                      child: Row(
-                        children: [
-                          if (showBack) ...[
-                            Ps5IconButton(
-                              icon: Icons.arrow_back_rounded,
-                              tooltip: '返回',
-                              onPressed: () => Navigator.of(context).maybePop(),
-                            ),
-                            const SizedBox(width: 20),
-                          ],
-                          Text(
-                            title,
-                            style: const TextStyle(
-                              color: Ps5Colors.text,
-                              fontSize: 34,
-                              fontWeight: FontWeight.w400,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  Expanded(child: child),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 class _Ps5SettingsHome extends StatelessWidget {
   const _Ps5SettingsHome();
 
   void _open(BuildContext context, String title, Widget child) {
     Navigator.of(context).push<void>(
-      _ps5SettingsRoute(_Ps5SettingsFrame(title: title, child: child)),
+      _ps5SettingsRoute(Ps5SettingsFrame(title: title, child: child)),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    return _Ps5SettingsFrame(
+    return Ps5SettingsFrame(
       title: '设置',
       showBack: false,
       child: Align(
@@ -2477,6 +2419,7 @@ class _Ps5SettingsPage extends ConsumerWidget {
                           value: settings.showFps,
                           onChanged: notifier.setShowFps,
                         ),
+                        onPressed: () => notifier.setShowFps(!settings.showFps),
                       ),
                     ],
                   ),
@@ -2491,6 +2434,8 @@ class _Ps5SettingsPage extends ConsumerWidget {
                           value: settings.debugMode,
                           onChanged: notifier.setDebugMode,
                         ),
+                        onPressed: () =>
+                            notifier.setDebugMode(!settings.debugMode),
                       ),
                       Ps5SettingRow(
                         label: '脏区着色',
@@ -2501,6 +2446,11 @@ class _Ps5SettingsPage extends ConsumerWidget {
                               ? notifier.setDamageVisualization
                               : null,
                         ),
+                        onPressed: settings.debugMode
+                            ? () => notifier.setDamageVisualization(
+                                !settings.damageVisualization,
+                              )
+                            : null,
                       ),
                       Ps5SettingRow(
                         label: 'Profiler 浮层',
@@ -2511,6 +2461,11 @@ class _Ps5SettingsPage extends ConsumerWidget {
                               ? notifier.setProfilerOverlay
                               : null,
                         ),
+                        onPressed: settings.debugMode
+                            ? () => notifier.setProfilerOverlay(
+                                !settings.profilerOverlay,
+                              )
+                            : null,
                       ),
                       Ps5SettingRow(
                         label: '调试面板',
@@ -2519,6 +2474,8 @@ class _Ps5SettingsPage extends ConsumerWidget {
                           value: settings.debugOverlay,
                           onChanged: notifier.setDebugOverlay,
                         ),
+                        onPressed: () =>
+                            notifier.setDebugOverlay(!settings.debugOverlay),
                       ),
                       Ps5SettingRow(
                         label: '崩溃与错误上报',
@@ -2526,6 +2483,9 @@ class _Ps5SettingsPage extends ConsumerWidget {
                         control: Ps5Switch(
                           value: settings.crashReportingEnabled,
                           onChanged: notifier.setCrashReportingEnabled,
+                        ),
+                        onPressed: () => notifier.setCrashReportingEnabled(
+                          !settings.crashReportingEnabled,
                         ),
                       ),
                       Ps5SettingRow(
@@ -2799,89 +2759,45 @@ class _Ps5LicensesPageState extends State<_Ps5LicensesPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Ps5Colors.background,
-      body: SafeArea(
-        child: Column(
-          children: [
-            SizedBox(
-              height: 76,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 22),
-                child: Row(
-                  children: [
-                    Ps5IconButton(
-                      icon: Icons.arrow_back_rounded,
-                      tooltip: '返回',
-                      onPressed: () => Navigator.of(context).pop(),
-                    ),
-                    const SizedBox(width: 14),
-                    const Text(
-                      '第三方许可证',
-                      style: TextStyle(
-                        color: Ps5Colors.text,
-                        fontSize: 24,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                ),
+    return Ps5SettingsFrame(
+      title: '第三方许可证',
+      child: FutureBuilder<List<PackageLicenses>>(
+        future: _licenses,
+        builder: (context, snapshot) {
+          if (!snapshot.hasData) {
+            return const Center(
+              child: CircularProgressIndicator(
+                color: Ps5Colors.accent,
+                strokeWidth: 2.4,
               ),
-            ),
-            const Divider(height: 1, color: Ps5Colors.line),
-            Expanded(
-              child: FutureBuilder<List<PackageLicenses>>(
-                future: _licenses,
-                builder: (context, snapshot) {
-                  if (!snapshot.hasData) {
-                    return const Center(
-                      child: CircularProgressIndicator(
-                        color: Ps5Colors.accent,
-                        strokeWidth: 2.4,
-                      ),
-                    );
-                  }
-                  final packages = snapshot.data!;
-                  return ListView.separated(
-                    padding: const EdgeInsets.fromLTRB(10, 6, 10, 20),
-                    itemCount: packages.length,
-                    separatorBuilder: (context, index) => const Divider(
-                      height: 1,
-                      thickness: 0.6,
-                      color: Ps5Colors.line,
-                    ),
-                    itemBuilder: (context, index) {
-                      final package = packages[index];
-                      return ListTile(
-                        onTap: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute<void>(
-                              builder: (_) =>
-                                  _LicenseDetailPage(package: package),
-                            ),
-                          );
-                        },
-                        leading: const Icon(
-                          Icons.inventory_2_outlined,
-                          color: Ps5Colors.accent,
-                        ),
-                        title: Text(
-                          package.package,
-                          style: const TextStyle(
-                            color: Ps5Colors.text,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        subtitle: Text(
-                          '${package.licenses.length} 项授权',
-                          style: const TextStyle(
-                            color: Ps5Colors.textMuted,
-                            fontSize: 12,
-                          ),
-                        ),
-                        trailing: const Icon(
-                          Icons.chevron_right_rounded,
-                          color: Ps5Colors.textMuted,
+            );
+          }
+          final packages = snapshot.data!;
+          return Align(
+            alignment: Alignment.topCenter,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 1200),
+              child: ListView.separated(
+                padding: const EdgeInsets.fromLTRB(48, 10, 48, 72),
+                itemCount: packages.length,
+                separatorBuilder: (context, index) => const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 20),
+                  child: Divider(
+                    height: 1,
+                    thickness: 0.6,
+                    color: Ps5Colors.line,
+                  ),
+                ),
+                itemBuilder: (context, index) {
+                  final package = packages[index];
+                  return Ps5SettingRow(
+                    label: package.package,
+                    caption: '${package.licenses.length} 项授权',
+                    trailing: '查看',
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        _ps5SettingsRoute<void>(
+                          _LicenseDetailPage(package: package),
                         ),
                       );
                     },
@@ -2889,8 +2805,8 @@ class _Ps5LicensesPageState extends State<_Ps5LicensesPage> {
                 },
               ),
             ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
@@ -2903,61 +2819,24 @@ class _LicenseDetailPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Ps5Colors.background,
-      body: SafeArea(
-        child: Column(
+    return Ps5SettingsFrame(
+      title: package.package,
+      child: Scrollbar(
+        thumbVisibility: true,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(72, 10, 72, 72),
           children: [
-            SizedBox(
-              height: 76,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 22),
-                child: Row(
-                  children: [
-                    Ps5IconButton(
-                      icon: Icons.arrow_back_rounded,
-                      tooltip: '返回',
-                      onPressed: () => Navigator.of(context).pop(),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Text(
-                        package.package,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Ps5Colors.text,
-                          fontSize: 21,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                  ],
+            for (final paragraphs in package.licenses) ...[
+              SelectableText(
+                licenseText(paragraphs),
+                style: const TextStyle(
+                  color: Ps5Colors.textMuted,
+                  fontSize: 13,
+                  height: 1.6,
                 ),
               ),
-            ),
-            const Divider(height: 1, color: Ps5Colors.line),
-            Expanded(
-              child: Scrollbar(
-                thumbVisibility: true,
-                child: ListView(
-                  padding: const EdgeInsets.fromLTRB(26, 22, 26, 40),
-                  children: [
-                    for (final paragraphs in package.licenses) ...[
-                      SelectableText(
-                        licenseText(paragraphs),
-                        style: const TextStyle(
-                          color: Ps5Colors.textMuted,
-                          fontSize: 12,
-                          height: 1.55,
-                        ),
-                      ),
-                      const SizedBox(height: 28),
-                    ],
-                  ],
-                ),
-              ),
-            ),
+              const SizedBox(height: 28),
+            ],
           ],
         ),
       ),

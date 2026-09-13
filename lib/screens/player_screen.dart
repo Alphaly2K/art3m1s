@@ -9,8 +9,10 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 
 import '../controllers/mobile_touchpad.dart';
+import '../controllers/ps5_input.dart';
 import '../controllers/two_finger_gesture.dart';
 import '../controllers/wheel_input.dart';
+import '../adaptive/ps5_chrome.dart';
 import '../engine/engine_runtime.dart';
 import '../engine/engine_runtime_factory.dart';
 import '../models/game_engine.dart';
@@ -27,6 +29,7 @@ import '../widgets/engine_dialog.dart';
 import '../widgets/mobile_game_cursor.dart';
 import '../widgets/mobile_touchpad_surface.dart';
 import '../widgets/player_hud.dart';
+import '../widgets/ps5_player_menu.dart';
 import '../widgets/profiler_overlay.dart';
 
 class PlayerScreen extends ConsumerStatefulWidget {
@@ -121,6 +124,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   bool _profilerEnabled = false;
   bool _appActive = true;
   bool _gameLoopStarted = false;
+  bool _ps5MenuOpen = false;
   final Stopwatch _frameClock = Stopwatch();
   int _nextFrameUs = 0;
   int _frameIndex = 0;
@@ -511,6 +515,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         _gameLoopStarted &&
         !_closing &&
         _appActive &&
+        !_ps5MenuOpen &&
         !_bridge.media.isFullscreenVideoBlocking;
     if (shouldRun) {
       if (_gameTicker.isActive) return;
@@ -579,6 +584,18 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       return;
     }
     if (pixels != null && mounted) {
+      // KRKR 等后端的内容尺寸会随游戏进程变化（例如标题菜单出现后窗口
+      // 内容从 957 变为 958）。解码必须始终使用当前帧尺寸，否则
+      // decodeImageFromPixels 因长度不符抛异常，_frameInFlight 卡死。
+      final frameW = _bridge.stageWidth;
+      final frameH = _bridge.stageHeight;
+      if (frameW > 0 &&
+          frameH > 0 &&
+          (frameW != _stageW || frameH != _stageH)) {
+        _stageW = frameW;
+        _stageH = frameH;
+        _touchpadPointer.updateStageSize(frameW, frameH);
+      }
       _decodeFrame(pixels);
     } else {
       _frameInFlight = false;
@@ -625,20 +642,26 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     }
     final w = _stageW;
     final h = _stageH;
-    ui.decodeImageFromPixels(pixels, w, h, ui.PixelFormat.rgba8888, (image) {
-      try {
-        if (!mounted) {
-          image.dispose();
-          return;
+    try {
+      ui.decodeImageFromPixels(pixels, w, h, ui.PixelFormat.rgba8888, (image) {
+        try {
+          if (!mounted) {
+            image.dispose();
+            return;
+          }
+          final old = _frameImage;
+          _frameImage = image;
+          old?.dispose();
+          setState(() {});
+        } finally {
+          _frameInFlight = false;
         }
-        final old = _frameImage;
-        _frameImage = image;
-        old?.dispose();
-        setState(() {});
-      } finally {
-        _frameInFlight = false;
-      }
-    });
+      });
+    } catch (error) {
+      // 帧尺寸与缓冲区不符等解码前置错误不能卡死帧循环
+      _frameInFlight = false;
+      Log.warn('[PlayerScreen] frame decode rejected: $error');
+    }
   }
 
   @override
@@ -700,6 +723,19 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     });
   }
 
+  void _setPs5MenuOpen(bool open) {
+    if (_ps5MenuOpen == open || _closing) return;
+    _endTouchpadDrag();
+    _releasePointerButtons();
+    setState(() => _ps5MenuOpen = open);
+    _syncGameTicker();
+    if (!open) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && !_closing) _gameFocusNode.requestFocus();
+      });
+    }
+  }
+
   void _onKeyboardInput() {
     final text = _keyboardCtrl.text;
     if (text == _keyboardLast) return;
@@ -734,6 +770,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
   @override
   Widget build(BuildContext context) {
+    final ps5BigScreen = usesPs5Chrome(context);
     final showFps = ref.watch(settingsProvider.select((s) => s.showFps));
     final showProfiler = ref.watch(
       settingsProvider.select((s) => s.debugMode && s.profilerOverlay),
@@ -753,26 +790,39 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         children: [
           if ((_sharedTextureReady && _bridge.sharedTextureId != null) ||
               _frameImage != null)
-            _buildCursorAwareGameView()
+            ExcludeFocus(
+              excluding: _ps5MenuOpen,
+              child: _buildCursorAwareGameView(),
+            )
           else
             const Center(child: CircularProgressIndicator()),
           _buildVideoLayer(),
           if (showFps) _buildFpsDisplay(),
           if (showProfiler) ProfilerOverlay(snapshot: _profilerNotifier),
-          PlayerHud(
-            title: widget.projectPath.split(RegExp(r'[/\\]')).last,
-            showFps: showFps,
-            keyboardShown: _keyboardShown,
-            touchpadEnabled: touchpadEnabled,
-            showTouchpadToggle: Platform.isAndroid || Platform.isIOS,
-            showKeyboardToggle: Platform.isAndroid || Platform.isIOS,
-            onShowFpsChanged: (value) =>
-                ref.read(settingsProvider.notifier).setShowFps(value),
-            onToggleKeyboard: _toggleKeyboard,
-            onTouchpadChanged: _setTouchpadEnabled,
-            onExit: _closePlayer,
-          ),
+          if (!ps5BigScreen)
+            PlayerHud(
+              title: widget.projectPath.split(RegExp(r'[/\\]')).last,
+              showFps: showFps,
+              keyboardShown: _keyboardShown,
+              touchpadEnabled: touchpadEnabled,
+              showTouchpadToggle: Platform.isAndroid || Platform.isIOS,
+              showKeyboardToggle: Platform.isAndroid || Platform.isIOS,
+              onShowFpsChanged: (value) =>
+                  ref.read(settingsProvider.notifier).setShowFps(value),
+              onToggleKeyboard: _toggleKeyboard,
+              onTouchpadChanged: _setTouchpadEnabled,
+              onExit: _closePlayer,
+            ),
           _buildHiddenKeyboard(),
+          if (ps5BigScreen && _ps5MenuOpen)
+            Ps5PlayerMenu(
+              title: widget.projectPath.split(RegExp(r'[/\\]')).last,
+              showFps: showFps,
+              onShowFpsChanged: (value) =>
+                  ref.read(settingsProvider.notifier).setShowFps(value),
+              onResume: () => _setPs5MenuOpen(false),
+              onExit: _closePlayer,
+            ),
           _buildAvoidOverlay(),
         ],
       ),
@@ -1218,14 +1268,26 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     _wheelInput.addScrollDelta(event.scrollDelta.dy);
   }
 
-  void _handleKeyEvent(KeyEvent event) {
+  KeyEventResult _handleKeyEvent(KeyEvent event) {
+    final isPs5 = usesPs5Chrome(context);
+    final opensPs5Menu =
+        isPs5 &&
+        (event.logicalKey == LogicalKeyboardKey.escape ||
+            ps5InputAction(event.logicalKey) == Ps5InputAction.menu);
+    if (opensPs5Menu) {
+      if (event is KeyDownEvent) _setPs5MenuOpen(!_ps5MenuOpen);
+      return KeyEventResult.handled;
+    }
+    if (_ps5MenuOpen) return KeyEventResult.handled;
+
     final vk = _virtualKey(event.logicalKey);
-    if (vk == null) return;
+    if (vk == null) return KeyEventResult.ignored;
     if (event is KeyDownEvent || event is KeyRepeatEvent) {
       _bridge.feedKey(vk, true);
     } else if (event is KeyUpEvent) {
       _bridge.feedKey(vk, false);
     }
+    return KeyEventResult.handled;
   }
 
   int? _virtualKey(LogicalKeyboardKey key) {

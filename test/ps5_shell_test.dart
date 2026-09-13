@@ -140,7 +140,7 @@ void main() {
     await tester.tapAt(const Offset(1500, 900));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 220));
-    await tester.tap(find.byType(Ps5GameLibraryGlyph));
+    await tester.tap(find.text('Games'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 450));
     await tester.tap(find.byTooltip('设置'));
@@ -153,6 +153,95 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 450));
     expect(find.text('Flutter App'), findsOneWidget);
+  });
+
+  testWidgets('Esc never exits big screen; gamepad B exits only at home', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    await tester.binding.setSurfaceSize(const Size(1600, 1000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    var exitCalls = 0;
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          libraryProvider.overrideWith(
+            (ref) => _FakeLibraryNotifier([
+              GameEntry(
+                name: 'Library sample',
+                path: '/tmp/library-sample',
+                source: GameSource.directory,
+                engine: GameEngineKind.art3m1s,
+                addedAt: DateTime(2026, 9, 13),
+              ),
+            ]),
+          ),
+        ],
+        child: Ps5ShellApp(
+          onExitBigScreen: () async {
+            exitCalls++;
+            return true;
+          },
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 2100));
+
+    // 首页按 Esc：不退出。
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(exitCalls, 0);
+
+    // 三点菜单打开时按 B：关闭菜单，不退出。
+    await tester.tap(find.byTooltip('项目操作'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 260));
+    expect(find.byKey(const ValueKey('ps5-list-menu')), findsOneWidget);
+    await tester.sendKeyEvent(LogicalKeyboardKey.gameButtonB);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 260));
+    expect(exitCalls, 0);
+    expect(find.byKey(const ValueKey('ps5-list-menu')), findsNothing);
+
+    // 三点菜单打开时按 Esc：关闭菜单，不退出。
+    await tester.tap(find.byTooltip('项目操作'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 260));
+    expect(find.byKey(const ValueKey('ps5-list-menu')), findsOneWidget);
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 260));
+    expect(exitCalls, 0);
+    expect(find.byKey(const ValueKey('ps5-list-menu')), findsNothing);
+
+    // 设置页打开时按 Esc：关闭设置页，不退出大屏。
+    await tester.tap(find.byTooltip('设置'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 450));
+    expect(find.byKey(const ValueKey('ps5-settings-screen')), findsOneWidget);
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 450));
+    expect(exitCalls, 0);
+    expect(find.byKey(const ValueKey('ps5-settings-screen')), findsNothing);
+
+    // 设置页打开时按手柄 B：关闭设置页，不退出大屏。
+    await tester.tap(find.byTooltip('设置'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 450));
+    expect(find.byKey(const ValueKey('ps5-settings-screen')), findsOneWidget);
+    await tester.sendKeyEvent(LogicalKeyboardKey.gameButtonB);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 450));
+    expect(exitCalls, 0);
+    expect(find.byKey(const ValueKey('ps5-settings-screen')), findsNothing);
+
+    // 首页按手柄 B：退出大屏。
+    await tester.sendKeyEvent(LogicalKeyboardKey.gameButtonB);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(exitCalls, 1);
   });
 }
 

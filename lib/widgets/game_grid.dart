@@ -171,8 +171,7 @@ String _relativeTime(DateTime t) {
   return '${t.year}/${t.month}/${t.day}';
 }
 
-String _sourceLabel(GameEntry entry) =>
-    entry.source == GameSource.pfsArchive ? 'PFS' : '目录';
+String _engineLabel(GameEntry entry) => entry.engine.label;
 
 class _HoverActions extends StatelessWidget {
   const _HoverActions({
@@ -316,7 +315,7 @@ class _MaterialGameCardState extends State<_MaterialGameCard> {
                     const SizedBox(height: 4),
                     Text(
                       [
-                        _sourceLabel(widget.entry),
+                        _engineLabel(widget.entry),
                         if (widget.entry.lastPlayedAt != null)
                           _relativeTime(widget.entry.lastPlayedAt!),
                       ].join(' · '),
@@ -398,7 +397,7 @@ class _MiuixGameCard extends StatelessWidget {
                 const SizedBox(height: 4),
                 MiuixText(
                   [
-                    _sourceLabel(entry),
+                    _engineLabel(entry),
                     if (entry.lastPlayedAt != null)
                       _relativeTime(entry.lastPlayedAt!),
                   ].join(' · '),
@@ -495,7 +494,7 @@ class _CupertinoGameCard extends StatelessWidget {
                     const SizedBox(height: 3),
                     Text(
                       [
-                        _sourceLabel(entry),
+                        _engineLabel(entry),
                         if (entry.lastPlayedAt != null)
                           _relativeTime(entry.lastPlayedAt!),
                       ].join(' · '),
@@ -614,7 +613,7 @@ class _MacosGameCardState extends State<_MacosGameCard> {
                     const SizedBox(height: 2),
                     Text(
                       [
-                        _sourceLabel(widget.entry),
+                        _engineLabel(widget.entry),
                         if (widget.entry.lastPlayedAt != null)
                           _relativeTime(widget.entry.lastPlayedAt!),
                       ].join(' · '),
@@ -715,7 +714,7 @@ class _FluentGameCardState extends State<_FluentGameCard> {
                         const SizedBox(height: 4),
                         Text(
                           [
-                            _sourceLabel(widget.entry),
+                            _engineLabel(widget.entry),
                             if (widget.entry.lastPlayedAt != null)
                               _relativeTime(widget.entry.lastPlayedAt!),
                           ].join(' · '),

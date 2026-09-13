@@ -339,8 +339,7 @@ class _Ps5FilePickerDialogState extends State<Ps5FilePickerDialog> {
           focusNode: _focusNode,
           autofocus: true,
           onKeyEvent: _onKey,
-          child: Ps5Panel(
-            opaque: true,
+          child: Ps5MenuPanel(
             child: Column(
               children: [
                 _PickerHeader(
@@ -348,7 +347,7 @@ class _Ps5FilePickerDialogState extends State<Ps5FilePickerDialog> {
                   currentPath: _currentPath,
                   onClose: () => Navigator.of(context).pop(),
                 ),
-                const Divider(height: 1, color: Ps5Colors.line),
+                const Divider(height: 1, color: Color(0x32FFFFFF)),
                 Expanded(
                   child: Row(
                     children: [
@@ -357,7 +356,7 @@ class _Ps5FilePickerDialogState extends State<Ps5FilePickerDialog> {
                         currentPath: _currentPath,
                         onOpen: _open,
                       ),
-                      const VerticalDivider(width: 1, color: Ps5Colors.line),
+                      const VerticalDivider(width: 1, color: Color(0x32FFFFFF)),
                       Expanded(
                         child: Column(
                           children: [
@@ -381,7 +380,7 @@ class _Ps5FilePickerDialogState extends State<Ps5FilePickerDialog> {
                     ],
                   ),
                 ),
-                const Divider(height: 1, color: Ps5Colors.line),
+                const Divider(height: 1, color: Color(0x32FFFFFF)),
                 _PickerFooter(
                   selection: _selectedPath,
                   selectionIsDirectory:
@@ -553,10 +552,12 @@ class _PickerRoots extends StatelessWidget {
   bool _sameOrInside(String path, String root) {
     final normalizedPath = path.replaceAll('\\', '/').toLowerCase();
     final normalizedRoot = root.replaceAll('\\', '/').toLowerCase();
-    return normalizedPath == normalizedRoot ||
-        normalizedPath.startsWith(
-          normalizedRoot.endsWith('/') ? normalizedRoot : '$normalizedRoot/',
-        );
+    if (normalizedPath == normalizedRoot) return true;
+    // 根目录 '/' 是所有路径的前缀，只应在恰好位于根目录时高亮。
+    if (normalizedRoot == '/') return false;
+    return normalizedPath.startsWith(
+      normalizedRoot.endsWith('/') ? normalizedRoot : '$normalizedRoot/',
+    );
   }
 }
 
@@ -576,39 +577,53 @@ class _RootTile extends StatelessWidget {
     final name = _rootDisplayName(directory.path);
     return Padding(
       padding: const EdgeInsets.only(bottom: 5),
-      child: Material(
-        color: selected ? Ps5Colors.accentSoft : Colors.transparent,
-        borderRadius: BorderRadius.circular(7),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(7),
-          hoverColor: Ps5Colors.panelHover,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 11),
-            child: Row(
-              children: [
-                Icon(
-                  _rootIcon(directory.path),
-                  color: selected ? Ps5Colors.accent : Ps5Colors.textMuted,
-                  size: 20,
+      child: Stack(
+        children: [
+          Material(
+            color: selected ? Ps5Colors.menuHighlight : Colors.transparent,
+            borderRadius: BorderRadius.circular(1),
+            child: InkWell(
+              onTap: onTap,
+              borderRadius: BorderRadius.circular(1),
+              hoverColor: Ps5Colors.menuHighlight.withValues(alpha: 0.55),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 11,
+                  vertical: 11,
                 ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: selected ? Ps5Colors.accent : Ps5Colors.text,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
+                child: Row(
+                  children: [
+                    Icon(
+                      _rootIcon(directory.path),
+                      color: selected ? Ps5Colors.text : Ps5Colors.menuMuted,
+                      size: 20,
                     ),
-                  ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Ps5Colors.text,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
           ),
-        ),
+          Positioned.fill(
+            child: Ps5AnimatedFocusBorder(
+              active: selected,
+              borderRadius: 1,
+              strokeWidth: 1.5,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -697,11 +712,11 @@ class _Breadcrumbs extends StatelessWidget {
               ),
             Material(
               color: Colors.transparent,
-              borderRadius: BorderRadius.circular(5),
+              borderRadius: BorderRadius.circular(2),
               child: InkWell(
                 onTap: () => onOpen(crumbs[i].path),
-                borderRadius: BorderRadius.circular(5),
-                hoverColor: Ps5Colors.accentSoft,
+                borderRadius: BorderRadius.circular(2),
+                hoverColor: Ps5Colors.menuHighlight.withValues(alpha: 0.55),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 7,
@@ -742,55 +757,66 @@ class _FileRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 5),
-      child: Material(
-        color: selected ? Ps5Colors.accentSoft : Colors.transparent,
-        borderRadius: BorderRadius.circular(7),
-        child: InkWell(
-          onTap: onTap,
-          onDoubleTap: onActivate,
-          borderRadius: BorderRadius.circular(7),
-          hoverColor: Ps5Colors.panelHover,
-          child: SizedBox(
-            height: 54,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 13),
-              child: Row(
-                children: [
-                  Icon(
-                    entry.isDirectory
-                        ? Icons.folder_rounded
-                        : _fileIcon(entry.name),
-                    color: selected
-                        ? Ps5Colors.accent
-                        : entry.isDirectory
-                        ? const Color(0xFFFFCE5A)
-                        : Ps5Colors.textMuted,
-                    size: 25,
-                  ),
-                  const SizedBox(width: 13),
-                  Expanded(
-                    child: Text(
-                      entry.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: selected ? Ps5Colors.accent : Ps5Colors.text,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
+      child: Stack(
+        children: [
+          Material(
+            color: selected ? Ps5Colors.menuHighlight : Colors.transparent,
+            borderRadius: BorderRadius.circular(1),
+            child: InkWell(
+              onTap: onTap,
+              onDoubleTap: onActivate,
+              borderRadius: BorderRadius.circular(1),
+              hoverColor: Ps5Colors.menuHighlight.withValues(alpha: 0.55),
+              child: SizedBox(
+                height: 54,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 13),
+                  child: Row(
+                    children: [
+                      Icon(
+                        entry.isDirectory
+                            ? Icons.folder_rounded
+                            : _fileIcon(entry.name),
+                        color: entry.isDirectory
+                            ? const Color(0xFFFFCE5A)
+                            : selected
+                            ? Ps5Colors.text
+                            : Ps5Colors.menuMuted,
+                        size: 25,
                       ),
-                    ),
+                      const SizedBox(width: 13),
+                      Expanded(
+                        child: Text(
+                          entry.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Ps5Colors.text,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                      if (entry.isDirectory)
+                        const Icon(
+                          Icons.chevron_right_rounded,
+                          color: Ps5Colors.menuMuted,
+                          size: 20,
+                        ),
+                    ],
                   ),
-                  if (entry.isDirectory)
-                    const Icon(
-                      Icons.chevron_right_rounded,
-                      color: Ps5Colors.textMuted,
-                      size: 20,
-                    ),
-                ],
+                ),
               ),
             ),
           ),
-        ),
+          Positioned.fill(
+            child: Ps5AnimatedFocusBorder(
+              active: selected,
+              borderRadius: 1,
+              strokeWidth: 1.5,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -838,7 +864,6 @@ class _PickerFooter extends StatelessWidget {
             const SizedBox(width: 10),
             Ps5Button(
               primary: true,
-              icon: Icons.check_rounded,
               onPressed: canAccept ? onAccept : null,
               child: Text(acceptLabel),
             ),
