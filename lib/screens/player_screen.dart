@@ -4,21 +4,23 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
+import 'package:window_manager/window_manager.dart';
 
 import '../controllers/mobile_touchpad.dart';
 import '../controllers/ps5_input.dart';
 import '../controllers/two_finger_gesture.dart';
 import '../controllers/wheel_input.dart';
-import '../adaptive/ps5_chrome.dart';
 import '../engine/engine_runtime.dart';
 import '../engine/engine_runtime_factory.dart';
 import '../models/game_engine.dart';
 import '../models/game_entry.dart';
 import '../models/input_gate.dart';
 import '../models/render_output.dart';
+import '../providers/library_provider.dart';
 import '../providers/settings_provider.dart';
 import '../services/app_data_paths.dart';
 import '../services/game_manifest.dart';
@@ -41,6 +43,10 @@ class PlayerScreen extends ConsumerStatefulWidget {
   final String translationPatchPath;
   final bool environmentPatchEnabled;
   final bool experimentalElunaEnabled;
+  final bool ps5BigScreen;
+  final DateTime addedAt;
+  final DateTime? lastPlayedAt;
+  final String? screenshotPath;
 
   /// 输入门控策略（来自资料库条目/项目补丁），默认全放行。
   final InputGatePolicy inputGate;
@@ -69,6 +75,10 @@ class PlayerScreen extends ConsumerStatefulWidget {
     required this.translationPatchPath,
     required this.environmentPatchEnabled,
     required this.experimentalElunaEnabled,
+    this.ps5BigScreen = false,
+    required this.addedAt,
+    this.lastPlayedAt,
+    this.screenshotPath,
     this.inputGate = InputGatePolicy.full,
     this.fontOverridePath = '',
     this.fontOverrideFilePath = '',
@@ -85,6 +95,13 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     with WidgetsBindingObserver, SingleTickerProviderStateMixin {
   late final EngineRuntime _bridge;
   late final Ticker _gameTicker;
+  late final DateTime _sessionStartedAt;
+  late final GlobalKey _gameCaptureKey = GlobalKey(debugLabel: 'game-capture');
+  late String? _latestScreenshotPath = widget.screenshotPath;
+  double _masterVolume = 1;
+  bool _screenshotBusy = false;
+  String? _screenshotMessage;
+  Timer? _screenshotMessageTimer;
   ui.Image? _frameImage;
   bool _sharedTextureReady = false;
   bool _sharedTextureRequested = false;
@@ -137,6 +154,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   void initState() {
     super.initState();
     Log.startRuntimeSession();
+    _sessionStartedAt = DateTime.now();
     _bridge = EngineRuntimeFactory.create(
       engine: widget.engine,
       onDialogRequested: _showEngineDialog,
@@ -673,6 +691,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     _gameTicker.dispose();
     _profilerTimer?.cancel();
     _sharedTextureResizeTimer?.cancel();
+    _screenshotMessageTimer?.cancel();
     if (_profilerEnabled) _bridge.setProfilerEnabled(false);
     _endTouchpadDrag();
     _touchpadCursorPosition.dispose();
@@ -736,6 +755,117 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     }
   }
 
+  Future<void> _captureScreenshot() async {
+    if (_screenshotBusy || _closing) return;
+    setState(() {
+      _screenshotBusy = true;
+      _screenshotMessage = null;
+    });
+    try {
+      final bytes = await _captureGamePng();
+      final directory = await AppDataPaths.screenshotsDirectory();
+      final safeGameId = widget.gameId.replaceAll(
+        RegExp(r'[^A-Za-z0-9._-]'),
+        '_',
+      );
+      final file = File(
+        '${directory.path}${Platform.pathSeparator}'
+        '$safeGameId-${DateTime.now().millisecondsSinceEpoch}.png',
+      );
+      await file.writeAsBytes(bytes, flush: true);
+      await ref
+          .read(libraryProvider.notifier)
+          .setScreenshot(widget.gameId, file.path);
+      if (!mounted || _closing) return;
+      _latestScreenshotPath = file.path;
+      _setScreenshotMessage('截图已保存');
+    } catch (error, stackTrace) {
+      Log.error('[Player] 截图失败: $error\n$stackTrace');
+      if (mounted && !_closing) {
+        _setScreenshotMessage('截图失败');
+      }
+    } finally {
+      if (mounted && !_closing) {
+        setState(() => _screenshotBusy = false);
+      }
+    }
+  }
+
+  Future<Uint8List> _captureGamePng() async {
+    final renderObject = _gameCaptureKey.currentContext?.findRenderObject();
+    if (renderObject is RenderRepaintBoundary) {
+      final pixelRatio = MediaQuery.devicePixelRatioOf(context).clamp(1.0, 2.0);
+      final image = await renderObject.toImage(pixelRatio: pixelRatio);
+      try {
+        final data = await image.toByteData(format: ui.ImageByteFormat.png);
+        if (data != null) {
+          return data.buffer.asUint8List(
+            data.offsetInBytes,
+            data.lengthInBytes,
+          );
+        }
+      } finally {
+        image.dispose();
+      }
+    }
+
+    final frame = _frameImage;
+    if (frame != null) {
+      final data = await frame.toByteData(format: ui.ImageByteFormat.png);
+      if (data != null) {
+        return data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
+      }
+    }
+    throw StateError('当前画面尚未准备好');
+  }
+
+  void _setScreenshotMessage(String message) {
+    _screenshotMessageTimer?.cancel();
+    setState(() => _screenshotMessage = message);
+    _screenshotMessageTimer = Timer(const Duration(seconds: 3), () {
+      if (!mounted || _closing) return;
+      setState(() => _screenshotMessage = null);
+    });
+  }
+
+  void _setMasterVolume(double value) {
+    final volume = value.clamp(0.0, 1.0);
+    setState(() => _masterVolume = volume);
+    _bridge.media.handleEngineAudioCommand(
+      EngineAudioCommand(
+        kind: EngineAudioCommandKind.masterVolume,
+        streamId: 0,
+        id: 'master',
+        channel: 'master',
+        payload: Uint8List(0),
+        volume: volume,
+      ),
+    );
+  }
+
+  bool get _isDesktopPlatform =>
+      Platform.isMacOS || Platform.isWindows || Platform.isLinux;
+
+  Future<void> _exitBigScreenFromPlayer() async {
+    if (_closing) return;
+    if (_isDesktopPlatform) {
+      try {
+        await windowManager.setFullScreen(false);
+      } catch (error) {
+        Log.warn('[Player] 退出大屏模式失败: $error');
+      }
+    }
+    if (mounted) _closePlayer();
+  }
+
+  Future<void> _closeArt3m1s() async {
+    if (_isDesktopPlatform) {
+      await windowManager.close();
+      return;
+    }
+    await SystemNavigator.pop();
+  }
+
   void _onKeyboardInput() {
     final text = _keyboardCtrl.text;
     if (text == _keyboardLast) return;
@@ -770,7 +900,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
   @override
   Widget build(BuildContext context) {
-    final ps5BigScreen = usesPs5Chrome(context);
+    final ps5BigScreen = widget.ps5BigScreen;
     final showFps = ref.watch(settingsProvider.select((s) => s.showFps));
     final showProfiler = ref.watch(
       settingsProvider.select((s) => s.debugMode && s.profilerOverlay),
@@ -784,19 +914,27 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       });
     }
 
-    return Scaffold(
+    final player = Scaffold(
       backgroundColor: Colors.black,
       body: Stack(
         children: [
-          if ((_sharedTextureReady && _bridge.sharedTextureId != null) ||
-              _frameImage != null)
-            ExcludeFocus(
-              excluding: _ps5MenuOpen,
-              child: _buildCursorAwareGameView(),
-            )
-          else
-            const Center(child: CircularProgressIndicator()),
-          _buildVideoLayer(),
+          RepaintBoundary(
+            key: _gameCaptureKey,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                if ((_sharedTextureReady && _bridge.sharedTextureId != null) ||
+                    _frameImage != null)
+                  ExcludeFocus(
+                    excluding: _ps5MenuOpen,
+                    child: _buildCursorAwareGameView(),
+                  )
+                else
+                  const Center(child: CircularProgressIndicator()),
+                _buildVideoLayer(),
+              ],
+            ),
+          ),
           if (showFps) _buildFpsDisplay(),
           if (showProfiler) ProfilerOverlay(snapshot: _profilerNotifier),
           if (!ps5BigScreen)
@@ -818,14 +956,35 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
             Ps5PlayerMenu(
               title: widget.projectPath.split(RegExp(r'[/\\]')).last,
               showFps: showFps,
+              addedAt: widget.addedAt,
+              lastPlayedAt: widget.lastPlayedAt,
+              sessionStartedAt: _sessionStartedAt,
+              engineLabel: widget.engine.label,
+              sourceLabel: widget.source == GameSource.directory
+                  ? '工程目录'
+                  : 'PFS 归档',
+              screenshotPath: _latestScreenshotPath,
+              screenshotBusy: _screenshotBusy,
+              screenshotMessage: _screenshotMessage,
+              masterVolume: _masterVolume,
               onShowFpsChanged: (value) =>
                   ref.read(settingsProvider.notifier).setShowFps(value),
               onResume: () => _setPs5MenuOpen(false),
               onExit: _closePlayer,
+              onScreenshot: _captureScreenshot,
+              onVolumeChanged: _setMasterVolume,
+              onExitBigScreen: _exitBigScreenFromPlayer,
+              onCloseApp: _closeArt3m1s,
             ),
           _buildAvoidOverlay(),
         ],
       ),
+    );
+    if (!ps5BigScreen) return player;
+    // 大屏游戏内只允许通过菜单或引擎退出；避免 Esc/系统返回意外弹出播放器。
+    return Ps5PlayerRouteGuard(
+      onToggleMenu: () => _setPs5MenuOpen(!_ps5MenuOpen),
+      child: player,
     );
   }
 
@@ -1269,16 +1428,25 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   }
 
   KeyEventResult _handleKeyEvent(KeyEvent event) {
-    final isPs5 = usesPs5Chrome(context);
-    final opensPs5Menu =
-        isPs5 &&
-        (event.logicalKey == LogicalKeyboardKey.escape ||
-            ps5InputAction(event.logicalKey) == Ps5InputAction.menu);
-    if (opensPs5Menu) {
-      if (event is KeyDownEvent) _setPs5MenuOpen(!_ps5MenuOpen);
-      return KeyEventResult.handled;
+    if (widget.ps5BigScreen) {
+      final hardware = HardwareKeyboard.instance;
+      final opensPs5Menu =
+          event.logicalKey == LogicalKeyboardKey.tab &&
+          hardware.isControlPressed &&
+          hardware.isShiftPressed;
+      final gamepadMenu =
+          ps5InputAction(event.logicalKey) == Ps5InputAction.menu;
+      if (opensPs5Menu || gamepadMenu) {
+        return KeyEventResult.ignored;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.escape) {
+        return KeyEventResult.handled;
+      }
     }
-    if (_ps5MenuOpen) return KeyEventResult.handled;
+    if (widget.ps5BigScreen && _ps5MenuOpen) {
+      // 交给 Ps5PlayerRouteGuard 统一处理，避免子节点和路由守卫重复切换。
+      return KeyEventResult.ignored;
+    }
 
     final vk = _virtualKey(event.logicalKey);
     if (vk == null) return KeyEventResult.ignored;

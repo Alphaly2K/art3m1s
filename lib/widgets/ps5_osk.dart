@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../adaptive/ps5_chrome.dart';
+import '../adaptive/ps5_sounds.dart';
 
 /// 弹出 PS5 风格软键盘，返回输入文本；取消（Esc / 手柄 B / 取消键）返回 null。
 Future<String?> showPs5OnScreenKeyboard(
@@ -84,18 +85,31 @@ class _Ps5OnScreenKeyboardState extends State<_Ps5OnScreenKeyboard> {
 
   bool get _numbersOnly => widget.keyboardType == TextInputType.number;
 
-  void _insert(String char) => setState(() => _text += char);
+  void _insert(String char) {
+    Ps5UiSounds.confirm();
+    setState(() => _text += char);
+  }
 
   void _backspace() {
     if (_text.isEmpty) return;
+    Ps5UiSounds.confirm();
     setState(() => _text = _text.substring(0, _text.length - 1));
   }
 
-  void _toggleCase() => setState(() => _uppercase = !_uppercase);
+  void _toggleCase() {
+    Ps5UiSounds.confirm();
+    setState(() => _uppercase = !_uppercase);
+  }
 
-  void _submit() => Navigator.of(context).pop(_text);
+  void _submit() {
+    Ps5UiSounds.confirm();
+    Navigator.of(context).pop(_text);
+  }
 
-  void _cancel() => Navigator.of(context).pop();
+  void _cancel() {
+    Ps5UiSounds.back();
+    Navigator.of(context).pop();
+  }
 
   KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
     if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
@@ -315,7 +329,10 @@ class _OskKeyState extends State<_OskKey> {
         padding: const EdgeInsets.symmetric(horizontal: 3),
         child: FocusableActionDetector(
           autofocus: widget.autofocus,
-          onFocusChange: (value) => setState(() => _focused = value),
+          onFocusChange: (value) {
+            if (value) Ps5UiSounds.tick();
+            setState(() => _focused = value);
+          },
           mouseCursor: SystemMouseCursors.click,
           shortcuts: _activateShortcuts,
           actions: {

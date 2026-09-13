@@ -398,9 +398,12 @@ class _Ps5ListMenuDialogState<T> extends State<_Ps5ListMenuDialog<T>> {
                           enabled: widget.footerEnabled,
                           selected: _leftActive && _footerFocused,
                           onPressed: widget.footerEnabled
-                              ? () => Navigator.of(
-                                  context,
-                                ).pop(Ps5MenuResult<T>(itemId: 'reset'))
+                              ? () {
+                                  Ps5UiSounds.confirm();
+                                  Navigator.of(
+                                    context,
+                                  ).pop(Ps5MenuResult<T>(itemId: 'reset'));
+                                }
                               : null,
                           onHover: widget.footerEnabled
                               ? () {

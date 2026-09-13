@@ -81,6 +81,7 @@ void main() {
         environmentPatchEnabled: true,
         experimentalElunaEnabled: true,
         engine: GameEngineKind.rfvp,
+        screenshotPath: '/screenshots/a1b2c3d4.png',
       );
 
       final restored = GameEntry.fromJson(entry.toJson());
@@ -90,6 +91,7 @@ void main() {
       expect(restored.experimentalElunaEnabled, isTrue);
       expect(restored.engine, GameEngineKind.rfvp);
       expect(restored.id, 'a1b2c3d4');
+      expect(restored.screenshotPath, '/screenshots/a1b2c3d4.png');
     });
 
     test(

@@ -111,6 +111,15 @@ class LibraryNotifier extends StateNotifier<List<GameEntry>> {
     state = _storage.getLibrary();
   }
 
+  Future<void> setScreenshot(String gameId, String screenshotPath) async {
+    final library = _storage.getLibrary();
+    final index = library.indexWhere((entry) => entry.id == gameId);
+    if (index < 0) return;
+    library[index] = library[index].copyWith(screenshotPath: screenshotPath);
+    await _storage.saveLibrary(library);
+    state = library;
+  }
+
   void refresh() {
     state = _storage.getLibrary();
   }

@@ -29,6 +29,10 @@ class AppDataPaths {
     return _ensureChild(await ensureInitialized(), 'covers');
   }
 
+  static Future<Directory> screenshotsDirectory() async {
+    return _ensureChild(await ensureInitialized(), 'screenshots');
+  }
+
   static Future<Directory> fontsDirectory() async {
     return _ensureChild(await ensureInitialized(), 'fonts');
   }

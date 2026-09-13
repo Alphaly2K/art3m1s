@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../adaptive/ps5_chrome.dart';
 import '../adaptive/ps5_menu.dart';
+import '../adaptive/ps5_sounds.dart';
 import '../controllers/library_actions.dart';
 import '../controllers/ps5_input.dart';
 import '../models/game_engine.dart';
@@ -13,9 +14,9 @@ import '../models/game_entry.dart';
 import '../providers/library_provider.dart';
 import '../widgets/ps5_cover_art.dart';
 
-enum GameLibrarySort { mostRecent, purchasedNew, purchasedOld, nameAz, nameZa }
+enum GameLibrarySort { recentlyPlayed, nameAz, nameZa }
 
-enum GameLibraryTab { collection, installed, art3m1s, fvp }
+enum GameLibraryTab { collection, installed, art3m1s, fvp, kirikiri }
 
 enum GameLibraryPlatformFilter { all, art3m1s, rfvp, krkr }
 
@@ -31,8 +32,9 @@ class Ps5GameLibraryPage extends ConsumerStatefulWidget {
 }
 
 class _Ps5GameLibraryPageState extends ConsumerState<Ps5GameLibraryPage> {
+  final GlobalKey _filterButtonKey = GlobalKey();
   GameLibraryTab _tab = GameLibraryTab.collection;
-  GameLibrarySort _sort = GameLibrarySort.mostRecent;
+  GameLibrarySort _sort = GameLibrarySort.recentlyPlayed;
   GameLibraryPlatformFilter _platform = GameLibraryPlatformFilter.all;
   GameLibrarySourceFilter _source = GameLibrarySourceFilter.all;
   int _selectedIndex = 0;
@@ -41,6 +43,12 @@ class _Ps5GameLibraryPageState extends ConsumerState<Ps5GameLibraryPage> {
   bool get _filtersActive =>
       _platform != GameLibraryPlatformFilter.all ||
       _source != GameLibrarySourceFilter.all;
+
+  Rect? _filterAnchor() {
+    final box = _filterButtonKey.currentContext?.findRenderObject();
+    if (box is! RenderBox || !box.hasSize) return null;
+    return box.localToGlobal(Offset.zero) & box.size;
+  }
 
   void _selectTab(GameLibraryTab tab) {
     if (tab == _tab) return;
@@ -52,22 +60,20 @@ class _Ps5GameLibraryPageState extends ConsumerState<Ps5GameLibraryPage> {
   }
 
   String get _sortLabel => switch (_sort) {
-    GameLibrarySort.mostRecent => 'Most Recent',
-    GameLibrarySort.purchasedNew => 'Purchased Date (New - Old)',
-    GameLibrarySort.purchasedOld => 'Purchased Date (Old - New)',
-    GameLibrarySort.nameAz => 'Name (A - Z)',
-    GameLibrarySort.nameZa => 'Name (Z - A)',
+    GameLibrarySort.recentlyPlayed => '最近游玩',
+    GameLibrarySort.nameAz => '名称（A - Z）',
+    GameLibrarySort.nameZa => '名称（Z - A）',
   };
 
   String get _platformLabel => switch (_platform) {
-    GameLibraryPlatformFilter.all => 'All',
+    GameLibraryPlatformFilter.all => '全部',
     GameLibraryPlatformFilter.art3m1s => 'Artemis',
     GameLibraryPlatformFilter.rfvp => 'FVP',
     GameLibraryPlatformFilter.krkr => 'Kirikiri',
   };
 
   String get _sourceLabel => switch (_source) {
-    GameLibrarySourceFilter.all => 'All',
+    GameLibrarySourceFilter.all => '全部',
     GameLibrarySourceFilter.directory => '工程目录',
     GameLibrarySourceFilter.pfs => 'PFS',
   };
@@ -81,6 +87,9 @@ class _Ps5GameLibraryPageState extends ConsumerState<Ps5GameLibraryPage> {
       ),
       GameLibraryTab.fvp => games.where(
         (entry) => entry.engine == GameEngineKind.rfvp,
+      ),
+      GameLibraryTab.kirikiri => games.where(
+        (entry) => entry.engine == GameEngineKind.krkr,
       ),
     };
     games = switch (_platform) {
@@ -108,7 +117,6 @@ class _Ps5GameLibraryPageState extends ConsumerState<Ps5GameLibraryPage> {
     int byName(GameEntry a, GameEntry b) => a.displayNameOrName
         .toLowerCase()
         .compareTo(b.displayNameOrName.toLowerCase());
-    int byAdded(GameEntry a, GameEntry b) => a.addedAt.compareTo(b.addedAt);
     int byRecent(GameEntry a, GameEntry b) {
       final aPlayed = a.lastPlayedAt ?? a.addedAt;
       final bPlayed = b.lastPlayedAt ?? b.addedAt;
@@ -118,9 +126,7 @@ class _Ps5GameLibraryPageState extends ConsumerState<Ps5GameLibraryPage> {
 
     list.sort(
       (a, b) => switch (_sort) {
-        GameLibrarySort.mostRecent => byRecent(a, b),
-        GameLibrarySort.purchasedNew => byAdded(b, a),
-        GameLibrarySort.purchasedOld => byAdded(a, b),
+        GameLibrarySort.recentlyPlayed => byRecent(a, b),
         GameLibrarySort.nameAz => byName(a, b),
         GameLibrarySort.nameZa => byName(b, a),
       },
@@ -131,45 +137,38 @@ class _Ps5GameLibraryPageState extends ConsumerState<Ps5GameLibraryPage> {
   Future<void> _openFilterMenu() async {
     final result = await showPs5ListMenu<Object>(
       context,
+      anchor: _filterAnchor(),
       sections: [
         Ps5MenuSection(
           items: [
             Ps5MenuItem(
               id: 'sort',
-              label: 'Sort by',
+              label: '排序方式',
               trailing: _sortLabel,
               value: _sort,
               choices: const [
                 Ps5MenuChoice(
-                  value: GameLibrarySort.mostRecent,
-                  label: 'Most Recent',
-                ),
-                Ps5MenuChoice(
-                  value: GameLibrarySort.purchasedNew,
-                  label: 'Purchased Date (New - Old)',
-                ),
-                Ps5MenuChoice(
-                  value: GameLibrarySort.purchasedOld,
-                  label: 'Purchased Date (Old - New)',
+                  value: GameLibrarySort.recentlyPlayed,
+                  label: '最近游玩',
                 ),
                 Ps5MenuChoice(
                   value: GameLibrarySort.nameAz,
-                  label: 'Name (A - Z)',
+                  label: '名称（A - Z）',
                 ),
                 Ps5MenuChoice(
                   value: GameLibrarySort.nameZa,
-                  label: 'Name (Z - A)',
+                  label: '名称（Z - A）',
                 ),
               ],
             ),
           ],
         ),
         Ps5MenuSection(
-          title: 'Filters',
+          title: '筛选',
           items: [
             Ps5MenuItem(
               id: 'platform',
-              label: 'Platform',
+              label: '运行引擎',
               trailing: _platform == GameLibraryPlatformFilter.all
                   ? null
                   : _platformLabel,
@@ -177,7 +176,7 @@ class _Ps5GameLibraryPageState extends ConsumerState<Ps5GameLibraryPage> {
               choices: const [
                 Ps5MenuChoice(
                   value: GameLibraryPlatformFilter.all,
-                  label: 'All',
+                  label: '全部',
                 ),
                 Ps5MenuChoice(
                   value: GameLibraryPlatformFilter.art3m1s,
@@ -195,13 +194,13 @@ class _Ps5GameLibraryPageState extends ConsumerState<Ps5GameLibraryPage> {
             ),
             Ps5MenuItem(
               id: 'source',
-              label: 'Source',
+              label: '来源',
               trailing: _source == GameLibrarySourceFilter.all
                   ? null
                   : _sourceLabel,
               value: _source,
               choices: const [
-                Ps5MenuChoice(value: GameLibrarySourceFilter.all, label: 'All'),
+                Ps5MenuChoice(value: GameLibrarySourceFilter.all, label: '全部'),
                 Ps5MenuChoice(
                   value: GameLibrarySourceFilter.directory,
                   label: '工程目录',
@@ -212,7 +211,7 @@ class _Ps5GameLibraryPageState extends ConsumerState<Ps5GameLibraryPage> {
           ],
         ),
       ],
-      footerLabel: 'Reset Filters',
+      footerLabel: '重置筛选',
       footerEnabled: _filtersActive,
     );
     if (!mounted || result == null) return;
@@ -312,6 +311,7 @@ class _Ps5GameLibraryPageState extends ConsumerState<Ps5GameLibraryPage> {
           return KeyEventResult.ignored;
         }
         if (ps5InputAction(event.logicalKey) == Ps5InputAction.back) {
+          Ps5UiSounds.back();
           widget.onClose();
           return KeyEventResult.handled;
         }
@@ -331,10 +331,11 @@ class _Ps5GameLibraryPageState extends ConsumerState<Ps5GameLibraryPage> {
                     const SizedBox(width: 28),
                   _LibraryTab(
                     label: switch (tab) {
-                      GameLibraryTab.collection => 'Your Collection',
-                      GameLibraryTab.installed => 'Installed',
+                      GameLibraryTab.collection => '全部游戏',
+                      GameLibraryTab.installed => '已安装',
                       GameLibraryTab.art3m1s => 'Artemis',
                       GameLibraryTab.fvp => 'FVP',
+                      GameLibraryTab.kirikiri => 'Kirikiri',
                     },
                     selected: _tab == tab,
                     onPressed: () => _selectTab(tab),
@@ -349,7 +350,7 @@ class _Ps5GameLibraryPageState extends ConsumerState<Ps5GameLibraryPage> {
             child: Row(
               children: [
                 Text(
-                  'All: ${games.length}',
+                  '全部：${games.length}',
                   style: const TextStyle(
                     color: Ps5Colors.menuMuted,
                     fontSize: 14,
@@ -357,7 +358,7 @@ class _Ps5GameLibraryPageState extends ConsumerState<Ps5GameLibraryPage> {
                 ),
                 const Spacer(),
                 Text(
-                  'Sort by: $_sortLabel',
+                  '排序：$_sortLabel',
                   style: const TextStyle(
                     color: Ps5Colors.menuMuted,
                     fontSize: 14,
@@ -373,7 +374,10 @@ class _Ps5GameLibraryPageState extends ConsumerState<Ps5GameLibraryPage> {
               children: [
                 Padding(
                   padding: const EdgeInsets.only(left: 28, right: 8, top: 8),
-                  child: _FilterButton(onPressed: _openFilterMenu),
+                  child: _FilterButton(
+                    key: _filterButtonKey,
+                    onPressed: _openFilterMenu,
+                  ),
                 ),
                 Expanded(
                   child: ClipRect(
@@ -416,6 +420,9 @@ class _Ps5GameLibraryPageState extends ConsumerState<Ps5GameLibraryPage> {
                               itemBuilder: (context, index) {
                                 final entry = games[index];
                                 return _LibraryGridTile(
+                                  key: ValueKey(
+                                    'ps5-game-library-tile-${entry.path}',
+                                  ),
                                   entry: entry,
                                   selected: index == _selectedIndex,
                                   autofocus: index == _selectedIndex,
@@ -466,10 +473,7 @@ class _Ps5TabSlide extends StatelessWidget {
         return Stack(
           fit: StackFit.expand,
           clipBehavior: Clip.hardEdge,
-          children: [
-            ...previousChildren,
-            if (currentChild != null) currentChild,
-          ],
+          children: [...previousChildren, ?currentChild],
         );
       },
       transitionBuilder: (child, animation) {
@@ -511,7 +515,10 @@ class _LibraryTabState extends State<_LibraryTab> {
   Widget build(BuildContext context) {
     final active = widget.selected || _focused;
     return FocusableActionDetector(
-      onFocusChange: (value) => setState(() => _focused = value),
+      onFocusChange: (value) {
+        if (value) Ps5UiSounds.tick();
+        setState(() => _focused = value);
+      },
       shortcuts: const {
         SingleActivator(LogicalKeyboardKey.enter): ActivateIntent(),
         SingleActivator(LogicalKeyboardKey.space): ActivateIntent(),
@@ -521,13 +528,17 @@ class _LibraryTabState extends State<_LibraryTab> {
       actions: {
         ActivateIntent: CallbackAction<ActivateIntent>(
           onInvoke: (_) {
+            Ps5UiSounds.confirm();
             widget.onPressed();
             return null;
           },
         ),
       },
       child: GestureDetector(
-        onTap: widget.onPressed,
+        onTap: () {
+          Ps5UiSounds.confirm();
+          widget.onPressed();
+        },
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 180),
           curve: Curves.easeOutCubic,
@@ -555,7 +566,7 @@ class _LibraryTabState extends State<_LibraryTab> {
 }
 
 class _FilterButton extends StatefulWidget {
-  const _FilterButton({required this.onPressed});
+  const _FilterButton({super.key, required this.onPressed});
 
   final VoidCallback onPressed;
 
@@ -569,9 +580,12 @@ class _FilterButtonState extends State<_FilterButton> {
   @override
   Widget build(BuildContext context) {
     return Tooltip(
-      message: 'Sort & Filters',
+      message: '排序与筛选',
       child: FocusableActionDetector(
-        onFocusChange: (value) => setState(() => _focused = value),
+        onFocusChange: (value) {
+          if (value) Ps5UiSounds.tick();
+          setState(() => _focused = value);
+        },
         shortcuts: const {
           SingleActivator(LogicalKeyboardKey.enter): ActivateIntent(),
           SingleActivator(LogicalKeyboardKey.space): ActivateIntent(),
@@ -580,13 +594,17 @@ class _FilterButtonState extends State<_FilterButton> {
         actions: {
           ActivateIntent: CallbackAction<ActivateIntent>(
             onInvoke: (_) {
+              Ps5UiSounds.confirm();
               widget.onPressed();
               return null;
             },
           ),
         },
         child: GestureDetector(
-          onTap: widget.onPressed,
+          onTap: () {
+            Ps5UiSounds.confirm();
+            widget.onPressed();
+          },
           child: AnimatedContainer(
             key: const ValueKey('ps5-library-filter-button'),
             duration: const Duration(milliseconds: 160),
@@ -611,6 +629,7 @@ class _FilterButtonState extends State<_FilterButton> {
 
 class _LibraryGridTile extends StatefulWidget {
   const _LibraryGridTile({
+    super.key,
     required this.entry,
     required this.selected,
     required this.autofocus,
@@ -645,7 +664,10 @@ class _LibraryGridTileState extends State<_LibraryGridTile> {
     return FocusableActionDetector(
       autofocus: widget.autofocus,
       onFocusChange: (value) {
-        if (value) widget.onFocus();
+        if (value) {
+          Ps5UiSounds.tick();
+          widget.onFocus();
+        }
       },
       shortcuts: const {
         SingleActivator(LogicalKeyboardKey.enter): ActivateIntent(),
@@ -656,6 +678,7 @@ class _LibraryGridTileState extends State<_LibraryGridTile> {
       actions: {
         ActivateIntent: CallbackAction<ActivateIntent>(
           onInvoke: (_) {
+            Ps5UiSounds.confirm();
             widget.onOpen();
             return null;
           },
@@ -673,9 +696,18 @@ class _LibraryGridTileState extends State<_LibraryGridTile> {
           _hoverTimer = null;
         },
         child: GestureDetector(
-          onTap: widget.onOpen,
-          onSecondaryTap: widget.onMenu,
-          onLongPress: widget.onMenu,
+          onTap: () {
+            Ps5UiSounds.confirm();
+            widget.onOpen();
+          },
+          onSecondaryTap: () {
+            Ps5UiSounds.confirm();
+            widget.onMenu();
+          },
+          onLongPress: () {
+            Ps5UiSounds.confirm();
+            widget.onMenu();
+          },
           child: AnimatedScale(
             scale: active ? 1.055 : 1,
             alignment: Alignment.center,
@@ -716,7 +748,7 @@ class _LibraryGridTileState extends State<_LibraryGridTile> {
                             ),
                             const SizedBox(height: 3),
                             const Text(
-                              'Installed',
+                              '已安装',
                               style: TextStyle(
                                 color: Ps5Colors.menuMuted,
                                 fontSize: 12,

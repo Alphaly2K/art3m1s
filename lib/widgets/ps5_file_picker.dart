@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../adaptive/ps5_chrome.dart';
+import '../adaptive/ps5_sounds.dart';
 import '../controllers/ps5_input.dart';
 
 enum Ps5FilePickerMode { directory, file }
@@ -212,14 +213,15 @@ class _Ps5FilePickerDialogState extends State<Ps5FilePickerDialog> {
 
   Future<void> _activate(_FileEntry entry) async {
     if (entry.isDirectory) {
+      Ps5UiSounds.confirm();
       await _open(entry.path);
       return;
     }
     setState(() => _selectedPath = entry.path);
-    _accept(entry.path);
+    _accept(path: entry.path);
   }
 
-  void _accept([String? path]) {
+  void _accept({String? path, bool feedback = true}) {
     final selected =
         path ??
         _selectedPath ??
@@ -231,6 +233,7 @@ class _Ps5FilePickerDialogState extends State<Ps5FilePickerDialog> {
         FileSystemEntity.isDirectorySync(selected)) {
       return;
     }
+    if (feedback) Ps5UiSounds.confirm();
     Navigator.of(context).pop(selected);
   }
 
@@ -247,11 +250,13 @@ class _Ps5FilePickerDialogState extends State<Ps5FilePickerDialog> {
     }
     final action = ps5InputAction(event.logicalKey);
     if (action == Ps5InputAction.back) {
+      Ps5UiSounds.back();
       Navigator.of(context).pop();
       return KeyEventResult.handled;
     }
     if (event.logicalKey == LogicalKeyboardKey.backspace ||
         event.logicalKey == LogicalKeyboardKey.browserBack) {
+      Ps5UiSounds.confirm();
       _goUp();
       return KeyEventResult.handled;
     }
@@ -279,6 +284,7 @@ class _Ps5FilePickerDialogState extends State<Ps5FilePickerDialog> {
       return KeyEventResult.handled;
     }
     if (action == Ps5InputAction.left) {
+      Ps5UiSounds.confirm();
       _goUp();
       return KeyEventResult.handled;
     }
@@ -297,6 +303,7 @@ class _Ps5FilePickerDialogState extends State<Ps5FilePickerDialog> {
 
   void _moveSelection(int delta) {
     if (_entries.isEmpty) return;
+    Ps5UiSounds.tick();
     final current = _entries.indexWhere((entry) => entry.path == _selectedPath);
     final next = current < 0
         ? (delta > 0 ? 0 : _entries.length - 1)
@@ -389,7 +396,7 @@ class _Ps5FilePickerDialogState extends State<Ps5FilePickerDialog> {
                   acceptLabel: _acceptLabel,
                   canAccept: _canAccept,
                   onCancel: () => Navigator.of(context).pop(),
-                  onAccept: _accept,
+                  onAccept: () => _accept(feedback: false),
                 ),
               ],
             ),
@@ -471,6 +478,7 @@ class _PickerHeader extends StatelessWidget {
             Ps5IconButton(
               icon: Icons.close_rounded,
               tooltip: '关闭',
+              sound: Ps5UiSound.back,
               onPressed: onClose,
               size: 40,
             ),
@@ -583,7 +591,10 @@ class _RootTile extends StatelessWidget {
             color: selected ? Ps5Colors.menuHighlight : Colors.transparent,
             borderRadius: BorderRadius.circular(1),
             child: InkWell(
-              onTap: onTap,
+              onTap: () {
+                Ps5UiSounds.confirm();
+                onTap();
+              },
               borderRadius: BorderRadius.circular(1),
               hoverColor: Ps5Colors.menuHighlight.withValues(alpha: 0.55),
               child: Padding(
@@ -714,7 +725,10 @@ class _Breadcrumbs extends StatelessWidget {
               color: Colors.transparent,
               borderRadius: BorderRadius.circular(2),
               child: InkWell(
-                onTap: () => onOpen(crumbs[i].path),
+                onTap: () {
+                  Ps5UiSounds.confirm();
+                  onOpen(crumbs[i].path);
+                },
                 borderRadius: BorderRadius.circular(2),
                 hoverColor: Ps5Colors.menuHighlight.withValues(alpha: 0.55),
                 child: Padding(
@@ -763,7 +777,10 @@ class _FileRow extends StatelessWidget {
             color: selected ? Ps5Colors.menuHighlight : Colors.transparent,
             borderRadius: BorderRadius.circular(1),
             child: InkWell(
-              onTap: onTap,
+              onTap: () {
+                Ps5UiSounds.tick();
+                onTap();
+              },
               onDoubleTap: onActivate,
               borderRadius: BorderRadius.circular(1),
               hoverColor: Ps5Colors.menuHighlight.withValues(alpha: 0.55),
@@ -860,7 +877,11 @@ class _PickerFooter extends StatelessWidget {
                 ),
               ),
             ),
-            Ps5Button(onPressed: onCancel, child: const Text('取消')),
+            Ps5Button(
+              sound: Ps5UiSound.back,
+              onPressed: onCancel,
+              child: const Text('取消'),
+            ),
             const SizedBox(width: 10),
             Ps5Button(
               primary: true,

@@ -12,6 +12,7 @@ import '../screens/translation_font_picker.dart';
 import '../services/app_info.dart';
 import '../widgets/ps5_file_picker.dart';
 import 'ps5_chrome.dart';
+import 'ps5_sounds.dart';
 
 Future<GameEditData?> showPs5GameEditDialog(
   BuildContext context, {
@@ -288,6 +289,7 @@ class _Ps5GameEditDialogState extends State<Ps5GameEditDialog> {
       onKeyEvent: (node, event) {
         if (event is KeyDownEvent &&
             ps5InputAction(event.logicalKey) == Ps5InputAction.back) {
+          Ps5UiSounds.back();
           Navigator.of(context).pop();
           return KeyEventResult.handled;
         }
@@ -310,6 +312,7 @@ class _Ps5GameEditDialogState extends State<Ps5GameEditDialog> {
                         Ps5IconButton(
                           icon: Icons.close_rounded,
                           tooltip: '关闭',
+                          sound: Ps5UiSound.back,
                           autofocus: true,
                           onPressed: () => Navigator.of(context).pop(),
                         ),
@@ -590,6 +593,7 @@ class _Ps5GameEditDialogState extends State<Ps5GameEditDialog> {
                           ),
                         ),
                         Ps5Button(
+                          sound: Ps5UiSound.back,
                           onPressed: () => Navigator.of(context).pop(),
                           child: const Text('取消'),
                         ),

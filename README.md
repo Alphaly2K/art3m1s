@@ -17,7 +17,7 @@ Art3m1s 是使用 Flutter 编写的跨平台 Artemis 视觉小说运行时宿主
   会分别建立项目条目
 - 启动时无界面读取游戏标题，并通过 VNDB 补全标题和封面
 - 以稳定项目 ID 映射游戏目录、具体 PFS、存档、封面和设置，避免同名文件互相串档
-- 按平台使用 macOS、Cupertino、Fluent、Yaru/Material 3 风格的原生化界面；Android 可在设置中切换 Material Design 与 Miuix
+- 桌面窗口化时使用平台原生壳，全屏后自动切换为支持鼠标、键盘和手柄的 PS5 风格大屏界面；iOS 使用 Cupertino，Android 可在 Material Design 与 Miuix 间切换
 - 以约 60 FPS 驱动 Rust runtime，转发鼠标、键盘、触摸、右键、悬停和拖动
 - 移动端可启用相对移动触摸板，以系统箭头光标完成精确点击和长按拖动
 - 播放 BGM、SE、Voice、全屏视频与参与 core 合成的图层视频
@@ -31,10 +31,10 @@ Art3m1s 是使用 Flutter 编写的跨平台 Artemis 视觉小说运行时宿主
 
 ```text
 平台界面
-  macOS / Cupertino / Fluent / Material / Miuix
+  桌面原生壳 + PS5 全屏大屏 / Cupertino / Material / Miuix
         │
         ├─ LibraryActions
-        │   ├─ 原生文件选择器 / 文件 App 可见目录
+        │   ├─ 自绘文件选择器 / Android SAF / 文件 App 可见目录
         │   ├─ 游戏标题探测
         │   └─ VNDB 元数据与封面查询
         │
@@ -125,15 +125,17 @@ PFS 归档的 Artemis 游戏。Android 通过「所有文件访问」授权
 
 | 平台 | 界面 | 导入方式 |
 |---|---|---|
-| macOS | `macos_ui`、沉浸式原生标题栏和应用菜单 | 目录或 PFS 选择器 |
+| macOS | 窗口化 `macos_ui`；全屏 PS5 大屏 | 窗口化目录选择器 / 大屏自绘浏览器 |
 | iOS | Cupertino、原生文件与资料库管理器 | UIDocumentPicker 或 `Art3m1s/Games` |
-| Windows | Fluent UI | 目录或 PFS 选择器 |
-| Linux | Yaru/Material 界面 | 目录或 PFS 选择器 |
+| Windows | 窗口化 Fluent UI；全屏 PS5 大屏 | 窗口化目录选择器 / 大屏自绘浏览器 |
+| Linux | 窗口化 Yaru/Material；全屏 PS5 大屏 | 窗口化目录选择器 / 大屏自绘浏览器 |
 | Android | Material 3 或 Miuix | 原生 SAF 目录选择（原地导入） |
 
-设置和关于页面共用相同的数据与功能，但会使用符合目标平台习惯的控件进行渲染。
-macOS 使用原生应用菜单；游戏内 HUD 可停靠到侧边。项目编辑页还可以为单个游戏启用
-实验性 Eluna E-Mote 后端，并覆盖上报给脚本的机种。
+设置和关于页面共用相同的数据与功能。桌面进入全屏大屏模式后，文件导入、封面、
+翻译对照和覆盖字体使用内置文件浏览器，不调用系统原生 FilePicker；方向键或手柄
+十字键移动焦点，确认与返回同时兼容常见手柄键码和 Windows 通用 game-button
+键码。游戏内 HUD 可停靠到侧边。项目编辑页还可以为单个游戏启用实验性 Eluna
+E-Mote 后端，并覆盖上报给脚本的机种。
 
 ## 关键文件
 
@@ -147,6 +149,7 @@ macOS 使用原生应用菜单；游戏内 HUD 可停靠到侧边。项目编辑
 | `lib/services/text_translation_service.dart` | 补丁查找、翻译服务、队列与缓存 |
 | `lib/services/vndb_service.dart` | 资料库标题和封面元数据 |
 | `lib/widgets/debug_overlay_host.dart` | Runtime 监控和会话日志浮窗 |
+| `lib/widgets/ps5_file_picker.dart` | PS5 风格文件与文件夹浏览器 |
 | `lib/shell/` | 各平台应用界面 |
 | `scripts/ios_build_rust.sh` | 将 Rust library 构建并打包为 iOS framework |
 

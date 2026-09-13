@@ -1,4 +1,3 @@
-import 'package:art3m1s/adaptive/ps5_chrome.dart';
 import 'package:art3m1s/models/game_engine.dart';
 import 'package:art3m1s/models/game_entry.dart';
 import 'package:art3m1s/providers/library_provider.dart';
@@ -81,18 +80,18 @@ void main() {
     await tester.tapAt(const Offset(1500, 900));
     await tester.pump();
 
-    await tester.tap(find.text('Game Library'));
+    await tester.tap(find.text('资源库'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 450));
     expect(find.byKey(const ValueKey('ps5-game-library-page')), findsOneWidget);
     expect(find.byKey(const ValueKey('games')), findsNothing);
-    expect(find.text('Games'), findsNothing);
+    expect(find.text('主页'), findsOneWidget);
     await expectLater(
       find.byType(Ps5ShellApp),
       matchesGoldenFile('ps5-game-library-probe.png'),
     );
 
-    await tester.tap(find.byType(Ps5GameLibraryGlyph));
+    await tester.tap(find.text('主页'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 450));
     await tester.tap(find.byTooltip('设置'));

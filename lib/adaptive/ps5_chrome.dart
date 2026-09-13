@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -52,6 +54,186 @@ abstract final class Ps5Colors {
   static const menuPanel = Color(0xF21B1E25);
   static const menuHighlight = Color(0xFF3A3E48);
   static const menuMuted = Color(0xFF8E949E);
+}
+
+class Ps5GamePlayInfo extends StatefulWidget {
+  const Ps5GamePlayInfo({
+    super.key,
+    required this.addedAt,
+    required this.engineLabel,
+    required this.sourceLabel,
+    this.lastPlayedAt,
+    this.sessionStartedAt,
+    this.screenshotPath,
+    this.compact = false,
+  });
+
+  final DateTime addedAt;
+  final DateTime? lastPlayedAt;
+  final DateTime? sessionStartedAt;
+  final String engineLabel;
+  final String sourceLabel;
+  final String? screenshotPath;
+  final bool compact;
+
+  @override
+  State<Ps5GamePlayInfo> createState() => _Ps5GamePlayInfoState();
+}
+
+class _Ps5GamePlayInfoState extends State<Ps5GamePlayInfo> {
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _syncTimer();
+  }
+
+  @override
+  void didUpdateWidget(Ps5GamePlayInfo oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.sessionStartedAt != widget.sessionStartedAt) _syncTimer();
+  }
+
+  void _syncTimer() {
+    _timer?.cancel();
+    _timer = null;
+    if (widget.sessionStartedAt == null) return;
+    _timer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final entries = <({String label, String value})>[
+      if (widget.sessionStartedAt != null)
+        (
+          label: '本次游玩',
+          value: _duration(DateTime.now().difference(widget.sessionStartedAt!)),
+        ),
+      (
+        label: '上次游玩',
+        value: widget.lastPlayedAt == null
+            ? '尚未游玩'
+            : _relativeDate(widget.lastPlayedAt!),
+      ),
+      (label: '加入资料库', value: _date(widget.addedAt)),
+      (label: '运行引擎', value: widget.engineLabel),
+      (label: '来源', value: widget.sourceLabel),
+    ];
+    final screenshotPath = widget.screenshotPath;
+    final screenshot = screenshotPath == null ? null : File(screenshotPath);
+    final showScreenshot =
+        screenshot != null &&
+        screenshot.path.isNotEmpty &&
+        screenshot.existsSync();
+    final details = Wrap(
+      spacing: widget.compact ? 20 : 30,
+      runSpacing: widget.compact ? 10 : 12,
+      children: [
+        for (final entry in entries)
+          _Ps5GamePlayInfoEntry(
+            label: entry.label,
+            value: entry.value,
+            compact: widget.compact,
+          ),
+      ],
+    );
+    if (!showScreenshot) return details;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ClipRect(
+          child: SizedBox(
+            width: widget.compact ? 184 : 260,
+            child: AspectRatio(
+              aspectRatio: 16 / 9,
+              child: Image.file(
+                screenshot,
+                fit: BoxFit.cover,
+                filterQuality: FilterQuality.medium,
+                errorBuilder: (context, error, stackTrace) =>
+                    const SizedBox.shrink(),
+              ),
+            ),
+          ),
+        ),
+        SizedBox(width: widget.compact ? 18 : 24),
+        Expanded(child: details),
+      ],
+    );
+  }
+
+  static String _date(DateTime value) {
+    final month = value.month.toString().padLeft(2, '0');
+    final day = value.day.toString().padLeft(2, '0');
+    return '${value.year}/$month/$day';
+  }
+
+  static String _relativeDate(DateTime value) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final date = DateTime(value.year, value.month, value.day);
+    final days = today.difference(date).inDays;
+    if (days <= 0) return '今天';
+    if (days == 1) return '昨天';
+    if (days < 30) return '$days 天前';
+    return _date(value);
+  }
+
+  static String _duration(Duration value) {
+    if (value.inMinutes < 1) return '不到 1 分钟';
+    final hours = value.inHours;
+    final minutes = value.inMinutes.remainder(60);
+    if (hours == 0) return '$minutes 分钟';
+    return minutes == 0 ? '$hours 小时' : '$hours 小时 $minutes 分钟';
+  }
+}
+
+class _Ps5GamePlayInfoEntry extends StatelessWidget {
+  const _Ps5GamePlayInfoEntry({
+    required this.label,
+    required this.value,
+    required this.compact,
+  });
+
+  final String label;
+  final String value;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            color: Ps5Colors.menuMuted,
+            fontSize: compact ? 10 : 11,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        const SizedBox(height: 3),
+        Text(
+          value,
+          style: TextStyle(
+            color: Ps5Colors.text,
+            fontSize: compact ? 13 : 14,
+            fontWeight: FontWeight.w400,
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 class Ps5Panel extends StatelessWidget {
@@ -125,6 +307,7 @@ class Ps5Button extends StatefulWidget {
     this.destructive = false,
     this.minimumWidth,
     this.autofocus = false,
+    this.sound = Ps5UiSound.confirm,
   });
 
   final VoidCallback? onPressed;
@@ -134,6 +317,7 @@ class Ps5Button extends StatefulWidget {
   final bool destructive;
   final double? minimumWidth;
   final bool autofocus;
+  final Ps5UiSound sound;
 
   @override
   State<Ps5Button> createState() => _Ps5ButtonState();
@@ -188,11 +372,14 @@ class _Ps5ButtonState extends State<Ps5Button> {
                 onTap: widget.onPressed == null
                     ? null
                     : () {
-                        Ps5UiSounds.confirm();
+                        Ps5UiSounds.play(widget.sound);
                         widget.onPressed!();
                       },
                 autofocus: widget.autofocus,
-                onFocusChange: (value) => setState(() => _focused = value),
+                onFocusChange: (value) {
+                  if (value) Ps5UiSounds.tick();
+                  setState(() => _focused = value);
+                },
                 onHover: (value) => setState(() => _hovered = value),
                 onHighlightChanged: (value) => setState(() => _pressed = value),
                 borderRadius: BorderRadius.circular(2),
@@ -251,6 +438,7 @@ class Ps5IconButton extends StatefulWidget {
     this.destructive = false,
     this.size = 44,
     this.autofocus = false,
+    this.sound = Ps5UiSound.confirm,
   });
 
   final IconData icon;
@@ -260,6 +448,7 @@ class Ps5IconButton extends StatefulWidget {
   final bool destructive;
   final double size;
   final bool autofocus;
+  final Ps5UiSound sound;
 
   @override
   State<Ps5IconButton> createState() => _Ps5IconButtonState();
@@ -296,11 +485,14 @@ class _Ps5IconButtonState extends State<Ps5IconButton> {
               onTap: widget.onPressed == null
                   ? null
                   : () {
-                      Ps5UiSounds.confirm();
+                      Ps5UiSounds.play(widget.sound);
                       widget.onPressed!();
                     },
               autofocus: widget.autofocus,
-              onFocusChange: (value) => setState(() => _focused = value),
+              onFocusChange: (value) {
+                if (value) Ps5UiSounds.tick();
+                setState(() => _focused = value);
+              },
               onHover: (value) => setState(() => _hovered = value),
               onHighlightChanged: (value) => setState(() => _pressed = value),
               customBorder: const CircleBorder(),
@@ -349,7 +541,10 @@ class _Ps5SwitchState extends State<Ps5Switch> {
 
     return FocusableActionDetector(
       enabled: enabled,
-      onShowFocusHighlight: (value) => setState(() => _focused = value),
+      onShowFocusHighlight: (value) {
+        if (value) Ps5UiSounds.tick();
+        setState(() => _focused = value);
+      },
       shortcuts: const {
         SingleActivator(LogicalKeyboardKey.enter): ActivateIntent(),
         SingleActivator(LogicalKeyboardKey.numpadEnter): ActivateIntent(),
@@ -451,7 +646,10 @@ class Ps5SegmentedControl<T> extends StatelessWidget {
                     : Colors.transparent,
                 borderRadius: BorderRadius.circular(5),
                 child: InkWell(
-                  onTap: () => onChanged(option.value),
+                  onTap: () {
+                    Ps5UiSounds.tick();
+                    onChanged(option.value);
+                  },
                   borderRadius: BorderRadius.circular(5),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(
@@ -509,12 +707,15 @@ class _Ps5FieldState extends State<Ps5Field> {
   bool _keyboardOpen = false;
 
   void _handleFocusChange() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    if (_focusNode.hasFocus) Ps5UiSounds.tick();
+    setState(() {});
   }
 
   Future<void> _openKeyboard() async {
     if (_keyboardOpen) return;
     _keyboardOpen = true;
+    Ps5UiSounds.confirm();
     try {
       final result = await showPs5OnScreenKeyboard(
         context,
@@ -686,6 +887,7 @@ class Ps5SettingRow extends StatelessWidget {
     this.trailing,
     this.onPressed,
     this.compact = false,
+    this.sound = Ps5UiSound.confirm,
   });
 
   final String label;
@@ -696,6 +898,7 @@ class Ps5SettingRow extends StatelessWidget {
 
   /// 对话框等窄版面使用的紧凑字号。
   final bool compact;
+  final Ps5UiSound sound;
 
   @override
   Widget build(BuildContext context) {
@@ -707,6 +910,7 @@ class Ps5SettingRow extends StatelessWidget {
         control: control,
         onPressed: onPressed,
         compact: compact,
+        sound: sound,
       );
     }
     return Padding(
@@ -759,6 +963,7 @@ class _Ps5SettingMenuRow extends StatefulWidget {
     this.control,
     this.onPressed,
     this.compact = false,
+    this.sound = Ps5UiSound.confirm,
   });
 
   final String label;
@@ -767,6 +972,7 @@ class _Ps5SettingMenuRow extends StatefulWidget {
   final Widget? control;
   final VoidCallback? onPressed;
   final bool compact;
+  final Ps5UiSound sound;
 
   @override
   State<_Ps5SettingMenuRow> createState() => _Ps5SettingMenuRowState();
@@ -799,7 +1005,9 @@ class _Ps5SettingMenuRowState extends State<_Ps5SettingMenuRow> {
         actions: {
           ActivateIntent: CallbackAction<ActivateIntent>(
             onInvoke: (_) {
-              if (widget.onPressed != null) Ps5UiSounds.confirm();
+              if (widget.onPressed != null) {
+                Ps5UiSounds.play(widget.sound);
+              }
               widget.onPressed?.call();
               return null;
             },
@@ -812,7 +1020,7 @@ class _Ps5SettingMenuRowState extends State<_Ps5SettingMenuRow> {
             onTap: widget.onPressed == null
                 ? null
                 : () {
-                    Ps5UiSounds.confirm();
+                    Ps5UiSounds.play(widget.sound);
                     widget.onPressed!();
                   },
             child: Stack(
@@ -939,6 +1147,7 @@ Future<bool> showPs5Confirm(
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
                     Ps5Button(
+                      sound: Ps5UiSound.back,
                       onPressed: () => Navigator.of(ctx).pop(false),
                       child: const Text('取消'),
                     ),
@@ -1110,6 +1319,7 @@ Future<T?> showPs5SideMenu<T>(
                             Ps5IconButton(
                               icon: Icons.close_rounded,
                               tooltip: '关闭',
+                              sound: Ps5UiSound.back,
                               onPressed: () => Navigator.of(ctx).pop(),
                             ),
                           ],
@@ -1508,6 +1718,7 @@ class Ps5MenuChoiceRow extends StatefulWidget {
     this.caption,
     this.onHover,
     this.autofocus = false,
+    this.sound = Ps5UiSound.confirm,
   });
 
   final String label;
@@ -1515,6 +1726,7 @@ class Ps5MenuChoiceRow extends StatefulWidget {
   final bool selected;
   final bool checked;
   final bool autofocus;
+  final Ps5UiSound sound;
   final VoidCallback onTap;
   final VoidCallback? onHover;
 
@@ -1547,7 +1759,7 @@ class _Ps5MenuChoiceRowState extends State<Ps5MenuChoiceRow> {
         actions: {
           ActivateIntent: CallbackAction<ActivateIntent>(
             onInvoke: (_) {
-              Ps5UiSounds.confirm();
+              Ps5UiSounds.play(widget.sound);
               widget.onTap();
               return null;
             },
@@ -1557,7 +1769,7 @@ class _Ps5MenuChoiceRowState extends State<Ps5MenuChoiceRow> {
           onEnter: (_) => widget.onHover?.call(),
           child: GestureDetector(
             onTap: () {
-              Ps5UiSounds.confirm();
+              Ps5UiSounds.play(widget.sound);
               widget.onTap();
             },
             child: Stack(
@@ -1789,6 +2001,7 @@ class Ps5SettingsFrame extends StatelessWidget {
                             Ps5IconButton(
                               icon: Icons.arrow_back_rounded,
                               tooltip: '返回',
+                              sound: Ps5UiSound.back,
                               onPressed: () => Navigator.of(context).maybePop(),
                             ),
                             const SizedBox(width: 20),

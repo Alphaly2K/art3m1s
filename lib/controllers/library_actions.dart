@@ -496,6 +496,7 @@ class LibraryActions {
   }
 
   Future<void> _launch(GameEntry entry) async {
+    final ps5BigScreen = usesPs5Chrome(context);
     // Manifest 是每个游戏的权威配置源；每次创建宿主前重新读取，外部编辑
     // 或跨启动修改都能立即生效，不再依赖 GameEntry 的旧缓存。
     final configured = await GameManifest.loadEntrySettings(entry);
@@ -514,6 +515,10 @@ class LibraryActions {
             translationPatchPath: configured.translationPatchPath,
             environmentPatchEnabled: configured.environmentPatchEnabled,
             experimentalElunaEnabled: configured.experimentalElunaEnabled,
+            ps5BigScreen: ps5BigScreen,
+            addedAt: configured.addedAt,
+            lastPlayedAt: configured.lastPlayedAt,
+            screenshotPath: configured.screenshotPath,
             inputGate: configured.inputGate,
             fontOverridePath: configured.fontOverridePath,
             fontOverrideFilePath: configured.fontOverrideFilePath,

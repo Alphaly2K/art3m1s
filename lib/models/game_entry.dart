@@ -16,6 +16,7 @@ class GameEntry {
   final DateTime? lastPlayedAt;
   final String? displayName;
   final String? coverPath;
+  final String? screenshotPath;
   final bool translationEnabled;
   final String translationPatchPath;
   final bool environmentPatchEnabled;
@@ -56,6 +57,7 @@ class GameEntry {
     this.lastPlayedAt,
     this.displayName,
     this.coverPath,
+    this.screenshotPath,
     this.translationEnabled = false,
     this.translationPatchPath = '',
     this.environmentPatchEnabled = false,
@@ -81,6 +83,7 @@ class GameEntry {
     'lastPlayedAt': lastPlayedAt?.toIso8601String(),
     'displayName': displayName,
     'coverPath': coverPath,
+    if (screenshotPath != null) 'screenshotPath': screenshotPath,
     'translationEnabled': translationEnabled,
     'translationPatchPath': translationPatchPath,
     'environmentPatchEnabled': environmentPatchEnabled,
@@ -108,6 +111,7 @@ class GameEntry {
         : null,
     displayName: json['displayName'] as String?,
     coverPath: json['coverPath'] as String?,
+    screenshotPath: json['screenshotPath']?.toString(),
     translationEnabled: json['translationEnabled'] == true,
     translationPatchPath: json['translationPatchPath']?.toString() ?? '',
     environmentPatchEnabled: json['environmentPatchEnabled'] == true,
@@ -130,6 +134,7 @@ class GameEntry {
     DateTime? lastPlayedAt,
     String? displayName,
     String? coverPath,
+    String? screenshotPath,
     GameEngineKind? engine,
     bool? translationEnabled,
     String? translationPatchPath,
@@ -152,6 +157,7 @@ class GameEntry {
     lastPlayedAt: lastPlayedAt ?? this.lastPlayedAt,
     displayName: displayName ?? this.displayName,
     coverPath: coverPath ?? this.coverPath,
+    screenshotPath: screenshotPath ?? this.screenshotPath,
     translationEnabled: translationEnabled ?? this.translationEnabled,
     translationPatchPath: translationPatchPath ?? this.translationPatchPath,
     environmentPatchEnabled:
