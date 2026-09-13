@@ -115,6 +115,16 @@ void main() {
     expect(find.text('Game Library'), findsOneWidget);
     expect(find.byType(Ps5FocusShine), findsWidgets);
 
+    await tester.tap(find.byTooltip('项目操作'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 220));
+    expect(find.byKey(const ValueKey('ps5-list-menu')), findsOneWidget);
+    expect(find.text('开始游戏'), findsOneWidget);
+    expect(find.byType(PopupMenuItem<int>), findsNothing);
+    await tester.tapAt(const Offset(1500, 900));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 220));
+
     await tester.tap(find.text('Game Library'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 450));
@@ -126,6 +136,23 @@ void main() {
     expect(find.byKey(const ValueKey('ps5-list-menu')), findsOneWidget);
     expect(find.text('Sort by'), findsWidgets);
     expect(find.text('Filters'), findsOneWidget);
+
+    await tester.tapAt(const Offset(1500, 900));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 220));
+    await tester.tap(find.byType(Ps5GameLibraryGlyph));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 450));
+    await tester.tap(find.byTooltip('设置'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byKey(const ValueKey('ps5-settings-screen')), findsOneWidget);
+    expect(find.text('关于 Art3m1s'), findsOneWidget);
+
+    await tester.tap(find.text('关于 Art3m1s'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 450));
+    expect(find.text('Flutter App'), findsOneWidget);
   });
 }
 

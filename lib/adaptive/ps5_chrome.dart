@@ -99,7 +99,7 @@ class Ps5Panel extends StatelessWidget {
   }
 }
 
-class Ps5Button extends StatelessWidget {
+class Ps5Button extends StatefulWidget {
   const Ps5Button({
     super.key,
     required this.onPressed,
@@ -120,55 +120,85 @@ class Ps5Button extends StatelessWidget {
   final bool autofocus;
 
   @override
+  State<Ps5Button> createState() => _Ps5ButtonState();
+}
+
+class _Ps5ButtonState extends State<Ps5Button> {
+  bool _focused = false;
+  bool _hovered = false;
+  bool _pressed = false;
+
+  @override
   Widget build(BuildContext context) {
-    final enabled = onPressed != null;
-    final foreground = destructive
+    final enabled = widget.onPressed != null;
+    final foreground = widget.destructive
         ? Ps5Colors.danger
-        : primary
+        : widget.primary
         ? Ps5Colors.background
         : Ps5Colors.text;
-    return ConstrainedBox(
-      constraints: BoxConstraints(minHeight: 42, minWidth: minimumWidth ?? 0),
-      child: Material(
-        color: !enabled
-            ? Ps5Colors.panelHover
-            : destructive
-            ? const Color(0x22FF5D6C)
-            : primary
-            ? Ps5Colors.accent
-            : Ps5Colors.panelHover,
-        borderRadius: BorderRadius.circular(7),
-        child: InkWell(
-          onTap: onPressed,
-          autofocus: autofocus,
-          borderRadius: BorderRadius.circular(7),
-          hoverColor: primary ? const Color(0x22000000) : Ps5Colors.accentSoft,
-          focusColor: Ps5Colors.accentSoft,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                if (icon != null) ...[
-                  Icon(
-                    icon,
-                    size: 18,
-                    color: enabled ? foreground : Ps5Colors.textMuted,
+    final active = _focused || _hovered;
+    return AnimatedScale(
+      scale: _pressed
+          ? 0.965
+          : active
+          ? 1.018
+          : 1,
+      duration: Duration(milliseconds: _pressed ? 70 : 190),
+      curve: _pressed ? Curves.easeOutCubic : Curves.easeOutBack,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          minHeight: 42,
+          minWidth: widget.minimumWidth ?? 0,
+        ),
+        child: Material(
+          color: !enabled
+              ? Ps5Colors.panelHover
+              : widget.destructive
+              ? const Color(0x22FF5D6C)
+              : widget.primary
+              ? active
+                    ? const Color(0xFFDCE4EA)
+                    : Ps5Colors.accent
+              : active
+              ? const Color(0xFF343941)
+              : Ps5Colors.panelHover,
+          borderRadius: BorderRadius.circular(4),
+          child: InkWell(
+            onTap: widget.onPressed,
+            autofocus: widget.autofocus,
+            onFocusChange: (value) => setState(() => _focused = value),
+            onHover: (value) => setState(() => _hovered = value),
+            onHighlightChanged: (value) => setState(() => _pressed = value),
+            borderRadius: BorderRadius.circular(4),
+            hoverColor: Colors.transparent,
+            focusColor: Colors.transparent,
+            splashColor: Colors.white.withValues(alpha: 0.08),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  if (widget.icon != null) ...[
+                    Icon(
+                      widget.icon,
+                      size: 18,
+                      color: enabled ? foreground : Ps5Colors.textMuted,
+                    ),
+                    const SizedBox(width: 8),
+                  ],
+                  DefaultTextStyle(
+                    style: TextStyle(
+                      color: enabled ? foreground : Ps5Colors.textMuted,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0,
+                      decoration: TextDecoration.none,
+                    ),
+                    child: widget.child,
                   ),
-                  const SizedBox(width: 8),
                 ],
-                DefaultTextStyle(
-                  style: TextStyle(
-                    color: enabled ? foreground : Ps5Colors.textMuted,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 0,
-                    decoration: TextDecoration.none,
-                  ),
-                  child: child,
-                ),
-              ],
+              ),
             ),
           ),
         ),
@@ -177,7 +207,7 @@ class Ps5Button extends StatelessWidget {
   }
 }
 
-class Ps5IconButton extends StatelessWidget {
+class Ps5IconButton extends StatefulWidget {
   const Ps5IconButton({
     super.key,
     required this.icon,
@@ -198,33 +228,54 @@ class Ps5IconButton extends StatelessWidget {
   final bool autofocus;
 
   @override
+  State<Ps5IconButton> createState() => _Ps5IconButtonState();
+}
+
+class _Ps5IconButtonState extends State<Ps5IconButton> {
+  bool _focused = false;
+  bool _hovered = false;
+  bool _pressed = false;
+
+  @override
   Widget build(BuildContext context) {
     return Tooltip(
-      message: tooltip,
-      child: SizedBox.square(
-        dimension: size,
-        child: Material(
-          color: selected
-              ? Ps5Colors.accentSoft
-              : destructive
-              ? const Color(0x22FF5D6C)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(999),
-          child: InkWell(
-            onTap: onPressed,
-            autofocus: autofocus,
-            customBorder: const CircleBorder(),
-            hoverColor: destructive
-                ? const Color(0x33FF5D6C)
-                : Ps5Colors.accentSoft,
-            child: Icon(
-              icon,
-              size: size * 0.46,
-              color: !selected && destructive
-                  ? Ps5Colors.danger
-                  : selected
-                  ? Ps5Colors.accent
-                  : Ps5Colors.text,
+      message: widget.tooltip,
+      child: AnimatedScale(
+        scale: _pressed
+            ? 0.9
+            : (_focused || _hovered)
+            ? 1.08
+            : 1,
+        duration: Duration(milliseconds: _pressed ? 70 : 190),
+        curve: _pressed ? Curves.easeOutCubic : Curves.easeOutBack,
+        child: SizedBox.square(
+          dimension: widget.size,
+          child: Material(
+            color: widget.selected
+                ? Ps5Colors.accentSoft
+                : widget.destructive
+                ? const Color(0x22FF5D6C)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(999),
+            child: InkWell(
+              onTap: widget.onPressed,
+              autofocus: widget.autofocus,
+              onFocusChange: (value) => setState(() => _focused = value),
+              onHover: (value) => setState(() => _hovered = value),
+              onHighlightChanged: (value) => setState(() => _pressed = value),
+              customBorder: const CircleBorder(),
+              hoverColor: widget.destructive
+                  ? const Color(0x33FF5D6C)
+                  : Ps5Colors.accentSoft,
+              child: Icon(
+                widget.icon,
+                size: widget.size * 0.46,
+                color: !widget.selected && widget.destructive
+                    ? Ps5Colors.danger
+                    : widget.selected
+                    ? Ps5Colors.accent
+                    : Ps5Colors.text,
+              ),
             ),
           ),
         ),
@@ -291,7 +342,7 @@ class _Ps5SwitchState extends State<Ps5Switch> {
               borderRadius: BorderRadius.circular(999),
               border: Border.all(
                 color: _focused
-                    ? Colors.white
+                    ? const Color(0xFF969BA2)
                     : widget.value
                     ? Ps5Colors.accent
                     : Ps5Colors.line,
@@ -466,7 +517,7 @@ class Ps5Section extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.only(left: 2, bottom: 8),
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
           child: Text(
             title.toUpperCase(),
             style: const TextStyle(
@@ -481,7 +532,14 @@ class Ps5Section extends StatelessWidget {
           children: [
             for (var i = 0; i < children.length; i++) ...[
               if (i > 0)
-                const Divider(height: 1, thickness: 0.6, color: Ps5Colors.line),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 20),
+                  child: Divider(
+                    height: 1,
+                    thickness: 0.6,
+                    color: Ps5Colors.line,
+                  ),
+                ),
               children[i],
             ],
           ],
@@ -519,7 +577,7 @@ class Ps5SettingRow extends StatelessWidget {
       );
     }
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
       child: Row(
         children: [
           Expanded(
@@ -958,17 +1016,15 @@ class _Ps5FocusShineState extends State<Ps5FocusShine>
       vsync: this,
       duration: const Duration(milliseconds: 1250),
     );
-    if (widget.active) _controller.repeat();
+    if (widget.active) _controller.forward();
   }
 
   @override
   void didUpdateWidget(Ps5FocusShine oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.active && !_controller.isAnimating) {
-      _controller
-        ..forward(from: 0)
-        ..repeat();
-    } else if (!widget.active && _controller.isAnimating) {
+    if (widget.active && !oldWidget.active) {
+      _controller.forward(from: 0);
+    } else if (!widget.active) {
       _controller
         ..stop()
         ..value = 0;
@@ -1080,43 +1136,163 @@ class Ps5FocusFrame extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 190),
-      curve: Curves.easeOutCubic,
-      padding: EdgeInsets.all(selected ? 3 : 4),
-      decoration: BoxDecoration(
-        color: selected
-            ? Colors.white.withValues(alpha: 0.08)
-            : Colors.transparent,
-        borderRadius: BorderRadius.circular(borderRadius),
-        border: Border.all(
-          color: selected
-              ? Colors.white.withValues(alpha: 0.96)
-              : Colors.transparent,
-          width: selected ? 2.2 : 0,
+    return Stack(
+      children: [
+        AnimatedContainer(
+          duration: const Duration(milliseconds: 190),
+          curve: Curves.easeOutCubic,
+          padding: EdgeInsets.all(selected ? 3 : 4),
+          decoration: BoxDecoration(
+            color: selected
+                ? Colors.white.withValues(alpha: 0.055)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(borderRadius),
+            border: Border.all(
+              color: selected ? const Color(0xFF656A72) : Colors.transparent,
+              width: selected ? 1.2 : 0,
+            ),
+            boxShadow: selected
+                ? const [
+                    BoxShadow(
+                      color: Color(0x8A000000),
+                      blurRadius: 26,
+                      spreadRadius: 1,
+                      offset: Offset(0, 10),
+                    ),
+                  ]
+                : null,
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(innerRadius),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                child,
+                Ps5FocusShine(active: selected, borderRadius: innerRadius),
+              ],
+            ),
+          ),
         ),
-        boxShadow: selected
-            ? const [
-                BoxShadow(
-                  color: Color(0x8A000000),
-                  blurRadius: 26,
-                  spreadRadius: 1,
-                  offset: Offset(0, 10),
-                ),
-              ]
-            : null,
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(innerRadius),
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            child,
-            Ps5FocusShine(active: selected, borderRadius: innerRadius),
-          ],
+        Positioned.fill(
+          child: Ps5AnimatedFocusBorder(
+            active: selected,
+            borderRadius: borderRadius,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class Ps5AnimatedFocusBorder extends StatefulWidget {
+  const Ps5AnimatedFocusBorder({
+    super.key,
+    required this.active,
+    this.borderRadius = 2,
+    this.strokeWidth = 2,
+  });
+
+  final bool active;
+  final double borderRadius;
+  final double strokeWidth;
+
+  @override
+  State<Ps5AnimatedFocusBorder> createState() => _Ps5AnimatedFocusBorderState();
+}
+
+class _Ps5AnimatedFocusBorderState extends State<Ps5AnimatedFocusBorder>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1450),
+    );
+    if (widget.active) _controller.repeat();
+  }
+
+  @override
+  void didUpdateWidget(Ps5AnimatedFocusBorder oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.active && !oldWidget.active) {
+      _controller.repeat();
+    } else if (!widget.active) {
+      _controller
+        ..stop()
+        ..value = 0;
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!widget.active) return const SizedBox.shrink();
+    return IgnorePointer(
+      child: AnimatedBuilder(
+        animation: _controller,
+        builder: (context, _) => CustomPaint(
+          painter: _Ps5FocusBorderPainter(
+            progress: _controller.value,
+            borderRadius: widget.borderRadius,
+            strokeWidth: widget.strokeWidth,
+          ),
         ),
       ),
     );
+  }
+}
+
+class _Ps5FocusBorderPainter extends CustomPainter {
+  const _Ps5FocusBorderPainter({
+    required this.progress,
+    required this.borderRadius,
+    required this.strokeWidth,
+  });
+
+  final double progress;
+  final double borderRadius;
+  final double strokeWidth;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.isEmpty) return;
+    final inset = strokeWidth / 2;
+    final rect = (Offset.zero & size).deflate(inset);
+    final rrect = RRect.fromRectAndRadius(
+      rect,
+      Radius.circular(math.max(0, borderRadius - inset)),
+    );
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth
+      ..shader = SweepGradient(
+        colors: const [
+          Color(0xFF555960),
+          Color(0xFFB8BBC0),
+          Color(0xFFD0D2D5),
+          Color(0xFF747981),
+          Color(0xFF4E5259),
+          Color(0xFF555960),
+        ],
+        stops: const [0, 0.18, 0.3, 0.52, 0.78, 1],
+        transform: GradientRotation(progress * math.pi * 2),
+      ).createShader(rect);
+    canvas.drawRRect(rrect, paint);
+  }
+
+  @override
+  bool shouldRepaint(_Ps5FocusBorderPainter oldDelegate) {
+    return oldDelegate.progress != progress ||
+        oldDelegate.borderRadius != borderRadius ||
+        oldDelegate.strokeWidth != strokeWidth;
   }
 }
 
@@ -1137,7 +1313,12 @@ class Ps5MenuPanel extends StatelessWidget {
     return Container(
       width: width,
       decoration: BoxDecoration(
-        color: Ps5Colors.menuPanel,
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xF22B2D33), Color(0xF2191E27), Color(0xF20E141D)],
+          stops: [0, 0.5, 1],
+        ),
         borderRadius: BorderRadius.circular(borderRadius),
         boxShadow: const [
           BoxShadow(
@@ -1208,60 +1389,76 @@ class _Ps5MenuChoiceRowState extends State<Ps5MenuChoiceRow> {
           onEnter: (_) => widget.onHover?.call(),
           child: GestureDetector(
             onTap: widget.onTap,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 140),
-              curve: Curves.easeOutCubic,
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              decoration: BoxDecoration(
-                color: active ? Ps5Colors.menuHighlight : Colors.transparent,
-                borderRadius: BorderRadius.circular(1),
-                border: Border.all(
-                  color: active
-                      ? Colors.white.withValues(alpha: 0.78)
-                      : Colors.transparent,
-                  width: active ? 1.4 : 0,
-                ),
-              ),
-              child: Row(
-                children: [
-                  SizedBox(
-                    width: 22,
-                    child: widget.checked
-                        ? const Icon(
-                            Icons.check_rounded,
-                            color: Ps5Colors.text,
-                            size: 18,
-                          )
-                        : null,
+            child: Stack(
+              children: [
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 140),
+                  curve: Curves.easeOutCubic,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 12,
                   ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          widget.label,
-                          style: const TextStyle(
-                            color: Ps5Colors.text,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w400,
-                          ),
-                        ),
-                        if (widget.caption != null) ...[
-                          const SizedBox(height: 2),
-                          Text(
-                            widget.caption!,
-                            style: const TextStyle(
-                              color: Ps5Colors.menuMuted,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ],
-                      ],
+                  decoration: BoxDecoration(
+                    color: active
+                        ? Ps5Colors.menuHighlight
+                        : Colors.transparent,
+                    borderRadius: BorderRadius.circular(1),
+                    border: Border.all(
+                      color: active
+                          ? const Color(0xFF656A72)
+                          : Colors.transparent,
+                      width: active ? 1 : 0,
                     ),
                   ),
-                ],
-              ),
+                  child: Row(
+                    children: [
+                      SizedBox(
+                        width: 22,
+                        child: widget.checked
+                            ? const Icon(
+                                Icons.check_rounded,
+                                color: Ps5Colors.text,
+                                size: 18,
+                              )
+                            : null,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              widget.label,
+                              style: const TextStyle(
+                                color: Ps5Colors.text,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w400,
+                              ),
+                            ),
+                            if (widget.caption != null) ...[
+                              const SizedBox(height: 2),
+                              Text(
+                                widget.caption!,
+                                style: const TextStyle(
+                                  color: Ps5Colors.menuMuted,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Positioned.fill(
+                  child: Ps5AnimatedFocusBorder(
+                    active: active,
+                    borderRadius: 1,
+                    strokeWidth: 1.5,
+                  ),
+                ),
+              ],
             ),
           ),
         ),

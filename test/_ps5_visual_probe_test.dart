@@ -5,6 +5,7 @@ import 'package:art3m1s/providers/library_provider.dart';
 import 'package:art3m1s/services/storage_service.dart';
 import 'package:art3m1s/shell/ps5_shell.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -68,6 +69,18 @@ void main() {
       matchesGoldenFile('ps5-shell-probe.png'),
     );
 
+    await tester.tap(find.byTooltip('搜索'));
+    await tester.pump();
+    expect(find.byType(TextField), findsOneWidget);
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.pump(const Duration(milliseconds: 200));
+    await expectLater(
+      find.byType(Ps5ShellApp),
+      matchesGoldenFile('ps5-search-probe.png'),
+    );
+    await tester.tapAt(const Offset(1500, 900));
+    await tester.pump();
+
     await tester.tap(find.text('Game Library'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 450));
@@ -85,10 +98,21 @@ void main() {
     await tester.tap(find.byTooltip('设置'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 380));
-    expect(find.byKey(const ValueKey('ps5-side-menu')), findsOneWidget);
+    expect(find.byKey(const ValueKey('ps5-settings-screen')), findsOneWidget);
+    expect(find.text('关于 Art3m1s'), findsOneWidget);
     await expectLater(
       find.byType(Ps5ShellApp),
       matchesGoldenFile('ps5-settings-menu-probe.png'),
+    );
+
+    await tester.tap(find.text('关于 Art3m1s'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 450));
+    expect(find.text('Flutter App'), findsOneWidget);
+    expect(find.text('第三方许可证'), findsOneWidget);
+    await expectLater(
+      find.byType(Ps5ShellApp),
+      matchesGoldenFile('ps5-about-probe.png'),
     );
   });
 }
