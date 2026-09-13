@@ -1,8 +1,12 @@
 # Host 跨引擎抽象
 
-日期：2026-09-12
+日期：2026-09-12（2026-09-13 更新）
 
-状态：第一阶段已接入 Artemis core；RFVP backend 尚未实现。
+状态：Artemis core 与 RFVP backend 均已接入。引擎能力以
+`GameEngineKind.supportedGameSettings` / `supportsPfsArchives` /
+`supportsCaptionProbe` 声明式表达，设置页与 manifest 按此过滤；接入新引擎的
+完整接口清单见 [engine-onboarding.md](engine-onboarding.md)。导入已统一为
+全平台「选择文件夹 → 探测 → 原地入库」，不再复制。
 
 ## 目标
 

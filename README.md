@@ -87,11 +87,11 @@ Documents/Art3m1s/
   Saves/
 ```
 
-原生 `UIDocumentPicker` 通过 security-scoped URL 复制用户选中的 PFS 分卷。导入时
+原生选择器经 security-scoped URL 读取用户选中的游戏目录。导入时
 会先扫描 table 中的 `gametitle` / `["game_title"]`，找不到时再使用启用环境补丁
-的 headless runtime 探测标题。Android 使用 Storage Access Framework 将选定目录
-复制到沙箱，从而避免 Dart 无法直接访问 `content://`，也避免在 Dart 中把整个文件
-读入内存。
+的 headless runtime 探测标题。全平台统一为「选择文件夹 → 探测 → 原地入库」，
+不再复制游戏文件；Android 通过「所有文件访问」授权（`MANAGE_EXTERNAL_STORAGE`）
+把 SAF 选中的目录解析为真实路径直接读取。
 
 ### MediaBridge
 
@@ -128,7 +128,7 @@ Documents/Art3m1s/
 | iOS | Cupertino、原生文件与资料库管理器 | UIDocumentPicker 或 `Art3m1s/Games` |
 | Windows | Fluent UI | 目录或 PFS 选择器 |
 | Linux | Yaru/Material 界面 | 目录或 PFS 选择器 |
-| Android | Material 3 或 Miuix | 原生 SAF 目录复制 |
+| Android | Material 3 或 Miuix | 原生 SAF 目录选择（原地导入） |
 
 设置和关于页面共用相同的数据与功能，但会使用符合目标平台习惯的控件进行渲染。
 macOS 使用原生应用菜单；游戏内 HUD 可停靠到侧边。项目编辑页还可以为单个游戏启用
@@ -141,7 +141,7 @@ macOS 使用原生应用菜单；游戏内 HUD 可停靠到侧边。项目编辑
 | `lib/screens/player_screen.dart` | Runtime 生命周期、帧循环、输入和视频浮层 |
 | `lib/services/core_bridge.dart` | Native C ABI 与回调注册 |
 | `lib/services/file_provider.dart` | PFS/目录/存档逻辑文件系统 |
-| `lib/services/game_importer.dart` | 移动端原生导入与沙箱复制 |
+| `lib/services/game_importer.dart` | 统一原地导入与遗留沙箱副本清理 |
 | `lib/services/media_bridge.dart` | 音频、全屏视频和图层视频解码 |
 | `lib/services/text_translation_service.dart` | 补丁查找、翻译服务、队列与缓存 |
 | `lib/services/vndb_service.dart` | 资料库标题和封面元数据 |

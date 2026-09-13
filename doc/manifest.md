@@ -1,8 +1,9 @@
 # art3m1s.json 项目清单编写指南
 
-`art3m1s.json` 是放在游戏目录（或 PFS 归档）里的项目清单文件，用来向宿主声明
+`art3m1s.json` 是放在游戏目录（或 PFS 归档）里的宿主项目清单文件，用来向宿主声明
 游戏信息与默认配置。补丁/移植包作者把它随游戏文件一起分发，用户导入游戏时
-宿主自动读取并预填资料库条目。
+宿主自动读取并预填资料库条目。文件名是历史沿用，不代表游戏一定是 Artemis 引擎；
+引擎由 `engine` 字段声明。
 
 ## 发现规则
 
@@ -42,11 +43,31 @@
 | `engine` | 字符串 | 底层引擎：`art3m1s` 或 `rfvp`；缺省保持 `art3m1s`。 |
 | `translationEnabled` | 布尔 | 默认是否开启文本翻译。 |
 | `translationPatchPath` | 字符串 | 翻译对照文件的**游戏内相对路径**（离线译文包）。 |
-| `environmentPatchEnabled` | 布尔 | 默认是否启用环境兼容补丁（屏蔽特定渠道/平台校验脚本）。 |
-| `experimentalElunaEnabled` | 布尔 | 默认是否启用实验性 Eluna E-Mote 后端。 |
-| `fontOverride` | 字符串 | 覆盖字体（TTF/OTF）的**游戏内相对路径**。脚本自带字体缺译文字形时用它替换全部脚本字体的字形来源。 |
-| `reportedOs` | 字符串 | 上报给脚本的机种串（`var system="os"` 的返回值）。移植版游戏把存档等功能开关在机种判断上时用它伪装，见下文。 |
+| `environmentPatchEnabled` | 布尔 | 默认是否启用环境兼容补丁（屏蔽特定渠道/平台校验脚本）。仅 Artemis。 |
+| `experimentalElunaEnabled` | 布尔 | 默认是否启用实验性 Eluna E-Mote 后端。仅 Artemis。 |
+| `fontOverride` | 字符串 | 覆盖字体（TTF/OTF）的**游戏内相对路径**。脚本自带字体缺译文字形时用它替换全部脚本字体的字形来源。仅 Artemis。 |
+| `reportedOs` | 字符串 | 上报给脚本的机种串（`var system="os"` 的返回值）。移植版游戏把存档等功能开关在机种判断上时用它伪装，见下文。仅 Artemis。 |
 | `inputGate` | 对象 | 输入门控策略（结构见下）。 |
+
+## 按引擎的字段集
+
+清单是单一平铺格式，但宿主按 `engine` 过滤字段：引擎不支持的键在编辑页不显示、
+保存时不写入、加载时不应用。当前对应关系（以 `GameEngineKind.supportedGameSettings`
+为准）：
+
+| 字段 | art3m1s | rfvp |
+| --- | --- | --- |
+| `name` / `vndbId` / `engine` | ✔ | ✔ |
+| `translationEnabled` / `translationPatchPath` | ✔ | ✔（RFVP 为预留接线） |
+| `inputGate` | ✔ | ✔ |
+| `environmentPatchEnabled` | ✔ | — |
+| `experimentalElunaEnabled` | ✔ | — |
+| `fontOverride` | ✔ | — |
+| `reportedOs` | ✔ | — |
+| `runtimePlatform` | ✔ | — |
+
+给 RFVP 游戏写 Artemis 专属键不会报错，但会被忽略。接入新引擎时的字段扩展流程见
+[engine-onboarding.md](engine-onboarding.md)。
 
 ## `inputGate` 输入门控
 

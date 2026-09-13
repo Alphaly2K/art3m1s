@@ -4,6 +4,19 @@
 
 ## [Unreleased]
 
+### 变更
+
+- 每游戏设置页与 `art3m1s.json` 清单按引擎分化：引擎不支持的字段不渲染、不写入、
+  不应用；`GameEngineKind.supportedGameSettings` 是唯一的判定来源。新引擎接入流程见
+  `doc/engine-onboarding.md`。
+- 游戏导入全平台统一为「选择文件夹 → 探测 → 原地入库」，不再复制游戏文件。
+  Android 改用「所有文件访问」授权 + SAF 目录选择 + 真实路径解析；SAF 整树复制、
+  未完成标记清理、拷贝进度和入库复制全部退役。早期 Android 沙箱内的遗留副本仍可
+  游玩，删除库条目时只清理这些托管副本，绝不动用户原目录。
+- 崩溃与错误上报（Sentry）默认关闭，需在设置中明确开启；RFVP 原生日志改为
+  拉取式读取，不再注册 Dart 回调。
+- iOS 资料库扫描现在也能识别 RFVP 工程（`.hcb` 标记）。
+
 ### 修复
 
 - CoreBridge 只接受 `art3m1s_get_api_v1` 版本化函数表；core 不再导出旧平铺 `art3m1s_*` 符号。
