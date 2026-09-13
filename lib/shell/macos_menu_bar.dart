@@ -83,21 +83,12 @@ class MacosMenuBar extends ConsumerWidget {
           label: '文件',
           menus: [
             PlatformMenuItem(
-              label: '添加游戏目录…',
+              label: '扫描游戏文件夹…',
               shortcut: const SingleActivator(
                 LogicalKeyboardKey.keyO,
                 meta: true,
               ),
               onSelected: actions.pickDirectory,
-            ),
-            PlatformMenuItem(
-              label: '添加 PFS 归档…',
-              shortcut: const SingleActivator(
-                LogicalKeyboardKey.keyO,
-                meta: true,
-                shift: true,
-              ),
-              onSelected: actions.pickPfs,
             ),
             const PlatformMenuItemGroup(
               members: [

@@ -55,37 +55,8 @@ class MaterialShellApp extends StatelessWidget {
   }
 }
 
-void _showAddMenuMobile(BuildContext context, LibraryActions actions) {
-  showModalBottomSheet(
-    context: context,
-    showDragHandle: true,
-    builder: (ctx) => SafeArea(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          ListTile(
-            leading: const Icon(Icons.folder_open),
-            title: const Text('选择文件夹'),
-            subtitle: const Text('已解包的工程目录（含 system.ini）'),
-            onTap: () {
-              Navigator.of(ctx).pop();
-              actions.pickDirectory();
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.archive),
-            title: const Text('选择 PFS 归档'),
-            subtitle: const Text('直接读取，不写入磁盘'),
-            onTap: () {
-              Navigator.of(ctx).pop();
-              actions.pickPfs();
-            },
-          ),
-          const SizedBox(height: 8),
-        ],
-      ),
-    ),
-  );
+void _pickGameFolder(BuildContext context, LibraryActions actions) {
+  actions.pickDirectory();
 }
 
 class _MaterialHome extends ConsumerStatefulWidget {
@@ -108,9 +79,9 @@ class _MaterialHomeState extends ConsumerState<_MaterialHome> {
           if (_tab == 0)
             IconButton(
               icon: const Icon(Icons.add),
-              tooltip: '添加项目',
+              tooltip: '扫描游戏文件夹',
               onPressed: () =>
-                  _showAddMenuMobile(context, LibraryActions(context, ref)),
+                  _pickGameFolder(context, LibraryActions(context, ref)),
             ),
         ],
       ),
@@ -156,9 +127,9 @@ class _MaterialLibraryBody extends ConsumerWidget {
     if (sorted.isEmpty) {
       return LibraryEmptyState(
         action: FilledButton.icon(
-          onPressed: () => _showAddMenuMobile(context, actions),
+          onPressed: () => _pickGameFolder(context, actions),
           icon: const Icon(Icons.add),
-          label: const Text('添加项目'),
+          label: const Text('扫描游戏文件夹'),
         ),
       );
     }
@@ -185,31 +156,10 @@ class _MaterialLibraryScreen extends ConsumerWidget {
       appBar: AppBar(
         title: const Text('Art3m1s'),
         actions: [
-          PopupMenuButton<int>(
+          IconButton(
             icon: const Icon(Icons.add),
-            tooltip: '添加项目',
-            onSelected: (v) {
-              if (v == 0) actions.pickDirectory();
-              if (v == 1) actions.pickPfs();
-            },
-            itemBuilder: (_) => const [
-              PopupMenuItem(
-                value: 0,
-                child: ListTile(
-                  leading: Icon(Icons.folder_open),
-                  title: Text('选择文件夹…'),
-                  contentPadding: EdgeInsets.zero,
-                ),
-              ),
-              PopupMenuItem(
-                value: 1,
-                child: ListTile(
-                  leading: Icon(Icons.archive),
-                  title: Text('选择 PFS 归档…'),
-                  contentPadding: EdgeInsets.zero,
-                ),
-              ),
-            ],
+            tooltip: '扫描游戏文件夹',
+            onPressed: () => _pickGameFolder(context, actions),
           ),
           IconButton(
             icon: const Icon(Icons.settings),

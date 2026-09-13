@@ -7,7 +7,6 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:macos_ui/macos_ui.dart';
 
-import '../adaptive/context_menu.dart';
 import '../adaptive/feedback.dart';
 import '../controllers/library_actions.dart';
 import '../models/game_entry.dart';
@@ -173,22 +172,9 @@ class _MacosLibraryPage extends ConsumerWidget {
                   child: _GlassHeader(
                     title: '资料库',
                     trailing: MacosCircleButton(
-                      icon: CupertinoIcons.add,
-                      tooltip: '添加项目',
-                      onTapWithPosition: (position) {
-                        showAdaptiveContextMenu(context, position, [
-                          ContextMenuAction(
-                            label: '选择文件夹…',
-                            icon: CupertinoIcons.folder,
-                            onSelected: actions.pickDirectory,
-                          ),
-                          ContextMenuAction(
-                            label: '选择 PFS 归档…',
-                            icon: CupertinoIcons.archivebox,
-                            onSelected: actions.pickPfs,
-                          ),
-                        ]);
-                      },
+                      icon: CupertinoIcons.folder_badge_plus,
+                      tooltip: '扫描游戏文件夹',
+                      onPressed: actions.pickDirectory,
                     ),
                   ),
                 ),

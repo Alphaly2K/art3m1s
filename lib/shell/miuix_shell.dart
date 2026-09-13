@@ -70,62 +70,8 @@ class _MiuixHome extends ConsumerStatefulWidget {
 class _MiuixHomeState extends ConsumerState<_MiuixHome> {
   int _tab = 0;
 
-  Future<void> _showAddSheet(LibraryActions actions) async {
-    final choice = await showMiuixSheet<int>(
-      context: context,
-      title: '添加项目',
-      content: (context, dismiss) {
-        Widget option({
-          required String title,
-          required String summary,
-          required String icon,
-          required int value,
-        }) {
-          return MiuixBasicComponent(
-            title: title,
-            summary: summary,
-            startAction: Padding(
-              padding: const EdgeInsets.only(right: 12),
-              child: miuixNamedIcon(icon),
-            ),
-            onClick: () => dismiss(value),
-          );
-        }
-
-        return Padding(
-          padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              MiuixCard(
-                child: Column(
-                  children: [
-                    option(
-                      title: '选择文件夹',
-                      summary: '已解包的工程目录（含 system.ini）',
-                      icon: 'folder',
-                      value: 0,
-                    ),
-                    option(
-                      title: '选择 PFS 归档',
-                      summary: '直接读取，不写入磁盘',
-                      icon: 'addFolder',
-                      value: 1,
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-    if (!mounted || choice == null) return;
-    if (choice == 0) {
-      await actions.pickDirectory();
-    } else if (choice == 1) {
-      await actions.pickPfs();
-    }
+  Future<void> _scanGameFolder(LibraryActions actions) async {
+    await actions.pickDirectory();
   }
 
   @override
@@ -138,7 +84,7 @@ class _MiuixHomeState extends ConsumerState<_MiuixHome> {
 
     return MiuixScaffold(
       topBar: _tab == 0
-          ? MiuixLibraryTopBar(onAdd: () => _showAddSheet(actions))
+          ? MiuixLibraryTopBar(onAdd: () => _scanGameFolder(actions))
           : MiuixTopAppBar(
               title: titles[_tab],
               largeTitle: titles[_tab],
@@ -172,7 +118,7 @@ class _MiuixHomeState extends ConsumerState<_MiuixHome> {
             padding: padding,
             games: sorted,
             actions: actions,
-            onAdd: () => _showAddSheet(actions),
+            onAdd: () => _scanGameFolder(actions),
           ),
           1 => MiuixSettingsBody(padding: padding),
           _ => MiuixAboutBody(padding: padding),
@@ -493,7 +439,8 @@ class MiuixAboutBody extends StatelessWidget {
           children: [
             MiuixBasicComponent(
               title: 'flutter_miuix / flutter_riverpod / yaru',
-              summary: 'macos_ui · fluent_ui · audioplayers · shared_preferences',
+              summary:
+                  'macos_ui · fluent_ui · audioplayers · shared_preferences',
             ),
           ],
         ),

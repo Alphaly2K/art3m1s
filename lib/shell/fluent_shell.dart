@@ -102,21 +102,15 @@ class _FluentLibraryPage extends ConsumerWidget {
     return ScaffoldPage(
       header: PageHeader(
         title: const Text('资料库'),
-        commandBar: DropDownButton(
-          leading: const Icon(FluentIcons.add),
-          title: const Text('添加项目'),
-          items: [
-            MenuFlyoutItem(
-              leading: const Icon(FluentIcons.folder_open),
-              text: const Text('选择文件夹…'),
-              onPressed: actions.pickDirectory,
-            ),
-            MenuFlyoutItem(
-              leading: const Icon(FluentIcons.archive),
-              text: const Text('选择 PFS 归档…'),
-              onPressed: actions.pickPfs,
-            ),
-          ],
+        commandBar: Button(
+          onPressed: actions.pickDirectory,
+          child: const Row(
+            children: [
+              Icon(FluentIcons.folder_open),
+              SizedBox(width: 8),
+              Text('扫描游戏文件夹'),
+            ],
+          ),
         ),
       ),
       content: sorted.isEmpty

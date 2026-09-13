@@ -67,31 +67,6 @@ class LibraryActions {
     await _addDiscoveredGamesAutomatically(games);
   }
 
-  Future<void> pickPfs() async {
-    // 与 pickDirectory 同一条路径:全平台都选文件夹再探测 base .pfs,
-    // 不再单独选文件(分卷必须随目录一起保持原位)。
-    final path = await _pickImportDirectory();
-    if (path == null || !context.mounted) return;
-    final filePaths = GameImporter.discoverBasePfsFiles(path);
-    if (filePaths.isEmpty) {
-      notify(context, '所选位置中没有 base .pfs 文件');
-      return;
-    }
-    final games = [
-      for (final path in filePaths)
-        DiscoveredGame(
-          name: _pfsDisplayName(path),
-          path: path,
-          source: GameSource.pfsArchive.name,
-        ),
-    ];
-    if (games.length == 1) {
-      await _addDiscoveredGame(games.single);
-      return;
-    }
-    await _addDiscoveredGamesAutomatically(games);
-  }
-
   /// 选一个导入目录。Android 上授权缺失时引导用户开启「所有文件访问」,
   /// URI 无法解析为真实路径时降级为手动输入;用户取消返回 null。
   Future<String?> _pickImportDirectory() async {
@@ -119,7 +94,8 @@ class LibraryActions {
     final confirmed = await showAdaptiveConfirm(
       context,
       title: '需要存储访问权限',
-      message: '为了直接读取游戏目录而不复制文件,需要在系统设置中允许'
+      message:
+          '为了直接读取游戏目录而不复制文件,需要在系统设置中允许'
           '「所有文件访问」。授权后请重新选择游戏目录。',
       confirmLabel: '去授权',
     );
@@ -487,7 +463,8 @@ class LibraryActions {
   Future<void> confirmDelete(GameEntry entry) async {
     // 原位导入的目录是用户文件,移除库条目不删除;只有早期 Android
     // 沙箱内的遗留导入副本会随条目一起清理(见 LibraryNotifier.remove)。
-    final message = '确定从库中移除「${entry.displayNameOrName}」吗？'
+    final message =
+        '确定从库中移除「${entry.displayNameOrName}」吗？'
         '游戏目录本身不会被删除。';
     final confirmed = await showAdaptiveConfirm(
       context,
