@@ -45,6 +45,9 @@ class PlayerScreen extends ConsumerStatefulWidget {
   /// 项目清单指定的覆盖字体（游戏内相对路径）；空串表示无。
   final String fontOverridePath;
 
+  /// 用户在宿主侧选择的覆盖字体文件（沙箱托管绝对路径）；空串表示无。
+  final String fontOverrideFilePath;
+
   /// 上报给脚本的机种串覆盖（来自资料库条目/项目补丁）；空串跟随项目平台。
   final String reportedOs;
 
@@ -65,6 +68,7 @@ class PlayerScreen extends ConsumerStatefulWidget {
     required this.experimentalElunaEnabled,
     this.inputGate = InputGatePolicy.full,
     this.fontOverridePath = '',
+    this.fontOverrideFilePath = '',
     this.reportedOs = '',
     this.runtimePlatform = 'WINDOWS',
     this.manifestPath,
@@ -218,6 +222,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       name: widget.gameId,
       path: widget.projectPath,
       source: widget.source,
+      engine: widget.engine,
       addedAt: DateTime.fromMillisecondsSinceEpoch(0),
       translationEnabled: widget.translationEnabled,
       translationPatchPath: widget.translationPatchPath,
@@ -225,6 +230,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       experimentalElunaEnabled: widget.experimentalElunaEnabled,
       inputGate: widget.inputGate,
       fontOverridePath: widget.fontOverridePath,
+      fontOverrideFilePath: widget.fontOverrideFilePath,
       reportedOs: widget.reportedOs,
       runtimePlatform: widget.runtimePlatform,
       manifestPath: widget.manifestPath,
@@ -293,8 +299,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       }
       _bridge.configureTranslation(translation);
     }
-    // 覆盖字体是 core 的进程级全局设置：每次启动显式安装或清除，
-    // 避免上一局游戏的覆盖泄漏到本局。清单字体不依赖翻译开关。
+    // 覆盖字体按局显式安装或清除：Artemis 是进程级全局设置，不能残留到下一局；
+    // RFVP 是 per-runtime，后端会在 createRuntime 后自行推送。
     await _applyFontOverride();
 
     // 输入门控：项目补丁/资料库条目的环境特化过滤，在 bridge 出口统一生效。
@@ -343,8 +349,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     _startGameLoop();
   }
 
-  /// 安装本局覆盖字体；无可用来源或安装失败时清除（覆盖是 core 进程级全局
-  /// 设置，不能残留到下一局）。
+  /// 安装本局覆盖字体；无可用来源或安装失败时清除（Artemis 的覆盖是 core
+  /// 进程级全局设置，不能残留到下一局）。
   Future<void> _applyFontOverride() async {
     final resolved = await _resolveFontOverrideBytes();
     if (resolved == null) {
@@ -360,22 +366,21 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     }
   }
 
-  /// 覆盖字体字节来源：翻译设置里用户显式选择的字体（仅翻译开启时）优先，
+  /// 覆盖字体字节来源：该游戏条目里用户显式选择的字体文件优先，
   /// 其次是项目清单自带的游戏内字体；都没有返回 null。
   Future<(Uint8List, String)?> _resolveFontOverrideBytes() async {
     final config = _activeConfig;
-    final globalPath = config?.translationEnabled == true
-        ? ref.read(settingsProvider).translation.fontPath
-        : '';
-    if (globalPath.isNotEmpty) {
+    if (config == null) return null;
+    if (config.fontOverrideFilePath.isNotEmpty) {
+      final path = config.fontOverrideFilePath;
       try {
-        return (await File(globalPath).readAsBytes(), globalPath);
+        return (await File(path).readAsBytes(), path);
       } catch (error) {
-        Log.warn('[字体] 覆盖字体读取失败: $globalPath: $error');
+        Log.warn('[字体] 覆盖字体读取失败: $path: $error');
         return null;
       }
     }
-    if (config != null && config.fontOverridePath.isNotEmpty) {
+    if (config.fontOverridePath.isNotEmpty) {
       final bytes = await GameManifest.readGameFile(
         config.path,
         config.source,
@@ -1173,6 +1178,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   }
 
   void _emitForwardedWheelKey(int vk) {
+    // RFVP 核心有原生滚轮事件，直接按行脉冲透传；Artemis 仍走 136/137 键码。
+    if (_bridge.kind == GameEngineKind.rfvp) {
+      _bridge.feedWheel(0, vk == WheelInputQueue.wheelUpKey ? 1 : -1);
+      return;
+    }
     _bridge.feedForwardedKey(vk, true);
     _bridge.feedForwardedKey(vk, false);
   }

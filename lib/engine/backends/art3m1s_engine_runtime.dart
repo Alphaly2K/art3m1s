@@ -14,7 +14,7 @@ import '../../services/logger.dart';
 import '../../services/profiler_snapshot.dart';
 import '../../services/text_translation_service.dart';
 import '../engine_runtime.dart';
-import '../media_bridge.dart';
+import 'art3m1s/media_bridge.dart';
 import 'art3m1s/caption_table_probe.dart';
 import 'art3m1s/core_api.dart';
 import 'art3m1s/file_provider.dart';
@@ -1742,6 +1742,15 @@ class Art3m1sEngineRuntime implements EngineRuntime {
           void Function(Pointer<Void>, int, int)
         >('art3m1s_runtime_feed_key');
     fn(_runtime!, mapped, pressed ? 1 : 0);
+  }
+
+  /// Artemis 核心没有独立滚轮入口，滚轮脉冲仍按 136/137 键码转发。
+  @override
+  void feedWheel(double deltaX, double deltaY) {
+    if (deltaY == 0) return;
+    final vk = deltaY > 0 ? 136 : 137;
+    feedForwardedKey(vk, true);
+    feedForwardedKey(vk, false);
   }
 
   @override

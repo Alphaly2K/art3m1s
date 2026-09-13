@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:macos_window_utils/macos/ns_window_button_type.dart';
 import 'package:macos_window_utils/macos_window_utils.dart';
+import 'package:window_manager/window_manager.dart';
 
 import 'services/app_info.dart';
 import 'services/app_data_paths.dart';
@@ -15,10 +17,12 @@ import 'services/telemetry_service.dart';
 import 'models/host_ui_theme.dart';
 import 'providers/settings_provider.dart';
 import 'shell/cupertino_shell.dart';
+import 'shell/desktop_shell_mode.dart';
 import 'shell/fluent_shell.dart';
 import 'shell/macos_shell.dart';
 import 'shell/material_shell.dart';
 import 'shell/miuix_shell.dart';
+import 'shell/ps5_shell.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -28,6 +32,10 @@ const String _sentryDsn = String.fromEnvironment('SENTRY_DSN');
 
 void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
+  final isDesktop = Platform.isMacOS || Platform.isWindows || Platform.isLinux;
+  if (isDesktop) {
+    await windowManager.ensureInitialized();
+  }
   if (Platform.isMacOS) {
     // 沉浸式标题栏：透明 titlebar + 全尺寸内容 + 侧栏毛玻璃，
     // 需配合 MainFlutterWindow.swift 里的 macos_window_utils 初始化。
@@ -109,21 +117,93 @@ Future<bool> _loadCrashReportingPreference() async {
   }
 }
 
-/// 按平台选壳：macOS 原生风（macos_ui）、iOS Cupertino、
-/// Windows Fluent（fluent_ui）、Linux yaru、Android Material 3 或 Miuix。
-class Art3m1sApp extends ConsumerWidget {
+/// 按平台选壳：桌面窗口化时使用平台原生壳，全屏时自动切换为 PS5 大屏壳；
+/// iOS 使用 Cupertino，Android 使用 Material 3 或 Miuix。
+class Art3m1sApp extends ConsumerStatefulWidget {
   const Art3m1sApp({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    if (Platform.isMacOS) return const MacosShellApp();
+  ConsumerState<Art3m1sApp> createState() => _Art3m1sAppState();
+}
+
+class _Art3m1sAppState extends ConsumerState<Art3m1sApp> {
+  DesktopShellController? _desktopShell;
+
+  bool get _isDesktop =>
+      Platform.isMacOS || Platform.isWindows || Platform.isLinux;
+
+  @override
+  void initState() {
+    super.initState();
+    if (!_isDesktop) return;
+    final controller = DesktopShellController();
+    _desktopShell = controller;
+    unawaited(controller.syncWindowState());
+  }
+
+  @override
+  void dispose() {
+    _desktopShell?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final desktopShell = _desktopShell;
+    if (desktopShell != null) {
+      return AnimatedBuilder(
+        animation: desktopShell,
+        builder: (context, _) {
+          final bigScreen = desktopShell.mode == DesktopShellMode.bigScreen;
+          return AnimatedSwitcher(
+            duration: const Duration(milliseconds: 480),
+            reverseDuration: const Duration(milliseconds: 360),
+            switchInCurve: Curves.easeOutCubic,
+            switchOutCurve: Curves.easeInCubic,
+            layoutBuilder: (currentChild, previousChildren) => Stack(
+              fit: StackFit.expand,
+              alignment: Alignment.center,
+              children: [...previousChildren, ?currentChild],
+            ),
+            transitionBuilder: (child, animation) {
+              final scale = Tween<double>(
+                begin: 0.975,
+                end: 1,
+              ).animate(animation);
+              return FadeTransition(
+                opacity: animation,
+                child: ScaleTransition(scale: scale, child: child),
+              );
+            },
+            child: bigScreen
+                ? Ps5ShellApp(
+                    key: const ValueKey('desktop-big-screen'),
+                    onExitBigScreen: desktopShell.exitBigScreen,
+                  )
+                : KeyedSubtree(
+                    key: const ValueKey('desktop-standard'),
+                    child: _buildStandardDesktopShell(desktopShell),
+                  ),
+          );
+        },
+      );
+    }
     if (Platform.isIOS) return const CupertinoShellApp();
-    if (Platform.isWindows) return const FluentShellApp();
     if (Platform.isAndroid &&
         ref.watch(settingsProvider.select((s) => s.hostUiTheme)) ==
             HostUiTheme.miuix) {
       return const MiuixShellApp();
     }
     return const MaterialShellApp();
+  }
+
+  Widget _buildStandardDesktopShell(DesktopShellController controller) {
+    if (Platform.isMacOS) {
+      return MacosShellApp(onEnterBigScreen: controller.enterBigScreen);
+    }
+    if (Platform.isWindows) {
+      return FluentShellApp(onEnterBigScreen: controller.enterBigScreen);
+    }
+    return MaterialShellApp(onEnterBigScreen: controller.enterBigScreen);
   }
 }

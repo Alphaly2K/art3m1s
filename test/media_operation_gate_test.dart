@@ -1,4 +1,4 @@
-import 'package:art3m1s/engine/media_bridge.dart';
+import 'package:art3m1s/engine/backends/art3m1s/media_bridge.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

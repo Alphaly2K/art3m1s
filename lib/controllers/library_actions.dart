@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../adaptive/dialogs.dart';
 import '../adaptive/feedback.dart';
+import '../adaptive/ps5_chrome.dart';
 import '../engine/engine_runtime_factory.dart';
 import '../models/game_engine.dart';
 import '../models/game_entry.dart';
@@ -20,6 +21,7 @@ import '../services/game_importer.dart';
 import '../services/logger.dart';
 import '../services/game_manifest.dart';
 import '../services/vndb_service.dart';
+import '../widgets/ps5_file_picker.dart';
 
 /// 资料库的全部业务流程，三个壳共用；壳只负责入口控件的平台样式。
 class LibraryActions {
@@ -32,7 +34,8 @@ class LibraryActions {
 
   /// 统一的导入流程:选择目录 → 探测 → 原地入库,全平台一致、不复制。
   /// Android 走原生 SAF 选择器并解析真实路径(需要「所有文件访问」授权);
-  /// 桌面用系统目录选择器;iOS 用 `scanIosAppFolder` 扫描 App 文件夹。
+  /// PS5 桌面壳走内置大屏文件浏览器,其它桌面壳沿用系统目录选择器;
+  /// iOS 用 `scanIosAppFolder` 扫描 App 文件夹。
   ///
   /// 探测同时覆盖两类游戏:解包工程目录(system.ini → Artemis,
   /// `.hcb` → RFVP)和打包成 PFS 归档的 Artemis 游戏(没有外露 system.ini,
@@ -71,6 +74,13 @@ class LibraryActions {
   /// URI 无法解析为真实路径时降级为手动输入;用户取消返回 null。
   Future<String?> _pickImportDirectory() async {
     if (!Platform.isAndroid) {
+      if (usesPs5Chrome(context)) {
+        return showPs5FilePicker(
+          context,
+          mode: Ps5FilePickerMode.directory,
+          title: '选择游戏文件夹',
+        );
+      }
       return getDirectoryPath(confirmButtonText: '选择此目录');
     }
     try {
@@ -311,6 +321,7 @@ class LibraryActions {
             inputGate: result.inputGate,
             vndbId: metadata.vndbId ?? '',
             fontOverridePath: manifest?.fontOverride ?? '',
+            fontOverrideFilePath: result.fontOverrideFilePath,
             reportedOs: result.reportedOs.isNotEmpty
                 ? result.reportedOs
                 : manifest?.reportedOs ?? '',
@@ -427,6 +438,7 @@ class LibraryActions {
       initialEnvironmentPatchEnabled: configured.environmentPatchEnabled,
       initialExperimentalElunaEnabled: configured.experimentalElunaEnabled,
       initialInputGate: configured.inputGate,
+      initialFontOverrideFilePath: configured.fontOverrideFilePath,
       initialReportedOs: configured.reportedOs,
       initialRuntimePlatform: configured.runtimePlatform,
     );
@@ -448,6 +460,7 @@ class LibraryActions {
           environmentPatchEnabled: result.environmentPatchEnabled,
           experimentalElunaEnabled: result.experimentalElunaEnabled,
           inputGate: result.inputGate,
+          fontOverrideFilePath: result.fontOverrideFilePath,
           reportedOs: result.reportedOs,
           runtimePlatform: result.runtimePlatform,
         );
@@ -503,6 +516,7 @@ class LibraryActions {
             experimentalElunaEnabled: configured.experimentalElunaEnabled,
             inputGate: configured.inputGate,
             fontOverridePath: configured.fontOverridePath,
+            fontOverrideFilePath: configured.fontOverrideFilePath,
             reportedOs: configured.reportedOs,
             runtimePlatform: configured.runtimePlatform,
             manifestPath: configured.manifestPath,

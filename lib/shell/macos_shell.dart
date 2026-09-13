@@ -27,7 +27,9 @@ import '../widgets/render_resolution_dialog.dart';
 
 /// macOS 壳：MacosApp + 侧栏（资料库 / 设置 / 关于）。
 class MacosShellApp extends StatelessWidget {
-  const MacosShellApp({super.key});
+  const MacosShellApp({super.key, this.onEnterBigScreen});
+
+  final Future<bool> Function()? onEnterBigScreen;
 
   @override
   Widget build(BuildContext context) {
@@ -53,13 +55,15 @@ class MacosShellApp extends StatelessWidget {
         DefaultCupertinoLocalizations.delegate,
         DefaultWidgetsLocalizations.delegate,
       ],
-      home: const _MacosHome(),
+      home: _MacosHome(onEnterBigScreen: onEnterBigScreen),
     );
   }
 }
 
 class _MacosHome extends StatefulWidget {
-  const _MacosHome();
+  const _MacosHome({this.onEnterBigScreen});
+
+  final Future<bool> Function()? onEnterBigScreen;
 
   @override
   State<_MacosHome> createState() => _MacosHomeState();
@@ -114,7 +118,7 @@ class _MacosHomeState extends State<_MacosHome> {
             ),
           ),
           child: switch (_index) {
-            0 => const _MacosLibraryPage(),
+            0 => _MacosLibraryPage(onEnterBigScreen: widget.onEnterBigScreen),
             1 => const _MacosSettingsPage(),
             _ => const _MacosAboutPage(),
           },
@@ -127,7 +131,9 @@ class _MacosHomeState extends State<_MacosHome> {
 // ── 资料库 ────────────────────────────────────────────────────
 
 class _MacosLibraryPage extends ConsumerWidget {
-  const _MacosLibraryPage();
+  const _MacosLibraryPage({this.onEnterBigScreen});
+
+  final Future<bool> Function()? onEnterBigScreen;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -171,10 +177,27 @@ class _MacosLibraryPage extends ConsumerWidget {
                   right: 20,
                   child: _GlassHeader(
                     title: '资料库',
-                    trailing: MacosCircleButton(
-                      icon: CupertinoIcons.folder_badge_plus,
-                      tooltip: '扫描游戏文件夹',
-                      onPressed: actions.pickDirectory,
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (onEnterBigScreen != null) ...[
+                          MacosCircleButton(
+                            icon: CupertinoIcons.tv,
+                            tooltip: '进入大屏模式',
+                            onPressed: () async {
+                              final entered = await onEnterBigScreen!();
+                              if (!context.mounted || entered) return;
+                              notify(context, '大屏模式需要窗口处于全屏状态');
+                            },
+                          ),
+                          const SizedBox(width: 8),
+                        ],
+                        MacosCircleButton(
+                          icon: CupertinoIcons.folder_badge_plus,
+                          tooltip: '扫描游戏文件夹',
+                          onPressed: actions.pickDirectory,
+                        ),
+                      ],
                     ),
                   ),
                 ),

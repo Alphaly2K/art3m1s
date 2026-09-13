@@ -8,52 +8,16 @@ import 'package:flutter_miuix/miuix.dart';
 import 'package:macos_ui/macos_ui.dart';
 
 import '../models/game_engine.dart';
+import '../models/game_edit_data.dart';
 import '../models/input_gate.dart';
 import '../models/render_backend.dart';
+import '../screens/translation_font_picker.dart';
 import '../widgets/inset_scrollbar.dart';
 import 'miuix_chrome.dart';
+import 'ps5_chrome.dart';
+import 'ps5_game_edit_dialog.dart';
 
-/// 编辑对话框的结果。
-class GameEditData {
-  final String name;
-  final String? coverPath;
-  final bool translationEnabled;
-  final String translationPatchPath;
-  final bool environmentPatchEnabled;
-  final bool experimentalElunaEnabled;
-
-  /// 输入门控策略（环境/平台特化的输入过滤），默认全放行。
-  final InputGatePolicy inputGate;
-
-  /// 上报机种串覆盖（空串 = 跟随项目平台）。
-  final String reportedOs;
-
-  /// system.ini 启动段；按游戏保存。
-  final String runtimePlatform;
-
-  const GameEditData({
-    required this.name,
-    this.coverPath,
-    required this.translationEnabled,
-    required this.translationPatchPath,
-    required this.environmentPatchEnabled,
-    required this.experimentalElunaEnabled,
-    this.inputGate = InputGatePolicy.full,
-    this.reportedOs = '',
-    this.runtimePlatform = 'WINDOWS',
-  });
-}
-
-/// 「机种上报」可选项：键为上报串（空串 = 跟随平台），值为显示名。
-const Map<String, String> reportedOsOptions = {
-  '': '默认（跟随平台）',
-  'windows': 'Windows',
-  'iphone': 'iOS',
-  'android': 'Android',
-  'webassembly': 'WebAssembly',
-  'switch': 'Switch',
-  'ps4': 'PS4',
-};
+export '../models/game_edit_data.dart';
 
 /// 平台自适应的确认框。返回 true 表示用户确认。
 Future<bool> showAdaptiveConfirm(
@@ -63,6 +27,15 @@ Future<bool> showAdaptiveConfirm(
   String confirmLabel = '确定',
   bool destructive = false,
 }) async {
+  if (usesPs5Chrome(context)) {
+    return showPs5Confirm(
+      context,
+      title: title,
+      message: message,
+      confirmLabel: confirmLabel,
+      destructive: destructive,
+    );
+  }
   bool? result;
   if (Platform.isMacOS) {
     result = await showMacosAlertDialog<bool>(
@@ -197,9 +170,27 @@ Future<GameEditData?> showGameEditDialog(
   bool initialEnvironmentPatchEnabled = false,
   bool initialExperimentalElunaEnabled = false,
   InputGatePolicy initialInputGate = InputGatePolicy.full,
+  String initialFontOverrideFilePath = '',
   String initialReportedOs = '',
   String initialRuntimePlatform = 'WINDOWS',
 }) {
+  if (usesPs5Chrome(context)) {
+    return showPs5GameEditDialog(
+      context,
+      title: title,
+      initialName: initialName,
+      engine: engine,
+      initialCoverPath: initialCoverPath,
+      initialTranslationEnabled: initialTranslationEnabled,
+      initialTranslationPatchPath: initialTranslationPatchPath,
+      initialEnvironmentPatchEnabled: initialEnvironmentPatchEnabled,
+      initialExperimentalElunaEnabled: initialExperimentalElunaEnabled,
+      initialInputGate: initialInputGate,
+      initialFontOverrideFilePath: initialFontOverrideFilePath,
+      initialReportedOs: initialReportedOs,
+      initialRuntimePlatform: initialRuntimePlatform,
+    );
+  }
   if (Platform.isMacOS) {
     return showMacosSheet<GameEditData>(
       context: context,
@@ -231,6 +222,7 @@ Future<GameEditData?> showGameEditDialog(
                   initialExperimentalElunaEnabled:
                       initialExperimentalElunaEnabled,
                   initialInputGate: initialInputGate,
+                  initialFontOverrideFilePath: initialFontOverrideFilePath,
                   initialReportedOs: initialReportedOs,
                   initialRuntimePlatform: initialRuntimePlatform,
                 ),
@@ -254,6 +246,7 @@ Future<GameEditData?> showGameEditDialog(
         initialEnvironmentPatchEnabled: initialEnvironmentPatchEnabled,
         initialExperimentalElunaEnabled: initialExperimentalElunaEnabled,
         initialInputGate: initialInputGate,
+        initialFontOverrideFilePath: initialFontOverrideFilePath,
         initialReportedOs: initialReportedOs,
         initialRuntimePlatform: initialRuntimePlatform,
       ),
@@ -271,6 +264,7 @@ Future<GameEditData?> showGameEditDialog(
       initialEnvironmentPatchEnabled: initialEnvironmentPatchEnabled,
       initialExperimentalElunaEnabled: initialExperimentalElunaEnabled,
       initialInputGate: initialInputGate,
+      initialFontOverrideFilePath: initialFontOverrideFilePath,
       initialReportedOs: initialReportedOs,
       initialRuntimePlatform: initialRuntimePlatform,
     );
@@ -288,6 +282,7 @@ Future<GameEditData?> showGameEditDialog(
         initialEnvironmentPatchEnabled: initialEnvironmentPatchEnabled,
         initialExperimentalElunaEnabled: initialExperimentalElunaEnabled,
         initialInputGate: initialInputGate,
+        initialFontOverrideFilePath: initialFontOverrideFilePath,
         initialReportedOs: initialReportedOs,
         initialRuntimePlatform: initialRuntimePlatform,
       ),
@@ -305,6 +300,7 @@ Future<GameEditData?> showGameEditDialog(
       initialEnvironmentPatchEnabled: initialEnvironmentPatchEnabled,
       initialExperimentalElunaEnabled: initialExperimentalElunaEnabled,
       initialInputGate: initialInputGate,
+      initialFontOverrideFilePath: initialFontOverrideFilePath,
       initialReportedOs: initialReportedOs,
       initialRuntimePlatform: initialRuntimePlatform,
     ),
@@ -323,6 +319,7 @@ class _MacosEditDialog extends StatefulWidget {
   final bool initialEnvironmentPatchEnabled;
   final bool initialExperimentalElunaEnabled;
   final InputGatePolicy initialInputGate;
+  final String initialFontOverrideFilePath;
   final String initialReportedOs;
   final String initialRuntimePlatform;
 
@@ -336,6 +333,7 @@ class _MacosEditDialog extends StatefulWidget {
     required this.initialEnvironmentPatchEnabled,
     required this.initialExperimentalElunaEnabled,
     this.initialInputGate = InputGatePolicy.full,
+    this.initialFontOverrideFilePath = '',
     this.initialReportedOs = '',
     this.initialRuntimePlatform = 'WINDOWS',
   });
@@ -355,6 +353,7 @@ class _MacosEditDialogState extends State<_MacosEditDialog> {
   late bool _environmentPatchEnabled;
   late bool _experimentalElunaEnabled;
   late InputGatePolicy _inputGate;
+  late String _fontOverrideFilePath;
   late String _reportedOs;
   late String _runtimePlatform;
 
@@ -367,8 +366,14 @@ class _MacosEditDialogState extends State<_MacosEditDialog> {
     _environmentPatchEnabled = widget.initialEnvironmentPatchEnabled;
     _experimentalElunaEnabled = widget.initialExperimentalElunaEnabled;
     _inputGate = widget.initialInputGate;
+    _fontOverrideFilePath = widget.initialFontOverrideFilePath;
     _reportedOs = widget.initialReportedOs;
     _runtimePlatform = widget.initialRuntimePlatform;
+  }
+
+  Future<void> _pickFontOverride() async {
+    final path = await pickOverrideFont();
+    if (path != null) setState(() => _fontOverrideFilePath = path);
   }
 
   /// 输入方式 profile 选择：只认预置 profile；补丁带来的自定义规则（knownProfile
@@ -392,6 +397,7 @@ class _MacosEditDialogState extends State<_MacosEditDialog> {
       environmentPatchEnabled: _environmentPatchEnabled,
       experimentalElunaEnabled: _experimentalElunaEnabled,
       inputGate: _inputGate,
+      fontOverrideFilePath: _fontOverrideFilePath,
       reportedOs: _reportedOs,
       runtimePlatform: _runtimePlatform,
     );
@@ -419,6 +425,7 @@ class _MacosEditDialogState extends State<_MacosEditDialog> {
       GameSettingField.runtimePlatform,
     );
     final showInputGate = fields.contains(GameSettingField.inputGate);
+    final showFontOverride = fields.contains(GameSettingField.fontOverride);
     final showReportedOs = fields.contains(GameSettingField.reportedOs);
     final showExperimental = fields.contains(
       GameSettingField.experimentalEluna,
@@ -536,6 +543,40 @@ class _MacosEditDialogState extends State<_MacosEditDialog> {
                             ],
                           ),
                         ),
+                    ],
+                  ),
+                if (showFontOverride)
+                  _MacosFormSection(
+                    title: '字体',
+                    children: [
+                      _MacosFormRow(
+                        label: '覆盖字体',
+                        caption: _fontOverrideFilePath.isEmpty
+                            ? '使用游戏脚本字体'
+                            : overrideFontDisplayName(_fontOverrideFilePath),
+                        control: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (_fontOverrideFilePath.isNotEmpty) ...[
+                              PushButton(
+                                controlSize: ControlSize.small,
+                                secondary: true,
+                                onPressed: () => setState(
+                                  () => _fontOverrideFilePath = '',
+                                ),
+                                child: const Text('清除'),
+                              ),
+                              const SizedBox(width: 6),
+                            ],
+                            PushButton(
+                              controlSize: ControlSize.small,
+                              secondary: true,
+                              onPressed: _pickFontOverride,
+                              child: const Text('选择'),
+                            ),
+                          ],
+                        ),
+                      ),
                     ],
                   ),
                 if (showCompat)
@@ -803,6 +844,7 @@ class _CupertinoEditDialog extends StatefulWidget {
   final bool initialEnvironmentPatchEnabled;
   final bool initialExperimentalElunaEnabled;
   final InputGatePolicy initialInputGate;
+  final String initialFontOverrideFilePath;
   final String initialReportedOs;
   final String initialRuntimePlatform;
 
@@ -816,6 +858,7 @@ class _CupertinoEditDialog extends StatefulWidget {
     required this.initialEnvironmentPatchEnabled,
     required this.initialExperimentalElunaEnabled,
     this.initialInputGate = InputGatePolicy.full,
+    this.initialFontOverrideFilePath = '',
     this.initialReportedOs = '',
     this.initialRuntimePlatform = 'WINDOWS',
   });
@@ -834,6 +877,7 @@ class _CupertinoEditDialogState extends State<_CupertinoEditDialog> {
   late bool _environmentPatchEnabled;
   late bool _experimentalElunaEnabled;
   late InputGatePolicy _inputGate;
+  late String _fontOverrideFilePath;
   late String _reportedOs;
   late String _runtimePlatform;
 
@@ -846,8 +890,14 @@ class _CupertinoEditDialogState extends State<_CupertinoEditDialog> {
     _environmentPatchEnabled = widget.initialEnvironmentPatchEnabled;
     _experimentalElunaEnabled = widget.initialExperimentalElunaEnabled;
     _inputGate = widget.initialInputGate;
+    _fontOverrideFilePath = widget.initialFontOverrideFilePath;
     _reportedOs = widget.initialReportedOs;
     _runtimePlatform = widget.initialRuntimePlatform;
+  }
+
+  Future<void> _pickFontOverride() async {
+    final path = await pickOverrideFont();
+    if (path != null) setState(() => _fontOverrideFilePath = path);
   }
 
   /// 输入方式 profile 选择：只认预置 profile；补丁带来的自定义规则（knownProfile
@@ -925,6 +975,7 @@ class _CupertinoEditDialogState extends State<_CupertinoEditDialog> {
     final showExperimental = fields.contains(
       GameSettingField.experimentalEluna,
     );
+    final showFontOverride = fields.contains(GameSettingField.fontOverride);
     return CupertinoAlertDialog(
       title: Text(widget.title),
       content: Column(
@@ -1009,6 +1060,36 @@ class _CupertinoEditDialogState extends State<_CupertinoEditDialog> {
                 ],
               ),
             ],
+          ],
+          if (showFontOverride) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _fontOverrideFilePath.isEmpty
+                        ? '覆盖字体：游戏脚本字体'
+                        : overrideFontDisplayName(_fontOverrideFilePath),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                CupertinoButton(
+                  sizeStyle: CupertinoButtonSize.small,
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  onPressed: _pickFontOverride,
+                  child: const Text('选择'),
+                ),
+                if (_fontOverrideFilePath.isNotEmpty)
+                  CupertinoButton(
+                    sizeStyle: CupertinoButtonSize.small,
+                    padding: const EdgeInsets.symmetric(horizontal: 6),
+                    onPressed: () =>
+                        setState(() => _fontOverrideFilePath = ''),
+                    child: const Text('清除'),
+                  ),
+              ],
+            ),
           ],
           if (showEnvironmentPatch) ...[
             const SizedBox(height: 8),
@@ -1109,6 +1190,7 @@ class _CupertinoEditDialogState extends State<_CupertinoEditDialog> {
               environmentPatchEnabled: _environmentPatchEnabled,
               experimentalElunaEnabled: _experimentalElunaEnabled,
               inputGate: _inputGate,
+              fontOverrideFilePath: _fontOverrideFilePath,
               reportedOs: _reportedOs,
               runtimePlatform: _runtimePlatform,
             ),
@@ -1132,6 +1214,7 @@ class _MaterialEditDialog extends StatefulWidget {
   final bool initialEnvironmentPatchEnabled;
   final bool initialExperimentalElunaEnabled;
   final InputGatePolicy initialInputGate;
+  final String initialFontOverrideFilePath;
   final String initialReportedOs;
   final String initialRuntimePlatform;
 
@@ -1145,6 +1228,7 @@ class _MaterialEditDialog extends StatefulWidget {
     required this.initialEnvironmentPatchEnabled,
     required this.initialExperimentalElunaEnabled,
     this.initialInputGate = InputGatePolicy.full,
+    this.initialFontOverrideFilePath = '',
     this.initialReportedOs = '',
     this.initialRuntimePlatform = 'WINDOWS',
   });
@@ -1163,6 +1247,7 @@ class _MaterialEditDialogState extends State<_MaterialEditDialog> {
   late bool _environmentPatchEnabled;
   late bool _experimentalElunaEnabled;
   late InputGatePolicy _inputGate;
+  late String _fontOverrideFilePath;
   late String _reportedOs;
   late String _runtimePlatform;
 
@@ -1175,8 +1260,14 @@ class _MaterialEditDialogState extends State<_MaterialEditDialog> {
     _environmentPatchEnabled = widget.initialEnvironmentPatchEnabled;
     _experimentalElunaEnabled = widget.initialExperimentalElunaEnabled;
     _inputGate = widget.initialInputGate;
+    _fontOverrideFilePath = widget.initialFontOverrideFilePath;
     _reportedOs = widget.initialReportedOs;
     _runtimePlatform = widget.initialRuntimePlatform;
+  }
+
+  Future<void> _pickFontOverride() async {
+    final path = await pickOverrideFont();
+    if (path != null) setState(() => _fontOverrideFilePath = path);
   }
 
   /// 输入方式 profile 选择：只认预置 profile；补丁带来的自定义规则（knownProfile
@@ -1214,6 +1305,7 @@ class _MaterialEditDialogState extends State<_MaterialEditDialog> {
     final showExperimental = fields.contains(
       GameSettingField.experimentalEluna,
     );
+    final showFontOverride = fields.contains(GameSettingField.fontOverride);
     return AlertDialog(
       title: Text(widget.title),
       content: SizedBox(
@@ -1290,6 +1382,35 @@ class _MaterialEditDialogState extends State<_MaterialEditDialog> {
                             setState(() => _translationPatchPath = path);
                           }
                         },
+                      ),
+                    ],
+                  ),
+                ),
+              if (showFontOverride)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('覆盖字体'),
+                  subtitle: Text(
+                    _fontOverrideFilePath.isEmpty
+                        ? '使用游戏脚本字体'
+                        : overrideFontDisplayName(_fontOverrideFilePath),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (_fontOverrideFilePath.isNotEmpty)
+                        IconButton(
+                          tooltip: '清除',
+                          icon: const Icon(Icons.close),
+                          onPressed: () =>
+                              setState(() => _fontOverrideFilePath = ''),
+                        ),
+                      IconButton(
+                        tooltip: '选择字体',
+                        icon: const Icon(Icons.folder_open),
+                        onPressed: _pickFontOverride,
                       ),
                     ],
                   ),
@@ -1389,6 +1510,7 @@ class _MaterialEditDialogState extends State<_MaterialEditDialog> {
               environmentPatchEnabled: _environmentPatchEnabled,
               experimentalElunaEnabled: _experimentalElunaEnabled,
               inputGate: _inputGate,
+              fontOverrideFilePath: _fontOverrideFilePath,
               reportedOs: _reportedOs,
               runtimePlatform: _runtimePlatform,
             ),
@@ -1491,6 +1613,7 @@ class _FluentEditDialog extends StatefulWidget {
   final bool initialEnvironmentPatchEnabled;
   final bool initialExperimentalElunaEnabled;
   final InputGatePolicy initialInputGate;
+  final String initialFontOverrideFilePath;
   final String initialReportedOs;
   final String initialRuntimePlatform;
 
@@ -1504,6 +1627,7 @@ class _FluentEditDialog extends StatefulWidget {
     required this.initialEnvironmentPatchEnabled,
     required this.initialExperimentalElunaEnabled,
     this.initialInputGate = InputGatePolicy.full,
+    this.initialFontOverrideFilePath = '',
     this.initialReportedOs = '',
     this.initialRuntimePlatform = 'WINDOWS',
   });
@@ -1522,6 +1646,7 @@ class _FluentEditDialogState extends State<_FluentEditDialog> {
   late bool _environmentPatchEnabled;
   late bool _experimentalElunaEnabled;
   late InputGatePolicy _inputGate;
+  late String _fontOverrideFilePath;
   late String _reportedOs;
   late String _runtimePlatform;
 
@@ -1534,8 +1659,14 @@ class _FluentEditDialogState extends State<_FluentEditDialog> {
     _environmentPatchEnabled = widget.initialEnvironmentPatchEnabled;
     _experimentalElunaEnabled = widget.initialExperimentalElunaEnabled;
     _inputGate = widget.initialInputGate;
+    _fontOverrideFilePath = widget.initialFontOverrideFilePath;
     _reportedOs = widget.initialReportedOs;
     _runtimePlatform = widget.initialRuntimePlatform;
+  }
+
+  Future<void> _pickFontOverride() async {
+    final path = await pickOverrideFont();
+    if (path != null) setState(() => _fontOverrideFilePath = path);
   }
 
   /// 输入方式 profile 选择：只认预置 profile；补丁带来的自定义规则（knownProfile
@@ -1573,6 +1704,7 @@ class _FluentEditDialogState extends State<_FluentEditDialog> {
     final showExperimental = fields.contains(
       GameSettingField.experimentalEluna,
     );
+    final showFontOverride = fields.contains(GameSettingField.fontOverride);
     return fluent.ContentDialog(
       title: Text(widget.title),
       content: SizedBox(
@@ -1658,6 +1790,35 @@ class _FluentEditDialogState extends State<_FluentEditDialog> {
                     ],
                   ),
                 ],
+              ],
+              if (showFontOverride) ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        _fontOverrideFilePath.isEmpty
+                            ? '覆盖字体：游戏脚本字体'
+                            : overrideFontDisplayName(_fontOverrideFilePath),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    if (_fontOverrideFilePath.isNotEmpty) ...[
+                      const SizedBox(width: 6),
+                      fluent.Button(
+                        onPressed: () =>
+                            setState(() => _fontOverrideFilePath = ''),
+                        child: const Text('清除'),
+                      ),
+                    ],
+                    const SizedBox(width: 6),
+                    fluent.Button(
+                      onPressed: _pickFontOverride,
+                      child: const Text('选择字体'),
+                    ),
+                  ],
+                ),
               ],
               if (showEnvironmentPatch) ...[
                 const SizedBox(height: 8),
@@ -1770,6 +1931,7 @@ class _FluentEditDialogState extends State<_FluentEditDialog> {
               environmentPatchEnabled: _environmentPatchEnabled,
               experimentalElunaEnabled: _experimentalElunaEnabled,
               inputGate: _inputGate,
+              fontOverrideFilePath: _fontOverrideFilePath,
               reportedOs: _reportedOs,
               runtimePlatform: _runtimePlatform,
             ),
@@ -1792,6 +1954,7 @@ Future<GameEditData?> showMiuixGameEditDialog(
   required bool initialEnvironmentPatchEnabled,
   required bool initialExperimentalElunaEnabled,
   required InputGatePolicy initialInputGate,
+  required String initialFontOverrideFilePath,
   required String initialReportedOs,
   required String initialRuntimePlatform,
 }) {
@@ -1813,6 +1976,7 @@ Future<GameEditData?> showMiuixGameEditDialog(
           initialEnvironmentPatchEnabled: initialEnvironmentPatchEnabled,
           initialExperimentalElunaEnabled: initialExperimentalElunaEnabled,
           initialInputGate: initialInputGate,
+          initialFontOverrideFilePath: initialFontOverrideFilePath,
           initialReportedOs: initialReportedOs,
           initialRuntimePlatform: initialRuntimePlatform,
           onCancel: () => dismiss(),
@@ -1833,6 +1997,7 @@ class _MiuixEditForm extends StatefulWidget {
     required this.initialEnvironmentPatchEnabled,
     required this.initialExperimentalElunaEnabled,
     required this.initialInputGate,
+    required this.initialFontOverrideFilePath,
     required this.initialReportedOs,
     required this.initialRuntimePlatform,
     required this.onCancel,
@@ -1847,6 +2012,7 @@ class _MiuixEditForm extends StatefulWidget {
   final bool initialEnvironmentPatchEnabled;
   final bool initialExperimentalElunaEnabled;
   final InputGatePolicy initialInputGate;
+  final String initialFontOverrideFilePath;
   final String initialReportedOs;
   final String initialRuntimePlatform;
   final VoidCallback onCancel;
@@ -1866,6 +2032,7 @@ class _MiuixEditFormState extends State<_MiuixEditForm> {
   late bool _environmentPatchEnabled;
   late bool _experimentalElunaEnabled;
   late InputGatePolicy _inputGate;
+  late String _fontOverrideFilePath;
   late String _reportedOs;
   late String _runtimePlatform;
 
@@ -1878,6 +2045,7 @@ class _MiuixEditFormState extends State<_MiuixEditForm> {
     _environmentPatchEnabled = widget.initialEnvironmentPatchEnabled;
     _experimentalElunaEnabled = widget.initialExperimentalElunaEnabled;
     _inputGate = widget.initialInputGate;
+    _fontOverrideFilePath = widget.initialFontOverrideFilePath;
     _reportedOs = widget.initialReportedOs;
     _runtimePlatform = widget.initialRuntimePlatform;
   }
@@ -1886,6 +2054,11 @@ class _MiuixEditFormState extends State<_MiuixEditForm> {
   void dispose() {
     _name.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickFontOverride() async {
+    final path = await pickOverrideFont();
+    if (path != null) setState(() => _fontOverrideFilePath = path);
   }
 
   void _selectInputGateProfile(InputGateProfile? profile) {
@@ -1907,6 +2080,7 @@ class _MiuixEditFormState extends State<_MiuixEditForm> {
       environmentPatchEnabled: _environmentPatchEnabled,
       experimentalElunaEnabled: _experimentalElunaEnabled,
       inputGate: _inputGate,
+      fontOverrideFilePath: _fontOverrideFilePath,
       reportedOs: _reportedOs,
       runtimePlatform: _runtimePlatform,
     );
@@ -1930,6 +2104,7 @@ class _MiuixEditFormState extends State<_MiuixEditForm> {
     final showExperimental = fields.contains(
       GameSettingField.experimentalEluna,
     );
+    final showFontOverride = fields.contains(GameSettingField.fontOverride);
     final reportedKeys = reportedOsOptions.keys.toList();
     final runtimeIndex = runtimePlatforms.contains(_runtimePlatform)
         ? runtimePlatforms.indexOf(_runtimePlatform)
@@ -2024,6 +2199,25 @@ class _MiuixEditFormState extends State<_MiuixEditForm> {
                             '清除',
                             onPressed: () =>
                                 setState(() => _translationPatchPath = ''),
+                          ),
+                      ],
+                    ),
+                  if (showFontOverride)
+                    MiuixBasicComponent(
+                      title: '覆盖字体',
+                      summary: _fontOverrideFilePath.isEmpty
+                          ? '使用游戏脚本字体'
+                          : overrideFontDisplayName(_fontOverrideFilePath),
+                      endActions: [
+                        MiuixTextButton(
+                          '选择',
+                          onPressed: _pickFontOverride,
+                        ),
+                        if (_fontOverrideFilePath.isNotEmpty)
+                          MiuixTextButton(
+                            '清除',
+                            onPressed: () =>
+                                setState(() => _fontOverrideFilePath = ''),
                           ),
                       ],
                     ),

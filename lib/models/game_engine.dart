@@ -1,7 +1,8 @@
 /// Host-visible engine identity persisted with each library entry.
 enum GameEngineKind {
   art3m1s('art3m1s', 'Artemis'),
-  rfvp('rfvp', 'FVP');
+  rfvp('rfvp', 'FVP'),
+  krkr('krkr', 'Kirikiri');
 
   const GameEngineKind(this.id, this.label);
 
@@ -14,15 +15,16 @@ enum GameEngineKind {
     final id = value?.toString().trim().toLowerCase();
     return switch (id) {
       'rfvp' || 'fvp' => GameEngineKind.rfvp,
+      'krkr' || 'kirikiri' => GameEngineKind.krkr,
       _ => GameEngineKind.art3m1s,
     };
   }
 
   /// 该引擎在"每游戏设置"中有意义的字段。
   ///
-  /// 不同引擎的能力交集很小:Artemis 的环境补丁、Eluna、字体覆盖、
-  /// 机种上报、启动平台段都是 Artemis 专属概念;RFVP 侧的同名设置是
-  /// 空实现。设置页和 manifest 都以此为准,不给用户展示无效开关。
+  /// 不同引擎的能力交集很小:Artemis 的环境补丁、Eluna、机种上报、启动平台段
+  /// 都是 Artemis 专属概念;RFVP 侧的同名设置是空实现。设置页和 manifest 都以
+  /// 此为准,不给用户展示无效开关。
   Set<GameSettingField> get supportedGameSettings => switch (this) {
     GameEngineKind.art3m1s => GameSettingField.values.toSet(),
     GameEngineKind.rfvp => const {
@@ -32,6 +34,13 @@ enum GameEngineKind {
       // RFVP 的 text event ABI 尚未落地,翻译字段仅作预留接线。
       GameSettingField.translationEnabled,
       GameSettingField.translationPatchPath,
+      GameSettingField.fontOverride,
+      GameSettingField.inputGate,
+    },
+    GameEngineKind.krkr => const {
+      GameSettingField.displayName,
+      GameSettingField.cover,
+      GameSettingField.vndbId,
       GameSettingField.inputGate,
     },
   };

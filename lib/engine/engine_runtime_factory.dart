@@ -1,6 +1,7 @@
 import '../models/game_engine.dart';
 import '../services/logger.dart';
 import 'backends/art3m1s_engine_runtime.dart';
+import 'backends/krkr_engine_runtime.dart';
 import 'backends/rfvp_engine_runtime.dart';
 import 'engine_runtime.dart';
 
@@ -18,6 +19,9 @@ class EngineRuntimeFactory {
         engineCursorControlEnabled: engineCursorControlEnabled,
       ),
       GameEngineKind.rfvp => RfvpEngineRuntime(
+        engineCursorControlEnabled: engineCursorControlEnabled,
+      ),
+      GameEngineKind.krkr => KrkrEngineRuntime(
         engineCursorControlEnabled: engineCursorControlEnabled,
       ),
     };
@@ -39,6 +43,9 @@ class EngineRuntimeFactory {
         );
       case GameEngineKind.rfvp:
         Log.info('[Engine] RFVP caption probe 尚未接入');
+        return null;
+      case GameEngineKind.krkr:
+        Log.info('[Engine] KRKR caption probe 尚未接入');
         return null;
     }
   }

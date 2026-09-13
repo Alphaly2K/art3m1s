@@ -80,6 +80,34 @@ typedef _LogNextBytesNative = UintPtr Function();
 typedef _LogNextBytesDart = int Function();
 typedef _PollLogNative = UintPtr Function(Pointer<Uint8>, UintPtr);
 typedef _PollLogDart = int Function(Pointer<Uint8>, int);
+typedef _RuntimeSetTextReplacementsNative =
+    Int32 Function(Uint64, Pointer<Uint8>, UintPtr);
+typedef _RuntimeSetTextReplacementsDart =
+    int Function(int, Pointer<Uint8>, int);
+typedef _RuntimeSetTextTranslationEnabledNative = Int32 Function(Uint64, Int32);
+typedef _RuntimeSetTextTranslationEnabledDart = int Function(int, int);
+typedef _RuntimeSubmitTextTranslationNative =
+    Int32 Function(Uint64, Uint64, Pointer<Uint8>, UintPtr);
+typedef _RuntimeSubmitTextTranslationDart =
+    int Function(int, int, Pointer<Uint8>, int);
+typedef _RuntimeNextTextEventSizeNative = UintPtr Function(Uint64);
+typedef _RuntimeNextTextEventSizeDart = int Function(int);
+typedef _RuntimePollTextEventsNative =
+    Uint32 Function(Uint64, Pointer<Uint8>, Uint32);
+typedef _RuntimePollTextEventsDart = int Function(int, Pointer<Uint8>, int);
+typedef _RuntimeSetTraceMaskNative = Int32 Function(Uint64, Uint32);
+typedef _RuntimeSetTraceMaskDart = int Function(int, int);
+typedef _RuntimeSetProfilerEnabledNative = Int32 Function(Uint64, Int32);
+typedef _RuntimeSetProfilerEnabledDart = int Function(int, int);
+typedef _RuntimeProfilerSnapshotNative = Int32 Function(Uint64, Pointer<Uint8>, Uint32);
+typedef _RuntimeProfilerSnapshotDart = int Function(int, Pointer<Uint8>, int);
+typedef _RuntimeSetDamageVisualizationNative = Int32 Function(Uint64, Int32);
+typedef _RuntimeSetDamageVisualizationDart = int Function(int, int);
+typedef _RuntimeSetFontOverrideNative =
+    Int32 Function(Uint64, Pointer<Uint8>, Uint32);
+typedef _RuntimeSetFontOverrideDart = int Function(int, Pointer<Uint8>, int);
+typedef _RuntimeClearFontOverrideNative = Int32 Function(Uint64);
+typedef _RuntimeClearFontOverrideDart = int Function(int);
 
 const int art3m1sRfvpStatusOk = 0;
 const int art3m1sRfvpStatusNoFrame = 1;
@@ -237,6 +265,28 @@ final class _Art3m1sRfvpApiV1 extends Struct {
   runtimeSetLogCallback;
   external Pointer<NativeFunction<_LogNextBytesNative>> logNextBytes;
   external Pointer<NativeFunction<_PollLogNative>> pollLog;
+  external Pointer<NativeFunction<_RuntimeSetTextReplacementsNative>>
+  runtimeSetTextReplacements;
+  external Pointer<NativeFunction<_RuntimeSetTextTranslationEnabledNative>>
+  runtimeSetTextTranslationEnabled;
+  external Pointer<NativeFunction<_RuntimeSubmitTextTranslationNative>>
+  runtimeSubmitTextTranslation;
+  external Pointer<NativeFunction<_RuntimeNextTextEventSizeNative>>
+  runtimeNextTextEventSize;
+  external Pointer<NativeFunction<_RuntimePollTextEventsNative>>
+  runtimePollTextEvents;
+  external Pointer<NativeFunction<_RuntimeSetFontOverrideNative>>
+  runtimeSetFontOverride;
+  external Pointer<NativeFunction<_RuntimeClearFontOverrideNative>>
+  runtimeClearFontOverride;
+  external Pointer<NativeFunction<_RuntimeSetTraceMaskNative>>
+  runtimeSetTraceMask;
+  external Pointer<NativeFunction<_RuntimeSetProfilerEnabledNative>>
+  runtimeSetProfilerEnabled;
+  external Pointer<NativeFunction<_RuntimeProfilerSnapshotNative>>
+  runtimeProfilerSnapshot;
+  external Pointer<NativeFunction<_RuntimeSetDamageVisualizationNative>>
+  runtimeSetDamageVisualization;
 }
 
 class RfvpCoreInputEvent {
@@ -298,6 +348,27 @@ class RfvpCoreLogRecord {
   /// ASCII level code (`D`/`I`/`W`/`E`), as emitted by the core.
   final int level;
   final String message;
+}
+
+/// One text-translation request pulled from the core RFVP event queue.
+///
+/// [serial] correlates the request with the later
+/// [CoreRfvpApiV1.submitTextTranslation] call; the core drops stale serials,
+/// so late completions can always be submitted.
+class RfvpTextEvent {
+  const RfvpTextEvent({
+    required this.serial,
+    required this.slot,
+    required this.generation,
+    required this.source,
+    this.ruby,
+  });
+
+  final int serial;
+  final int slot;
+  final int generation;
+  final String source;
+  final String? ruby;
 }
 
 class CoreRfvpApiV1 {
@@ -572,5 +643,213 @@ class CoreRfvpApiV1 {
     } finally {
       calloc.free(pixels);
     }
+  }
+
+  /// Pushes the host replacement table as a UTF-8 JSON blob. A null or empty
+  /// [json] clears the table on the core side.
+  int setTextReplacements(int runtime, String? json) {
+    final slot = _pointer.ref.runtimeSetTextReplacements;
+    if (slot == nullptr) return art3m1sRfvpStatusUnsupported;
+    final setReplacements = slot.asFunction<_RuntimeSetTextReplacementsDart>();
+    final bytes = (json == null || json.isEmpty) ? null : utf8.encode(json);
+    if (bytes == null) {
+      final status = setReplacements(runtime, nullptr, 0);
+      _lastStatus = status;
+      return status;
+    }
+    final native = malloc.allocate<Uint8>(bytes.length);
+    try {
+      native.asTypedList(bytes.length).setAll(0, bytes);
+      final status = setReplacements(runtime, native, bytes.length);
+      _lastStatus = status;
+      return status;
+    } finally {
+      malloc.free(native);
+    }
+  }
+
+  int setTextTranslationEnabled(int runtime, bool enabled) {
+    final slot = _pointer.ref.runtimeSetTextTranslationEnabled;
+    if (slot == nullptr) return art3m1sRfvpStatusUnsupported;
+    final status = slot.asFunction<_RuntimeSetTextTranslationEnabledDart>()(
+      runtime,
+      enabled ? 1 : 0,
+    );
+    _lastStatus = status;
+    return status;
+  }
+
+  /// Submits the translation for a pending [RfvpTextEvent.serial]. A null or
+  /// empty [translated] tells the core to keep the original text.
+  int submitTextTranslation(int runtime, int serial, String? translated) {
+    final slot = _pointer.ref.runtimeSubmitTextTranslation;
+    if (slot == nullptr) return art3m1sRfvpStatusUnsupported;
+    final submit = slot.asFunction<_RuntimeSubmitTextTranslationDart>();
+    final bytes = (translated == null || translated.isEmpty)
+        ? null
+        : utf8.encode(translated);
+    if (bytes == null) {
+      final status = submit(runtime, serial, nullptr, 0);
+      _lastStatus = status;
+      return status;
+    }
+    final native = malloc.allocate<Uint8>(bytes.length);
+    try {
+      native.asTypedList(bytes.length).setAll(0, bytes);
+      final status = submit(runtime, serial, native, bytes.length);
+      _lastStatus = status;
+      return status;
+    } finally {
+      malloc.free(native);
+    }
+  }
+
+  static const int _textEventHeaderSize = 32;
+
+  /// Drains queued text-translation requests.
+  ///
+  /// Records are length-prefixed and little-endian: `total_len u32`,
+  /// `serial u64`, `slot u32`, `generation u64`, `source_len u32`,
+  /// `ruby_len u32`, then the source bytes followed by the ruby bytes.
+  List<RfvpTextEvent> pollTextEvents(int runtime) {
+    final nextPtr = _pointer.ref.runtimeNextTextEventSize;
+    final pollPtr = _pointer.ref.runtimePollTextEvents;
+    if (nextPtr == nullptr || pollPtr == nullptr) {
+      return const <RfvpTextEvent>[];
+    }
+    final next = nextPtr.asFunction<_RuntimeNextTextEventSizeDart>();
+    final poll = pollPtr.asFunction<_RuntimePollTextEventsDart>();
+    final events = <RfvpTextEvent>[];
+    var guard = 0;
+    while (guard++ < 1024) {
+      final required = next(runtime);
+      if (required < _textEventHeaderSize) break;
+      final buffer = calloc<Uint8>(required);
+      try {
+        final written = poll(runtime, buffer, required);
+        if (written < _textEventHeaderSize) break;
+        final bytes = buffer.asTypedList(written);
+        final data = ByteData.sublistView(bytes);
+        var offset = 0;
+        while (offset + _textEventHeaderSize <= written) {
+          final total = data.getUint32(offset, Endian.little);
+          if (total < _textEventHeaderSize || offset + total > written) break;
+          final sourceLen = data.getUint32(offset + 24, Endian.little);
+          final rubyLen = data.getUint32(offset + 28, Endian.little);
+          final sourceStart = offset + _textEventHeaderSize;
+          final rubyStart = sourceStart + sourceLen;
+          events.add(
+            RfvpTextEvent(
+              serial: data.getUint64(offset + 4, Endian.little),
+              slot: data.getUint32(offset + 12, Endian.little),
+              generation: data.getUint64(offset + 16, Endian.little),
+              source: utf8.decode(
+                bytes.sublist(sourceStart, rubyStart),
+                allowMalformed: true,
+              ),
+              ruby: rubyLen == 0
+                  ? null
+                  : utf8.decode(
+                      bytes.sublist(rubyStart, rubyStart + rubyLen),
+                      allowMalformed: true,
+                    ),
+            ),
+          );
+          offset += total;
+        }
+      } finally {
+        calloc.free(buffer);
+      }
+    }
+    return events;
+  }
+
+  /// Whether the loaded core exposes the per-runtime font override slots.
+  /// Older cores leave them null; hosts must treat that as "unsupported".
+  bool get supportsFontOverride =>
+      _pointer.ref.runtimeSetFontOverride != nullptr &&
+      _pointer.ref.runtimeClearFontOverride != nullptr;
+
+  /// Installs a per-runtime override font from raw TTF/OTF bytes.
+  /// Overrides the engine trace mask (bits: vm/syscall/prim/prim_tree/
+  /// motion/render). Pass -1 (u32 max) to restore env-var behavior.
+  int setTraceMask(int runtime, int mask) {
+    final slot = _pointer.ref.runtimeSetTraceMask;
+    if (slot == nullptr) return art3m1sRfvpStatusUnsupported;
+    final status = slot.asFunction<_RuntimeSetTraceMaskDart>()(
+      runtime,
+      mask & 0xFFFFFFFF,
+    );
+    _lastStatus = status;
+    return status;
+  }
+
+  int setProfilerEnabled(int runtime, bool enabled) {
+    final slot = _pointer.ref.runtimeSetProfilerEnabled;
+    if (slot == nullptr) return art3m1sRfvpStatusUnsupported;
+    final status = slot.asFunction<_RuntimeSetProfilerEnabledDart>()(
+      runtime,
+      enabled ? 1 : 0,
+    );
+    _lastStatus = status;
+    return status;
+  }
+
+  /// Reads the profiler snapshot JSON using the length-probe protocol.
+  /// Returns null on old cores or buffer mishaps.
+  String? profilerSnapshot(int runtime) {
+    final slot = _pointer.ref.runtimeProfilerSnapshot;
+    if (slot == nullptr) return null;
+    final fn = slot.asFunction<_RuntimeProfilerSnapshotDart>();
+    final required = fn(runtime, nullptr, 0);
+    if (required <= 0) return null;
+    final buffer = malloc.allocate<Uint8>(required);
+    try {
+      final written = fn(runtime, buffer, required);
+      if (written <= 0) return null;
+      return utf8.decode(buffer.asTypedList(written), allowMalformed: true);
+    } finally {
+      malloc.free(buffer);
+    }
+  }
+
+  int setDamageVisualization(int runtime, bool enabled) {
+    final slot = _pointer.ref.runtimeSetDamageVisualization;
+    if (slot == nullptr) return art3m1sRfvpStatusUnsupported;
+    final status = slot.asFunction<_RuntimeSetDamageVisualizationDart>()(
+      runtime,
+      enabled ? 1 : 0,
+    );
+    _lastStatus = status;
+    return status;
+  }
+
+  int setFontOverride(int runtime, Uint8List bytes) {
+    final slot = _pointer.ref.runtimeSetFontOverride;
+    if (slot == nullptr || bytes.isEmpty) {
+      return art3m1sRfvpStatusUnsupported;
+    }
+    final native = malloc.allocate<Uint8>(bytes.length);
+    try {
+      native.asTypedList(bytes.length).setAll(0, bytes);
+      final status = slot.asFunction<_RuntimeSetFontOverrideDart>()(
+        runtime,
+        native,
+        bytes.length,
+      );
+      _lastStatus = status;
+      return status;
+    } finally {
+      malloc.free(native);
+    }
+  }
+
+  /// Removes the per-runtime override font, restoring the game script font.
+  int clearFontOverride(int runtime) {
+    final slot = _pointer.ref.runtimeClearFontOverride;
+    if (slot == nullptr) return art3m1sRfvpStatusUnsupported;
+    final status = slot.asFunction<_RuntimeClearFontOverrideDart>()(runtime);
+    _lastStatus = status;
+    return status;
   }
 }

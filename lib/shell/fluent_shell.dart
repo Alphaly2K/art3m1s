@@ -20,7 +20,9 @@ import '../widgets/render_resolution_dialog.dart';
 
 /// Windows 壳：fluent_ui（WinUI 风格 NavigationView + Fluent 控件）。
 class FluentShellApp extends StatelessWidget {
-  const FluentShellApp({super.key});
+  const FluentShellApp({super.key, this.onEnterBigScreen});
+
+  final Future<bool> Function()? onEnterBigScreen;
 
   @override
   Widget build(BuildContext context) {
@@ -42,13 +44,17 @@ class FluentShellApp extends StatelessWidget {
         DefaultCupertinoLocalizations.delegate,
         DefaultWidgetsLocalizations.delegate,
       ],
-      home: const DebugOverlayHost(child: _FluentHome()),
+      home: DebugOverlayHost(
+        child: _FluentHome(onEnterBigScreen: onEnterBigScreen),
+      ),
     );
   }
 }
 
 class _FluentHome extends StatefulWidget {
-  const _FluentHome();
+  const _FluentHome({this.onEnterBigScreen});
+
+  final Future<bool> Function()? onEnterBigScreen;
 
   @override
   State<_FluentHome> createState() => _FluentHomeState();
@@ -69,7 +75,7 @@ class _FluentHomeState extends State<_FluentHome> {
           PaneItem(
             icon: const Icon(FluentIcons.library),
             title: const Text('资料库'),
-            body: const _FluentLibraryPage(),
+            body: _FluentLibraryPage(onEnterBigScreen: widget.onEnterBigScreen),
           ),
           PaneItem(
             icon: const Icon(FluentIcons.settings),
@@ -90,7 +96,9 @@ class _FluentHomeState extends State<_FluentHome> {
 // ── 资料库 ────────────────────────────────────────────────────
 
 class _FluentLibraryPage extends ConsumerWidget {
-  const _FluentLibraryPage();
+  const _FluentLibraryPage({this.onEnterBigScreen});
+
+  final Future<bool> Function()? onEnterBigScreen;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -102,15 +110,37 @@ class _FluentLibraryPage extends ConsumerWidget {
     return ScaffoldPage(
       header: PageHeader(
         title: const Text('资料库'),
-        commandBar: Button(
-          onPressed: actions.pickDirectory,
-          child: const Row(
-            children: [
-              Icon(FluentIcons.folder_open),
-              SizedBox(width: 8),
-              Text('扫描游戏文件夹'),
+        commandBar: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (onEnterBigScreen != null) ...[
+              Button(
+                onPressed: () async {
+                  final entered = await onEnterBigScreen!();
+                  if (!context.mounted || entered) return;
+                  notify(context, '大屏模式需要窗口处于全屏状态');
+                },
+                child: const Row(
+                  children: [
+                    Icon(FluentIcons.full_screen),
+                    SizedBox(width: 8),
+                    Text('大屏模式'),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
             ],
-          ),
+            Button(
+              onPressed: actions.pickDirectory,
+              child: const Row(
+                children: [
+                  Icon(FluentIcons.folder_open),
+                  SizedBox(width: 8),
+                  Text('扫描游戏文件夹'),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
       content: sorted.isEmpty

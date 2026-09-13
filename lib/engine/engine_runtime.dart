@@ -184,6 +184,7 @@ abstract interface class EngineRuntime {
   void feedTouch(int id, int phase, int x, int y);
   void feedKey(int keyCode, bool pressed);
   void feedForwardedKey(int keyCode, bool pressed);
+  void feedWheel(double deltaX, double deltaY);
   bool submitDialog(bool accepted, String text);
   void notifyMouseActivity();
 
@@ -300,6 +301,8 @@ class UnsupportedEngineRuntime implements EngineRuntime {
   void feedKey(int keyCode, bool pressed) {}
   @override
   void feedForwardedKey(int keyCode, bool pressed) {}
+  @override
+  void feedWheel(double deltaX, double deltaY) {}
   @override
   bool submitDialog(bool accepted, String text) => false;
   @override

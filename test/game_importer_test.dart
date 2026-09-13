@@ -90,6 +90,45 @@ void main() {
     );
   });
 
+  test('discovers KRKR roots by data.xp3 case-insensitively', () {
+    final root = Directory.systemTemp.createTempSync('art3m1s_krkr_');
+    addTearDown(() => root.deleteSync(recursive: true));
+    final game = Directory('${root.path}${Platform.pathSeparator}game')
+      ..createSync();
+    File('${game.path}${Platform.pathSeparator}DATA.XP3').writeAsBytesSync([1]);
+    Directory('${game.path}${Platform.pathSeparator}savedata').createSync();
+    File(
+      '${game.path}${Platform.pathSeparator}savedata${Platform.pathSeparator}patch.xp3',
+    ).writeAsBytesSync([2]);
+
+    expect(GameImporter.discoverUnpackedProjects(root.path), [game.path]);
+    expect(GameImporter.detectDirectoryEngine(game.path), GameEngineKind.krkr);
+  });
+
+  test('detects KRKR root with startup.tjs or exactly one XP3', () {
+    final root = Directory.systemTemp.createTempSync('art3m1s_krkr_markers_');
+    addTearDown(() => root.deleteSync(recursive: true));
+    final startup = Directory('${root.path}${Platform.pathSeparator}startup')
+      ..createSync();
+    File(
+      '${startup.path}${Platform.pathSeparator}Startup.TJS',
+    ).writeAsBytesSync([1]);
+    final soleXp3 = Directory('${root.path}${Platform.pathSeparator}sole')
+      ..createSync();
+    File(
+      '${soleXp3.path}${Platform.pathSeparator}game.XP3',
+    ).writeAsBytesSync([2]);
+
+    expect(
+      GameImporter.detectDirectoryEngine(startup.path),
+      GameEngineKind.krkr,
+    );
+    expect(
+      GameImporter.detectDirectoryEngine(soleXp3.path),
+      GameEngineKind.krkr,
+    );
+  });
+
   test(
     'discoverUnpackedProjects searches nested folders case-insensitively',
     () {

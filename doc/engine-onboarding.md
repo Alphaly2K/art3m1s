@@ -27,12 +27,13 @@
 
 统一导入契约:**全平台均为「选择文件夹 → 探测 → 原地入库」,不复制**。
 
-- 目录标记探测:`GameImporter.discoverUnpackedProjects` /
+- 目录标记探测:`GameImporter.probeGameFolder` /
   `detectDirectoryEngine`(`lib/services/game_importer.dart`)。Artemis 以
-  `system.ini` 为根标记,RFVP 以 `.hcb` 为根标记。新引擎在
-  `_isSystemIniName`/`_isHcbName` 旁增加自己的标记判定,并在
-  `detectDirectoryEngine` 中排定优先级(现有规则:同时命中时 system.ini
-  优先,即 Artemis 优先)。
+  `system.ini`(解包工程)或 base `.pfs` 归档(打包游戏,不含分卷
+  `.pfs.NNN`)为标记,RFVP 以 `.hcb` 为根标记;位于已识别工程目录内部的
+  `.pfs` 视为该工程的资源包,不重复登记。新引擎在 `_isSystemIniName`/
+  `_isHcbName` 旁增加自己的标记判定,并在 `detectDirectoryEngine` 中排定
+  优先级(现有规则:同时命中时 system.ini 优先,即 Artemis 优先)。
 - iOS 扫描:`ios/Runner/AppDelegate.swift` 的 `scanIosAppGamesFolder`
   需要识别新引擎的根标记(目前识别 `system.ini` 和 `.hcb`)。
 - Android:无需引擎相关改动。`MANAGE_EXTERNAL_STORAGE` 授权 + SAF 选目录

@@ -7,7 +7,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../adaptive/miuix_chrome.dart';
 import '../models/translation_settings.dart';
 import '../providers/settings_provider.dart';
-import 'translation_font_picker.dart';
 
 class MiuixTranslationSettingsScreen extends ConsumerStatefulWidget {
   const MiuixTranslationSettingsScreen({super.key});
@@ -234,39 +233,6 @@ class _MiuixTranslationSettingsScreenState
                       immediate: true,
                     ),
                   ),
-                ],
-              ),
-            ],
-            if (value.mode != TranslationMode.off) ...[
-              const SizedBox(height: 8),
-              MiuixSettingsGroup(
-                title: '字体',
-                children: [
-                  MiuixArrowPreference(
-                    title: value.fontPath.isEmpty
-                        ? '使用游戏脚本字体'
-                        : overrideFontDisplayName(value.fontPath),
-                    summary: '译文缺字时覆盖游戏字体',
-                    onClick: () async {
-                      final path = await pickOverrideFont();
-                      if (path != null) {
-                        _save(
-                          'fontPath',
-                          (current) => current.copyWith(fontPath: path),
-                          immediate: true,
-                        );
-                      }
-                    },
-                  ),
-                  if (value.fontPath.isNotEmpty)
-                    MiuixArrowPreference(
-                      title: '清除覆盖字体',
-                      onClick: () => _save(
-                        'fontPath',
-                        (current) => current.copyWith(fontPath: ''),
-                        immediate: true,
-                      ),
-                    ),
                 ],
               ),
             ],

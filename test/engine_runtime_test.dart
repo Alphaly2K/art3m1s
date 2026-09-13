@@ -1,6 +1,7 @@
 import 'package:art3m1s/engine/engine_runtime_factory.dart';
 import 'package:art3m1s/engine/backends/art3m1s_engine_runtime.dart';
 import 'package:art3m1s/engine/backends/rfvp_engine_runtime.dart';
+import 'package:art3m1s/engine/backends/krkr_engine_runtime.dart';
 import 'package:art3m1s/models/game_engine.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -10,6 +11,17 @@ void main() {
     expect(GameEngineKind.fromId('unknown'), GameEngineKind.art3m1s);
     expect(GameEngineKind.fromId('fvp'), GameEngineKind.rfvp);
     expect(GameEngineKind.fromId('RFVP'), GameEngineKind.rfvp);
+    expect(GameEngineKind.fromId('krkr'), GameEngineKind.krkr);
+    expect(GameEngineKind.fromId('Kirikiri'), GameEngineKind.krkr);
+  });
+
+  test('KRKR uses its isolated host runtime adapter', () {
+    final runtime = EngineRuntimeFactory.create(engine: GameEngineKind.krkr);
+
+    expect(runtime, isA<KrkrEngineRuntime>());
+    expect(runtime.kind, GameEngineKind.krkr);
+    expect(runtime.hasActiveSharedTexture, isFalse);
+    runtime.shutdown();
   });
 
   test('RFVP uses its isolated host runtime adapter', () async {

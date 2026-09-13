@@ -187,8 +187,8 @@ class TranslationSettings {
   final String sourceLanguage;
   final String targetLanguage;
 
-  /// 覆盖字体文件路径（沙箱托管副本），空字符串表示使用游戏脚本字体。
-  /// 译文缺字时选择一个包含目标语言文字的 TTF/OTF 即可。
+  /// 遗留的全局覆盖字体路径；字体覆盖已改为每游戏设置
+  /// （GameEntry.fontOverrideFilePath），此字段仅为兼容旧数据保留，不再被读取。
   final String fontPath;
 
   TranslationSettings copyWith({

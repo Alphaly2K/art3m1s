@@ -71,6 +71,7 @@ class LibraryNotifier extends StateNotifier<List<GameEntry>> {
     bool? environmentPatchEnabled,
     bool? experimentalElunaEnabled,
     InputGatePolicy? inputGate,
+    String? fontOverrideFilePath,
     String? reportedOs,
     String? runtimePlatform,
   }) async {
@@ -85,6 +86,7 @@ class LibraryNotifier extends StateNotifier<List<GameEntry>> {
       environmentPatchEnabled: environmentPatchEnabled,
       experimentalElunaEnabled: experimentalElunaEnabled,
       inputGate: inputGate,
+      fontOverrideFilePath: fontOverrideFilePath,
       reportedOs: reportedOs,
       runtimePlatform: runtimePlatform,
     );

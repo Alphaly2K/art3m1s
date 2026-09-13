@@ -31,6 +31,10 @@ class GameEntry {
   /// 项目清单指定的覆盖字体（游戏内相对路径）；空串表示无。
   final String fontOverridePath;
 
+  /// 用户在宿主侧选择的覆盖字体文件（沙箱托管绝对路径）；空串表示无。
+  /// 与 [fontOverridePath]（游戏自带字体）是两个独立来源，用户选择优先。
+  final String fontOverrideFilePath;
+
   /// 上报给脚本的机种串覆盖（如 `switch`/`ps4`）；空串表示跟随项目平台。
   /// 移植版游戏把存档等功能开关在机种判断上时用它伪装。
   final String reportedOs;
@@ -59,6 +63,7 @@ class GameEntry {
     this.inputGate = InputGatePolicy.full,
     this.vndbId = '',
     this.fontOverridePath = '',
+    this.fontOverrideFilePath = '',
     this.reportedOs = '',
     this.runtimePlatform = 'WINDOWS',
     this.manifestPath,
@@ -84,6 +89,8 @@ class GameEntry {
     if (!inputGate.isFull) 'inputGate': inputGate.toJson(),
     if (vndbId.isNotEmpty) 'vndbId': vndbId,
     if (fontOverridePath.isNotEmpty) 'fontOverridePath': fontOverridePath,
+    if (fontOverrideFilePath.isNotEmpty)
+      'fontOverrideFilePath': fontOverrideFilePath,
     if (reportedOs.isNotEmpty) 'reportedOs': reportedOs,
     'runtimePlatform': runtimePlatform,
     if (manifestPath != null) 'manifestPath': manifestPath,
@@ -110,6 +117,7 @@ class GameEntry {
     ),
     vndbId: json['vndbId']?.toString() ?? '',
     fontOverridePath: json['fontOverridePath']?.toString() ?? '',
+    fontOverrideFilePath: json['fontOverrideFilePath']?.toString() ?? '',
     reportedOs: json['reportedOs']?.toString() ?? '',
     runtimePlatform:
         json['runtimePlatform']?.toString().trim().isNotEmpty == true
@@ -130,6 +138,7 @@ class GameEntry {
     InputGatePolicy? inputGate,
     String? vndbId,
     String? fontOverridePath,
+    String? fontOverrideFilePath,
     String? reportedOs,
     String? runtimePlatform,
     String? manifestPath,
@@ -152,6 +161,7 @@ class GameEntry {
     inputGate: inputGate ?? this.inputGate,
     vndbId: vndbId ?? this.vndbId,
     fontOverridePath: fontOverridePath ?? this.fontOverridePath,
+    fontOverrideFilePath: fontOverrideFilePath ?? this.fontOverrideFilePath,
     reportedOs: reportedOs ?? this.reportedOs,
     runtimePlatform: runtimePlatform ?? this.runtimePlatform,
     manifestPath: manifestPath ?? this.manifestPath,

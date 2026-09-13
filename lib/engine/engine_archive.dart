@@ -19,6 +19,7 @@ class EngineArchive {
         archivePath,
       ),
       GameEngineKind.rfvp => Future<List<String>>.value(const <String>[]),
+      GameEngineKind.krkr => Future<List<String>>.value(const <String>[]),
     };
   }
 
@@ -33,6 +34,7 @@ class EngineArchive {
         relativePath,
       ),
       GameEngineKind.rfvp => Future<Uint8List?>.value(),
+      GameEngineKind.krkr => Future<Uint8List?>.value(),
     };
   }
 }

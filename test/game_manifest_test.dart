@@ -301,13 +301,13 @@ void main() {
       expect(json['engine'], 'rfvp');
       expect(json['name'], 'FVP Game');
       expect(json['vndbId'], 'v1');
-      // RFVP 支持翻译(预留)与输入门控。
+      // RFVP 支持翻译(预留)、字体覆盖与输入门控。
       expect(json['translationEnabled'], isTrue);
+      expect(json['fontOverride'], 'font/x.ttf');
       expect(json.containsKey('inputGate'), isTrue);
       // Artemis 专属键不写入。
       expect(json.containsKey('environmentPatchEnabled'), isFalse);
       expect(json.containsKey('experimentalElunaEnabled'), isFalse);
-      expect(json.containsKey('fontOverride'), isFalse);
       expect(json.containsKey('reportedOs'), isFalse);
       expect(json.containsKey('runtimePlatform'), isFalse);
     });
@@ -356,7 +356,8 @@ void main() {
       expect(applied.translationEnabled, isTrue);
       expect(applied.environmentPatchEnabled, isFalse);
       expect(applied.experimentalElunaEnabled, isFalse);
-      expect(applied.fontOverridePath, isEmpty);
+      // RFVP 后端支持运行时字体覆盖，清单字体照常应用。
+      expect(applied.fontOverridePath, 'font/x.ttf');
       expect(applied.reportedOs, isEmpty);
       expect(applied.runtimePlatform, 'WINDOWS');
     });
@@ -371,9 +372,15 @@ void main() {
       expect(rfvp.contains(GameSettingField.translationEnabled), isTrue);
       expect(rfvp.contains(GameSettingField.inputGate), isTrue);
       expect(rfvp.contains(GameSettingField.experimentalEluna), isFalse);
-      expect(rfvp.contains(GameSettingField.fontOverride), isFalse);
+      expect(rfvp.contains(GameSettingField.fontOverride), isTrue);
       expect(GameEngineKind.art3m1s.supportsPfsArchives, isTrue);
       expect(GameEngineKind.rfvp.supportsPfsArchives, isFalse);
+      final krkr = GameEngineKind.krkr.supportedGameSettings;
+      expect(krkr.contains(GameSettingField.displayName), isTrue);
+      expect(krkr.contains(GameSettingField.inputGate), isTrue);
+      expect(krkr.contains(GameSettingField.translationEnabled), isFalse);
+      expect(krkr.contains(GameSettingField.fontOverride), isFalse);
+      expect(GameEngineKind.krkr.supportsPfsArchives, isFalse);
     });
   });
 }

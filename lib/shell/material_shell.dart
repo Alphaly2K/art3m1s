@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:yaru/yaru.dart';
 
+import '../adaptive/feedback.dart';
 import '../controllers/library_actions.dart';
 import '../models/game_entry.dart';
 import '../providers/library_provider.dart';
@@ -15,7 +16,9 @@ import '../widgets/game_grid.dart';
 /// Material 壳（Android / Linux）：Material 3，跟随系统亮暗。
 /// Linux 上套 yaru 主题贴近 GNOME/Ubuntu 原生观感。
 class MaterialShellApp extends StatelessWidget {
-  const MaterialShellApp({super.key});
+  const MaterialShellApp({super.key, this.onEnterBigScreen});
+
+  final Future<bool> Function()? onEnterBigScreen;
 
   @override
   Widget build(BuildContext context) {
@@ -27,7 +30,9 @@ class MaterialShellApp extends StatelessWidget {
           theme: yaru.theme,
           darkTheme: yaru.darkTheme,
           themeMode: ThemeMode.system,
-          home: const DebugOverlayHost(child: _MaterialLibraryScreen()),
+          home: DebugOverlayHost(
+            child: _MaterialLibraryScreen(onEnterBigScreen: onEnterBigScreen),
+          ),
         ),
       );
     }
@@ -49,7 +54,7 @@ class MaterialShellApp extends StatelessWidget {
       home: DebugOverlayHost(
         child: Platform.isAndroid
             ? const _MaterialHome()
-            : const _MaterialLibraryScreen(),
+            : _MaterialLibraryScreen(onEnterBigScreen: onEnterBigScreen),
       ),
     );
   }
@@ -143,7 +148,9 @@ class _MaterialLibraryBody extends ConsumerWidget {
 }
 
 class _MaterialLibraryScreen extends ConsumerWidget {
-  const _MaterialLibraryScreen();
+  const _MaterialLibraryScreen({this.onEnterBigScreen});
+
+  final Future<bool> Function()? onEnterBigScreen;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -156,6 +163,16 @@ class _MaterialLibraryScreen extends ConsumerWidget {
       appBar: AppBar(
         title: const Text('Art3m1s'),
         actions: [
+          if (onEnterBigScreen != null)
+            IconButton(
+              icon: const Icon(Icons.fullscreen_rounded),
+              tooltip: '进入大屏模式',
+              onPressed: () async {
+                final entered = await onEnterBigScreen!();
+                if (!context.mounted || entered) return;
+                notify(context, '大屏模式需要窗口处于全屏状态');
+              },
+            ),
           IconButton(
             icon: const Icon(Icons.add),
             tooltip: '扫描游戏文件夹',

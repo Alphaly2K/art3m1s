@@ -151,7 +151,8 @@ class GameImporter {
   /// 递归查找已解包工程根目录。
   ///
   /// Artemis 工程以 system.ini 为根标记,RFVP 工程以根目录中的 `.hcb`
-  /// 为标记。某个目录一旦命中标记,就把它当作工程根,不再继续往下找,
+  /// 为标记,KRKR 工程接受 data.xp3、startup.tjs 或唯一的根级 XP3。
+  /// 某个目录一旦命中标记,就把它当作工程根,不再继续往下找,
   /// 避免把工程内部的资源子目录误当成独立游戏。
   static List<String> discoverUnpackedProjects(String directoryPath) {
     final directory = Directory(directoryPath);
@@ -160,6 +161,9 @@ class GameImporter {
     void visit(Directory dir) {
       var hasSystemIni = false;
       var hasHcb = false;
+      var hasDataXp3 = false;
+      var hasStartupTjs = false;
+      var rootXp3Count = 0;
       final subdirs = <Directory>[];
       try {
         for (final entity in dir.listSync(followLinks: false)) {
@@ -167,6 +171,13 @@ class GameImporter {
             hasSystemIni = true;
           } else if (entity is File && _isHcbName(_basename(entity.path))) {
             hasHcb = true;
+          } else if (entity is File && _isDataXp3Name(_basename(entity.path))) {
+            hasDataXp3 = true;
+          } else if (entity is File &&
+              _isStartupTjsName(_basename(entity.path))) {
+            hasStartupTjs = true;
+          } else if (entity is File && _isXp3Name(_basename(entity.path))) {
+            rootXp3Count += 1;
           } else if (entity is Directory) {
             subdirs.add(entity);
           }
@@ -174,7 +185,11 @@ class GameImporter {
       } on FileSystemException {
         return;
       }
-      if (hasSystemIni || hasHcb) {
+      if (hasSystemIni ||
+          hasHcb ||
+          hasDataXp3 ||
+          hasStartupTjs ||
+          rootXp3Count == 1) {
         found.add(dir.path);
         return;
       }
@@ -188,8 +203,8 @@ class GameImporter {
     return found;
   }
 
-  /// 统一探测入口:返回文件夹中的全部游戏——解包工程目录(system.ini/
-  /// `.hcb` 标记)与打包成 PFS 归档的 Artemis 游戏(base `.pfs` 文件)。
+  /// 统一探测入口:返回文件夹中的全部游戏——解包工程目录(system.ini、
+  /// `.hcb` 或 KRKR XP3/TJS 标记)与打包成 PFS 归档的 Artemis 游戏。
   ///
   /// 位于已识别工程目录内部的 `.pfs` 是该工程的资源包,不会被重复登记为
   /// 独立游戏。
@@ -211,12 +226,16 @@ class GameImporter {
     return (projects: projects, pfsArchives: pfsArchives);
   }
 
-  /// 识别已解包目录的引擎;同时存在 system.ini 时优先按 Artemis 处理。
+  /// 识别已解包目录的引擎。为保持旧资料库行为，优先级固定为
+  /// Artemis system.ini > RFVP HCB > KRKR XP3/TJS。
   static GameEngineKind detectDirectoryEngine(String directoryPath) {
     final directory = Directory(directoryPath);
     if (!directory.existsSync()) return GameEngineKind.art3m1s;
     var hasSystemIni = false;
     var hasHcb = false;
+    var hasDataXp3 = false;
+    var hasStartupTjs = false;
+    var rootXp3Count = 0;
     try {
       for (final entity in directory.listSync(followLinks: false)) {
         if (entity is! File) continue;
@@ -225,13 +244,23 @@ class GameImporter {
           hasSystemIni = true;
         } else if (_isHcbName(name)) {
           hasHcb = true;
+        } else if (_isDataXp3Name(name)) {
+          hasDataXp3 = true;
+        } else if (_isStartupTjsName(name)) {
+          hasStartupTjs = true;
+        } else if (_isXp3Name(name)) {
+          rootXp3Count += 1;
         }
       }
     } on FileSystemException {
       return GameEngineKind.art3m1s;
     }
     if (hasSystemIni) return GameEngineKind.art3m1s;
-    return hasHcb ? GameEngineKind.rfvp : GameEngineKind.art3m1s;
+    if (hasHcb) return GameEngineKind.rfvp;
+    if (hasDataXp3 || hasStartupTjs || rootXp3Count == 1) {
+      return GameEngineKind.krkr;
+    }
+    return GameEngineKind.art3m1s;
   }
 
   /// 资料库路径比较:去掉尾部分隔符,并把 iOS 的 `/private/var` 折成 `/var`。
@@ -410,4 +439,11 @@ class GameImporter {
   static bool _isHcbName(String name) {
     return name.toLowerCase().endsWith('.hcb');
   }
+
+  static bool _isDataXp3Name(String name) => name.toLowerCase() == 'data.xp3';
+
+  static bool _isStartupTjsName(String name) =>
+      name.toLowerCase() == 'startup.tjs';
+
+  static bool _isXp3Name(String name) => name.toLowerCase().endsWith('.xp3');
 }
