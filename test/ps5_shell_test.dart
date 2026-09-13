@@ -2,10 +2,17 @@ import 'dart:io';
 
 import 'package:art3m1s/adaptive/ps5_chrome.dart';
 import 'package:art3m1s/controllers/ps5_input.dart';
+import 'package:art3m1s/models/game_engine.dart';
+import 'package:art3m1s/models/game_entry.dart';
+import 'package:art3m1s/providers/library_provider.dart';
+import 'package:art3m1s/services/storage_service.dart';
+import 'package:art3m1s/shell/ps5_shell.dart';
 import 'package:art3m1s/widgets/ps5_file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   test('gamepad keys map to PS5 semantic actions', () {
@@ -77,4 +84,54 @@ void main() {
     expect(selected, root.path);
     expect(find.byKey(const ValueKey('ps5-file-picker')), findsNothing);
   });
+
+  testWidgets('Game Library replaces Media and exposes the PS5 filter menu', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    await tester.binding.setSurfaceSize(const Size(1600, 1000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          libraryProvider.overrideWith(
+            (ref) => _FakeLibraryNotifier([
+              GameEntry(
+                name: 'Library sample',
+                path: '/tmp/library-sample',
+                source: GameSource.directory,
+                engine: GameEngineKind.art3m1s,
+                addedAt: DateTime(2026, 9, 13),
+              ),
+            ]),
+          ),
+        ],
+        child: const Ps5ShellApp(),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 2100));
+
+    expect(find.text('Media'), findsNothing);
+    expect(find.text('Game Library'), findsOneWidget);
+    expect(find.byType(Ps5FocusShine), findsWidgets);
+
+    await tester.tap(find.text('Game Library'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 450));
+    expect(find.byKey(const ValueKey('ps5-game-library-page')), findsOneWidget);
+    expect(find.text('Your Collection'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('ps5-library-filter-button')));
+    await tester.pump(const Duration(milliseconds: 250));
+    expect(find.byKey(const ValueKey('ps5-list-menu')), findsOneWidget);
+    expect(find.text('Sort by'), findsWidgets);
+    expect(find.text('Filters'), findsOneWidget);
+  });
+}
+
+class _FakeLibraryNotifier extends LibraryNotifier {
+  _FakeLibraryNotifier(List<GameEntry> entries)
+    : super(StorageService.instance) {
+    state = entries;
+  }
 }

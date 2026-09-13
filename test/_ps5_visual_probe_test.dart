@@ -1,3 +1,4 @@
+import 'package:art3m1s/adaptive/ps5_chrome.dart';
 import 'package:art3m1s/models/game_engine.dart';
 import 'package:art3m1s/models/game_entry.dart';
 import 'package:art3m1s/providers/library_provider.dart';
@@ -40,7 +41,12 @@ void main() {
         child: const Ps5ShellApp(),
       ),
     );
-    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pump(const Duration(milliseconds: 450));
+    await expectLater(
+      find.byType(Ps5ShellApp),
+      matchesGoldenFile('ps5-startup-probe.png'),
+    );
+    await tester.pump(const Duration(milliseconds: 1650));
     final selectedTile = tester.widget<AnimatedScale>(
       find.byKey(const ValueKey('ps5-game-tile-/tmp/spider-man')),
     );
@@ -60,6 +66,29 @@ void main() {
     await expectLater(
       find.byType(Ps5ShellApp),
       matchesGoldenFile('ps5-shell-probe.png'),
+    );
+
+    await tester.tap(find.text('Game Library'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 450));
+    expect(find.byKey(const ValueKey('ps5-game-library-page')), findsOneWidget);
+    expect(find.byKey(const ValueKey('games')), findsNothing);
+    expect(find.text('Games'), findsNothing);
+    await expectLater(
+      find.byType(Ps5ShellApp),
+      matchesGoldenFile('ps5-game-library-probe.png'),
+    );
+
+    await tester.tap(find.byType(Ps5GameLibraryGlyph));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 450));
+    await tester.tap(find.byTooltip('设置'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 380));
+    expect(find.byKey(const ValueKey('ps5-side-menu')), findsOneWidget);
+    await expectLater(
+      find.byType(Ps5ShellApp),
+      matchesGoldenFile('ps5-settings-menu-probe.png'),
     );
   });
 }
