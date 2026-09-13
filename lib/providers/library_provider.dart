@@ -26,40 +26,10 @@ class LibraryNotifier extends StateNotifier<List<GameEntry>> {
 
   /// 添加游戏到库。
   ///
-  /// 移动平台 (Android/iOS) 会先把游戏数据复制到应用沙箱，
-  /// 让 native 代码能直接通过文件路径读取（绕过 Scoped Storage / iOS 沙箱限制）。
+  /// 导入是原地的:全平台都直接登记用户选择的目录/归档路径,不复制
+  /// (Android 依赖「所有文件访问」授权,iOS 依赖 App 文件夹)。
   Future<void> add(GameEntry entry) async {
     var finalEntry = entry;
-    if (GameImporter.needsSandbox) {
-      try {
-        final sandboxPath = await GameImporter.importToSandbox(entry.path);
-        if (sandboxPath != entry.path) {
-          finalEntry = GameEntry(
-            id: entry.id,
-            name: entry.name,
-            path: sandboxPath,
-            source: entry.source,
-            addedAt: entry.addedAt,
-            displayName: entry.displayName,
-            coverPath: entry.coverPath,
-            translationEnabled: entry.translationEnabled,
-            translationPatchPath: entry.translationPatchPath,
-            environmentPatchEnabled: entry.environmentPatchEnabled,
-            experimentalElunaEnabled: entry.experimentalElunaEnabled,
-            inputGate: entry.inputGate,
-            vndbId: entry.vndbId,
-            fontOverridePath: entry.fontOverridePath,
-            reportedOs: entry.reportedOs,
-            runtimePlatform: entry.runtimePlatform,
-            manifestPath: null,
-          );
-          Log.info('[Library] 已切换到沙箱路径: $sandboxPath');
-        }
-      } catch (e) {
-        Log.error('[Library] 沙箱导入失败: $e');
-        // 回退到原路径 —— 可能能工作，也可能不行，由用户承担。
-      }
-    }
     try {
       final manifestPath = await GameManifest.writeForProject(
         finalEntry.path,
@@ -75,7 +45,8 @@ class LibraryNotifier extends StateNotifier<List<GameEntry>> {
   }
 
   Future<void> remove(String path) async {
-    // Android 导入副本随项目一起删；iOS 只移除资料库条目，不删 Files 里的游戏。
+    // 原位导入的条目只移除库记录;仅早期 Android 沙箱里的遗留导入副本
+    // (托管根白名单内)会随条目一起删除。用户的原始目录绝不动。
     try {
       final retainedPaths = state
           .where((game) => !GameImporter.isSameLibraryPath(game.path, path))

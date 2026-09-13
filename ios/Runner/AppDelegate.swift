@@ -155,7 +155,12 @@ class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
     var found: [[String: String]] = []
     for case let url as URL in enumerator {
       let name = url.lastPathComponent
-      if name.caseInsensitiveCompare("system.ini") == .orderedSame {
+      // Artemis 工程以 system.ini 为根标记,RFVP 工程以 .hcb 为根标记;
+      // 两者都把所在目录作为工程根登记一次。
+      let isProjectMarker =
+        name.caseInsensitiveCompare("system.ini") == .orderedSame ||
+        name.lowercased().hasSuffix(".hcb")
+      if isProjectMarker {
         let projectDir = url.deletingLastPathComponent()
         if seen.insert(projectDir.path).inserted {
           found.append([

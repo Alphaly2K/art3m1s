@@ -30,41 +30,15 @@ class LibraryActions {
 
   // ── 添加入口 ──────────────────────────────────────────────
 
+  /// 统一的导入流程:选择目录 → 探测 → 原地入库,全平台一致、不复制。
+  /// Android 走原生 SAF 选择器并解析真实路径(需要「所有文件访问」授权);
+  /// 桌面用系统目录选择器;iOS 用 `scanIosAppFolder` 扫描 App 文件夹。
   Future<void> pickDirectory() async {
-    if (Platform.isAndroid) {
-      await _importAndroidAndConsume(GameImporter.discoverUnpackedProjects, (
-        projects,
-      ) async {
-        if (projects.isEmpty) {
-          if (context.mounted) notify(context, '所选目录中没有 system.ini');
-          return false;
-        }
-        if (projects.length == 1) {
-          return _editAndAdd(
-            _directoryDisplayName(projects.single),
-            projects.single,
-            GameSource.directory,
-          );
-        }
-        return (await _addDiscoveredGamesAutomatically([
-              for (final path in projects)
-                DiscoveredGame(
-                  name: _directoryDisplayName(path),
-                  path: path,
-                  source: GameSource.directory.name,
-                ),
-            ])) >
-            0;
-      });
-      return;
-    }
-
-    List<String> projects;
-    final path = await getDirectoryPath(confirmButtonText: '选择此目录');
+    final path = await _pickImportDirectory();
     if (path == null || !context.mounted) return;
-    projects = GameImporter.discoverUnpackedProjects(path);
+    final projects = GameImporter.discoverUnpackedProjects(path);
     if (projects.isEmpty) {
-      notify(context, '所选目录中没有 system.ini');
+      notify(context, '所选目录中没有可识别的游戏项目');
       return;
     }
     if (projects.length == 1) {
@@ -86,85 +60,109 @@ class LibraryActions {
   }
 
   Future<void> pickPfs() async {
-    if (Platform.isAndroid) {
-      await _importAndroidAndConsume(GameImporter.discoverBasePfsFiles, (
-        filePaths,
-      ) async {
-        if (filePaths.isEmpty) {
-          if (context.mounted) notify(context, '所选位置中没有 base .pfs 文件');
-          return false;
-        }
-        final games = [
-          for (final path in filePaths)
-            DiscoveredGame(
-              name: _pfsDisplayName(path),
-              path: path,
-              source: GameSource.pfsArchive.name,
-            ),
-        ];
-        if (games.length == 1) {
-          return _addDiscoveredGame(games.single);
-        }
-        return (await _addDiscoveredGamesAutomatically(games)) > 0;
-      });
+    // 与 pickDirectory 同一条路径:全平台都选文件夹再探测 base .pfs,
+    // 不再单独选文件(分卷必须随目录一起保持原位)。
+    final path = await _pickImportDirectory();
+    if (path == null || !context.mounted) return;
+    final filePaths = GameImporter.discoverBasePfsFiles(path);
+    if (filePaths.isEmpty) {
+      notify(context, '所选位置中没有 base .pfs 文件');
       return;
     }
-
-    const typeGroup = XTypeGroup(label: 'PFS 归档', extensions: ['pfs', 'PFS']);
-    final file = await openFile(acceptedTypeGroups: [typeGroup]);
-    if (file == null || !context.mounted) return;
-    await _addDiscoveredGame(
-      DiscoveredGame(
-        name: _pfsDisplayName(file.path),
-        path: file.path,
-        source: GameSource.pfsArchive.name,
-      ),
-    );
+    final games = [
+      for (final path in filePaths)
+        DiscoveredGame(
+          name: _pfsDisplayName(path),
+          path: path,
+          source: GameSource.pfsArchive.name,
+        ),
+    ];
+    if (games.length == 1) {
+      await _addDiscoveredGame(games.single);
+      return;
+    }
+    await _addDiscoveredGamesAutomatically(games);
   }
 
-  Future<void> _importAndroidAndConsume(
-    List<String> Function(String path) discover,
-    Future<bool> Function(List<String> found) consume,
-  ) async {
-    BlockingProgressController? progress;
-    String? sandbox;
-    var keep = false;
-    try {
-      sandbox = await GameImporter.pickDirectoryAndCopy(
-        onProgress: (value) {
-          if (!context.mounted) return;
-          progress ??= showBlockingProgress(
-            context,
-            title: '正在导入游戏',
-            message: value.message,
-          );
-          progress?.update(value.message);
-        },
-      );
-      if (sandbox == null || !context.mounted) return;
-      progress ??= showBlockingProgress(
-        context,
-        title: '正在导入游戏',
-        message: '正在识别游戏文件…',
-      );
-      progress?.update('正在识别游戏文件…');
-      await Future<void>.delayed(Duration.zero);
-      final found = discover(sandbox);
-      progress?.close();
-      progress = null;
-      keep = await consume(found);
-    } on GameImportException catch (error) {
-      if (context.mounted) notify(context, error.message);
-    } finally {
-      progress?.close();
-      if (sandbox != null) {
-        if (keep) {
-          await GameImporter.markAndroidImportComplete(sandbox);
-        } else {
-          await GameImporter.discardAndroidImport(sandbox);
-        }
-      }
+  /// 选一个导入目录。Android 上授权缺失时引导用户开启「所有文件访问」,
+  /// URI 无法解析为真实路径时降级为手动输入;用户取消返回 null。
+  Future<String?> _pickImportDirectory() async {
+    if (!Platform.isAndroid) {
+      return getDirectoryPath(confirmButtonText: '选择此目录');
     }
+    try {
+      return await GameImporter.pickGameDirectory();
+    } on GameImportException catch (error) {
+      if (!context.mounted) return null;
+      if (error.message == 'needsAllFilesAccess') {
+        await _promptAllFilesAccess();
+        return null;
+      }
+      if (error.message == 'unresolved') {
+        notify(context, '无法解析所选目录的路径,请手动输入目录');
+        return _promptManualDirectoryPath();
+      }
+      notify(context, error.message);
+      return null;
+    }
+  }
+
+  Future<void> _promptAllFilesAccess() async {
+    final confirmed = await showAdaptiveConfirm(
+      context,
+      title: '需要存储访问权限',
+      message: '为了直接读取游戏目录而不复制文件,需要在系统设置中允许'
+          '「所有文件访问」。授权后请重新选择游戏目录。',
+      confirmLabel: '去授权',
+    );
+    if (confirmed) {
+      await GameImporter.requestAllFilesAccess();
+    }
+  }
+
+  Future<String?> _promptManualDirectoryPath() async {
+    final controller = TextEditingController();
+    final path = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) {
+        // 库页面可能运行在非 Material 壳下,自带浅色主题与文本方向。
+        return Theme(
+          data: ThemeData(
+            colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+            useMaterial3: true,
+          ),
+          child: AlertDialog(
+            title: const Text('输入游戏目录路径'),
+            content: TextField(
+              controller: controller,
+              autofocus: true,
+              decoration: const InputDecoration(
+                hintText: '例如 /sdcard/Games/某游戏',
+              ),
+              onSubmitted: (value) =>
+                  Navigator.of(dialogContext).pop(value.trim()),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () =>
+                    Navigator.of(dialogContext).pop(controller.text.trim()),
+                child: const Text('确定'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    if (path == null || path.isEmpty) return null;
+    if (!Directory(path).existsSync()) {
+      if (context.mounted) notify(context, '目录不存在: $path');
+      return null;
+    }
+    return path;
   }
 
   Future<void> scanIosAppFolder() async {
@@ -226,12 +224,14 @@ class LibraryActions {
         : GameSource.directory;
     final gameId = _gameIdForPath(game.path);
     final manifest = await GameManifest.loadForProject(game.path, source);
+    final engine = _resolveProjectEngine(manifest, game.path, source);
     final metadata = await _resolveGameMetadata(
       game.name,
       game.path,
       source,
       gameId,
       manifest,
+      engine,
     );
     if (metadata == null || !context.mounted) return false;
 
@@ -243,7 +243,7 @@ class LibraryActions {
             name: game.name,
             path: game.path,
             source: source,
-            engine: manifest?.engine ?? GameEngineKind.art3m1s,
+            engine: engine,
             addedAt: DateTime.now(),
             displayName: metadata.name == game.name ? null : metadata.name,
             coverPath: metadata.coverPath,
@@ -316,7 +316,7 @@ class LibraryActions {
             name: defaultName,
             path: path,
             source: source,
-            engine: manifest?.engine ?? GameEngineKind.art3m1s,
+            engine: engine,
             addedAt: DateTime.now(),
             displayName: result.name.isNotEmpty ? result.name : null,
             coverPath: coverPath,
@@ -343,6 +343,7 @@ class LibraryActions {
     GameSource source,
     String gameId,
     GameManifest? manifest,
+    GameEngineKind engine,
   ) async {
     // 清单携带 vndbId 时精确查询；否则从语言表提取 gametitle，找不到时再
     // headless 运行到 caption。目录名常是罗马音缩写，会命中错误 VN；
@@ -354,7 +355,7 @@ class LibraryActions {
     }
     if (info == null) {
       final caption = await EngineRuntimeFactory.probeCaption(
-        engine: manifest?.engine ?? GameEngineKind.art3m1s,
+        engine: engine,
         projectPath: path,
         isPfsArchive: source == GameSource.pfsArchive,
         platform:
@@ -382,6 +383,22 @@ class LibraryActions {
       if (!context.mounted) return null;
     }
     return _ResolvedGameMetadata(info.title, coverPath, manifest?.vndbId);
+  }
+
+  /// 引擎识别优先级:manifest 显式声明 > 目录标记探测 > PFS 归档。
+  /// PFS 是 Artemis 专属格式(`GameEngineKind.supportsPfsArchives`),
+  /// 没有 manifest 声明时一律按 Artemis 处理。
+  GameEngineKind _resolveProjectEngine(
+    GameManifest? manifest,
+    String path,
+    GameSource source,
+  ) {
+    final manifestEngine = manifest?.engine;
+    if (manifestEngine != null) return manifestEngine;
+    if (source == GameSource.directory) {
+      return GameImporter.detectDirectoryEngine(path);
+    }
+    return GameEngineKind.art3m1s;
   }
 
   String _pfsDisplayName(String path) => path
@@ -460,9 +477,10 @@ class LibraryActions {
   }
 
   Future<void> confirmDelete(GameEntry entry) async {
-    final message = Platform.isAndroid
-        ? '确定从库中移除「${entry.displayNameOrName}」并删除应用内已导入的游戏文件吗？'
-        : '确定从库中移除「${entry.displayNameOrName}」吗？';
+    // 原位导入的目录是用户文件,移除库条目不删除;只有早期 Android
+    // 沙箱内的遗留导入副本会随条目一起清理(见 LibraryNotifier.remove)。
+    final message = '确定从库中移除「${entry.displayNameOrName}」吗？'
+        '游戏目录本身不会被删除。';
     final confirmed = await showAdaptiveConfirm(
       context,
       title: '移除项目',

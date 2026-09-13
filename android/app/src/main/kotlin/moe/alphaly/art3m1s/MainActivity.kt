@@ -1,18 +1,20 @@
 package moe.alphaly.art3m1s
 
+import android.Manifest
 import android.app.Activity
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
-import android.os.SystemClock
+import android.os.Build
+import android.os.Environment
 import android.provider.DocumentsContract
+import android.provider.Settings
 import android.view.Surface
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.Result
 import io.flutter.view.TextureRegistry
-import java.io.File
-import java.io.FileOutputStream
 
 class MainActivity : FlutterActivity() {
 
@@ -36,9 +38,8 @@ class MainActivity : FlutterActivity() {
         private external fun nativeReleaseSurfaceWindow(window: Long)
     }
 
-    private var pendingImportResult: Result? = null
+    private var pendingPickResult: Result? = null
     private lateinit var nativeChannel: MethodChannel
-    private var lastImportProgressAt = 0L
     private var sharedTextureProducer: TextureRegistry.SurfaceProducer? = null
     private var sharedTextureWindow: Long = 0
     private lateinit var sharedTextureChannel: MethodChannel
@@ -57,16 +58,26 @@ class MainActivity : FlutterActivity() {
                     val ctxPtr = nativeRegisterContext(applicationContext)
                     result.success(mapOf("vmPtr" to vmPtr, "contextPtr" to ctxPtr))
                 }
-                "pickDirectoryAndCopy" -> {
-                    if (pendingImportResult != null) {
+                "hasAllFilesAccess" -> {
+                    result.success(hasStorageAccess())
+                }
+                "requestAllFilesAccess" -> {
+                    requestStorageAccess()
+                    result.success(null)
+                }
+                "pickGameDirectory" -> {
+                    if (pendingPickResult != null) {
                         result.error("ALREADY_PENDING", "上一次操作还未完成", null)
                         return@setMethodCallHandler
                     }
-                    pendingImportResult = result
+                    if (!hasStorageAccess()) {
+                        // Dart 侧先弹说明,再调 requestAllFilesAccess 引导授权。
+                        result.success(mapOf("status" to "needsAllFilesAccess"))
+                        return@setMethodCallHandler
+                    }
+                    pendingPickResult = result
                     val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
-                        addFlags(Intent.FLAG_GRANT_PREFIX_URI_PERMISSION)
                     }
                     startActivityForResult(intent, REQ_PICK_DIRECTORY)
                 }
@@ -101,6 +112,59 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+    }
+
+    // ── 存储访问:全文件访问(API 30+)或旧式 READ_EXTERNAL_STORAGE ──
+
+    private fun hasStorageAccess(): Boolean {
+        return when {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R ->
+                Environment.isExternalStorageManager()
+            // API 23-29:运行时权限;API < 23:安装时即授予。
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ->
+                checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) ==
+                    PackageManager.PERMISSION_GRANTED
+            else -> true
+        }
+    }
+
+    private fun requestStorageAccess() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            try {
+                startActivity(
+                    Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
+                        data = Uri.parse("package:$packageName")
+                    }
+                )
+            } catch (_: Exception) {
+                startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+            }
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            requestPermissions(arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE), 0)
+        }
+    }
+
+    // SAF tree URI("primary:Games/foo" 或 "<volumeUuid>:Games/foo")解析为
+    // 真实文件系统路径;无法解析时返回 null,由 Dart 侧降级为手动输入。
+    private fun resolveTreePath(treeUri: Uri): String? {
+        val docId = try {
+            DocumentsContract.getTreeDocumentId(treeUri)
+        } catch (_: Exception) {
+            return null
+        }
+        val split = docId.split(':', limit = 2)
+        val volume = split.getOrNull(0)?.takeIf { it.isNotEmpty() } ?: return null
+        val relative = split.getOrNull(1).orEmpty()
+        val base = when {
+            volume.equals("primary", ignoreCase = true) ->
+                Environment.getExternalStorageDirectory().absolutePath
+            // documents provider 的 home 卷路径不确定,交给手动输入兜底。
+            volume.equals("home", ignoreCase = true) -> return null
+            else -> "/storage/$volume"
+        }
+        val path = if (relative.isEmpty()) base else "$base/$relative"
+        val dir = java.io.File(path)
+        return if (dir.isDirectory) dir.absolutePath else null
     }
 
     private fun createSharedTexture(
@@ -160,197 +224,21 @@ class MainActivity : FlutterActivity() {
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         if (requestCode == REQ_PICK_DIRECTORY) {
-            val result = pendingImportResult
-            pendingImportResult = null
+            val result = pendingPickResult
+            pendingPickResult = null
             if (resultCode != Activity.RESULT_OK || data?.data == null) {
                 result?.error("PICK_CANCELLED", "用户取消了目录选择", null)
                 return
             }
-            val treeUri = data.data!!
-            Thread({
-                try {
-                    val sandboxPath = copyTreeToSandbox(treeUri)
-                    runOnUiThread {
-                        if (!isDestroyed) result?.success(sandboxPath)
-                    }
-                } catch (e: Exception) {
-                    runOnUiThread {
-                        if (!isDestroyed) result?.error("COPY_FAILED", e.message, null)
-                    }
-                }
-            }, "art3m1s-import").start()
+            val path = resolveTreePath(data.data!!)
+            if (path == null) {
+                result?.success(mapOf("status" to "unresolved"))
+            } else {
+                result?.success(mapOf("status" to "ok", "path" to path))
+            }
             return
         }
         @Suppress("DEPRECATION")
         super.onActivityResult(requestCode, resultCode, data)
-    }
-
-    private fun copyTreeToSandbox(treeUri: Uri): String {
-        try {
-            contentResolver.takePersistableUriPermission(
-                treeUri,
-                Intent.FLAG_GRANT_READ_URI_PERMISSION
-            )
-        } catch (_: Exception) { }
-
-        val rootId = DocumentsContract.getTreeDocumentId(treeUri)
-        val rootUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, rootId)
-        val folderName = sanitizeImportedDirectoryName(queryDocumentName(rootUri))
-        val batchDir = File(filesDir, "games/incoming/${System.currentTimeMillis()}")
-        if (!batchDir.mkdirs()) {
-            throw IllegalStateException("无法创建导入目录")
-        }
-        File(batchDir, ".import-incomplete").writeText("1")
-        val incomingDir = File(batchDir, folderName)
-        incomingDir.mkdirs()
-
-        lastImportProgressAt = 0L
-        val stats = ImportStats()
-        try {
-            reportImportProgress(stats, folderName, force = true)
-            copyDocumentDir(treeUri, rootId, incomingDir, stats)
-            reportImportProgress(stats, "", force = true)
-            if (stats.files == 0) {
-                throw IllegalStateException("所选目录为空或无法读取")
-            }
-        } catch (error: Exception) {
-            batchDir.deleteRecursively()
-            throw error
-        }
-        return incomingDir.absolutePath
-    }
-
-    private fun sanitizeImportedDirectoryName(raw: String?): String {
-        val name = raw.orEmpty().trim()
-            .replace(Regex("[\\/]+"), "_")
-            .trim('.', ' ')
-        return if (name.isEmpty() || name == "." || name == "..") "game" else name
-    }
-
-    private data class ImportStats(var files: Int = 0, var bytes: Long = 0)
-    private data class ImportDocument(
-        val id: String,
-        val name: String,
-        val mimeType: String?
-    )
-
-    private fun queryDocumentName(documentUri: Uri): String? {
-        val projection = arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
-        return try {
-            contentResolver.query(documentUri, projection, null, null, null)?.use { cursor ->
-                if (!cursor.moveToFirst()) null else cursor.getString(0)
-            }
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-    private fun copyDocumentDir(
-        treeUri: Uri,
-        parentDocumentId: String,
-        targetDir: File,
-        stats: ImportStats
-    ) {
-        val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(
-            treeUri,
-            parentDocumentId
-        )
-        val projection = arrayOf(
-            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
-            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
-            DocumentsContract.Document.COLUMN_MIME_TYPE
-        )
-        val documents = mutableListOf<ImportDocument>()
-        try {
-            contentResolver.query(childrenUri, projection, null, null, null)?.use { cursor ->
-                val idColumn = cursor.getColumnIndexOrThrow(
-                    DocumentsContract.Document.COLUMN_DOCUMENT_ID
-                )
-                val nameColumn = cursor.getColumnIndexOrThrow(
-                    DocumentsContract.Document.COLUMN_DISPLAY_NAME
-                )
-                val mimeColumn = cursor.getColumnIndexOrThrow(
-                    DocumentsContract.Document.COLUMN_MIME_TYPE
-                )
-                while (cursor.moveToNext()) {
-                    val id = cursor.getString(idColumn) ?: continue
-                    documents += ImportDocument(
-                        id = id,
-                        name = sanitizeDocumentName(cursor.getString(nameColumn)),
-                        mimeType = cursor.getString(mimeColumn)
-                    )
-                }
-            }
-        } catch (error: Exception) {
-            throw IllegalStateException("无法读取目录: ${error.message}", error)
-        }
-        for (document in documents) {
-            if (document.mimeType == DocumentsContract.Document.MIME_TYPE_DIR) {
-                val subDir = File(targetDir, document.name)
-                if (!subDir.exists() && !subDir.mkdirs()) {
-                    throw IllegalStateException("无法创建导入目录: ${document.name}")
-                }
-                copyDocumentDir(treeUri, document.id, subDir, stats)
-            } else {
-                val documentUri = DocumentsContract.buildDocumentUriUsingTree(
-                    treeUri,
-                    document.id
-                )
-                copyDocumentFile(
-                    documentUri,
-                    File(targetDir, document.name),
-                    document.name,
-                    stats
-                )
-            }
-        }
-    }
-
-    private fun copyDocumentFile(
-        documentUri: Uri,
-        target: File,
-        displayName: String,
-        stats: ImportStats
-    ) {
-        val input = contentResolver.openInputStream(documentUri)
-            ?: throw IllegalStateException("无法读取文件: $displayName")
-        input.use { source ->
-            FileOutputStream(target).use { output ->
-                val buffer = ByteArray(1024 * 1024)
-                while (true) {
-                    val read = source.read(buffer)
-                    if (read < 0) break
-                    if (read == 0) continue
-                    output.write(buffer, 0, read)
-                    stats.bytes += read
-                    reportImportProgress(stats, displayName)
-                }
-            }
-        }
-        stats.files++
-        reportImportProgress(stats, displayName)
-    }
-
-    private fun sanitizeDocumentName(raw: String?): String {
-        val name = raw.orEmpty().replace(Regex("[\\/]+"), "_").trim()
-        return if (name.isEmpty() || name == "." || name == "..") "unnamed" else name
-    }
-
-    private fun reportImportProgress(
-        stats: ImportStats,
-        currentName: String,
-        force: Boolean = false
-    ) {
-        val now = SystemClock.elapsedRealtime()
-        if (!force && now - lastImportProgressAt < 120) return
-        lastImportProgressAt = now
-        val payload = mapOf(
-            "files" to stats.files,
-            "bytes" to stats.bytes,
-            "current" to currentName
-        )
-        runOnUiThread {
-            if (!isDestroyed) nativeChannel.invokeMethod("importProgress", payload)
-        }
     }
 }

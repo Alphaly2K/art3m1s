@@ -1,30 +1,10 @@
 import 'dart:io';
 
+import 'package:art3m1s/models/game_engine.dart';
 import 'package:art3m1s/services/game_importer.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('import progress formats copied files and bytes', () {
-    const progress = GameImportProgress(
-      filesCopied: 7,
-      bytesCopied: 1536,
-      currentName: 'data.pfs',
-    );
-    expect(progress.message, '已复制 7 个文件 · 1.5 KB\ndata.pfs');
-  });
-
-  test('import progress can be decoded from native maps', () {
-    final progress = GameImportProgress.fromMap({
-      'files': 12,
-      'bytes': 1048576,
-      'current': 'system.ini',
-    });
-    expect(progress.filesCopied, 12);
-    expect(progress.bytesCopied, 1048576);
-    expect(progress.currentName, 'system.ini');
-    expect(progress.message, contains('1.0 MB'));
-  });
-
   test('discoverBasePfsFiles returns every game but not split volumes', () {
     final root = Directory.systemTemp.createTempSync('art3m1s_multi_pfs_');
     addTearDown(() => root.deleteSync(recursive: true));
@@ -76,6 +56,39 @@ void main() {
       expect(GameImporter.discoverUnpackedProjects(root.path), [root.path]);
     },
   );
+
+  test('discoverUnpackedProjects finds RFVP roots by HCB marker', () {
+    final root = Directory.systemTemp.createTempSync('art3m1s_rfvp_');
+    addTearDown(() => root.deleteSync(recursive: true));
+
+    File(
+      '${root.path}${Platform.pathSeparator}World.hcb',
+    ).writeAsBytesSync([1, 2, 3]);
+    Directory('${root.path}${Platform.pathSeparator}save').createSync();
+    File(
+      '${root.path}${Platform.pathSeparator}save${Platform.pathSeparator}Other.hcb',
+    ).writeAsBytesSync([4]);
+
+    expect(GameImporter.discoverUnpackedProjects(root.path), [root.path]);
+    expect(GameImporter.detectDirectoryEngine(root.path), GameEngineKind.rfvp);
+  });
+
+  test('directory detection prefers Artemis when system.ini is present', () {
+    final root = Directory.systemTemp.createTempSync('art3m1s_mixed_');
+    addTearDown(() => root.deleteSync(recursive: true));
+
+    File(
+      '${root.path}${Platform.pathSeparator}system.ini',
+    ).writeAsStringSync('[boot]');
+    File(
+      '${root.path}${Platform.pathSeparator}World.hcb',
+    ).writeAsBytesSync([1]);
+
+    expect(
+      GameImporter.detectDirectoryEngine(root.path),
+      GameEngineKind.art3m1s,
+    );
+  });
 
   test(
     'discoverUnpackedProjects searches nested folders case-insensitively',
@@ -264,81 +277,5 @@ void main() {
       isTrue,
     );
     expect(batch.existsSync(), isTrue);
-  });
-
-  test('incomplete SAF batch is discarded and pruned on next launch', () {
-    final root = Directory.systemTemp.createTempSync('art3m1s_incomplete_');
-    addTearDown(() => root.deleteSync(recursive: true));
-    final batch = Directory(
-      '${root.path}${Platform.pathSeparator}incoming${Platform.pathSeparator}123',
-    )..createSync(recursive: true);
-    File(
-      '${batch.path}${Platform.pathSeparator}${GameImporter.incompleteImportMarker}',
-    ).writeAsStringSync('1');
-    final gameDir = Directory(
-      '${batch.path}${Platform.pathSeparator}MagicalCharming',
-    )..createSync();
-    File(
-      '${gameDir.path}${Platform.pathSeparator}system.ini',
-    ).writeAsStringSync('[boot]');
-
-    expect(
-      GameImporter.findIncompleteBatchRoot(gameDir.path, [root.path])?.path,
-      batch.path,
-    );
-
-    GameImporter.discardAndroidImportForRoots(gameDir.path, [root.path]);
-    expect(batch.existsSync(), isFalse);
-    expect(gameDir.existsSync(), isFalse);
-  });
-
-  test('completed SAF import keeps files after marker is cleared', () {
-    final root = Directory.systemTemp.createTempSync('art3m1s_complete_');
-    addTearDown(() => root.deleteSync(recursive: true));
-    final batch = Directory(
-      '${root.path}${Platform.pathSeparator}incoming${Platform.pathSeparator}456',
-    )..createSync(recursive: true);
-    File(
-      '${batch.path}${Platform.pathSeparator}${GameImporter.incompleteImportMarker}',
-    ).writeAsStringSync('1');
-    final gameDir = Directory('${batch.path}${Platform.pathSeparator}Kept')
-      ..createSync();
-    File(
-      '${gameDir.path}${Platform.pathSeparator}system.ini',
-    ).writeAsStringSync('[boot]');
-
-    GameImporter.markAndroidImportCompleteForRoots(gameDir.path, [root.path]);
-    expect(
-      File(
-        '${batch.path}${Platform.pathSeparator}${GameImporter.incompleteImportMarker}',
-      ).existsSync(),
-      isFalse,
-    );
-    GameImporter.pruneIncompleteImports([root.path]);
-    expect(gameDir.existsSync(), isTrue);
-  });
-
-  test('startup prune only deletes flagged incoming batches', () {
-    final root = Directory.systemTemp.createTempSync('art3m1s_prune_flag_');
-    addTearDown(() => root.deleteSync(recursive: true));
-    final stale = Directory(
-      '${root.path}${Platform.pathSeparator}incoming${Platform.pathSeparator}stale',
-    )..createSync(recursive: true);
-    File(
-      '${stale.path}${Platform.pathSeparator}${GameImporter.incompleteImportMarker}',
-    ).writeAsStringSync('1');
-    File(
-      '${stale.path}${Platform.pathSeparator}system.ini',
-    ).writeAsStringSync('[boot]');
-    final kept = Directory(
-      '${root.path}${Platform.pathSeparator}incoming${Platform.pathSeparator}kept',
-    )..createSync(recursive: true);
-    File(
-      '${kept.path}${Platform.pathSeparator}system.ini',
-    ).writeAsStringSync('[boot]');
-
-    GameImporter.pruneIncompleteImports([root.path]);
-    expect(stale.existsSync(), isFalse);
-    expect(kept.existsSync(), isTrue);
   });
 }

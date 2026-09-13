@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../models/game_engine.dart';
 import 'logger.dart';
 
 class GameImportException implements Exception {
@@ -33,93 +34,73 @@ class DiscoveredGame {
   );
 }
 
-class GameImportProgress {
-  const GameImportProgress({
-    required this.filesCopied,
-    required this.bytesCopied,
-    this.currentName = '',
-  });
-
-  final int filesCopied;
-  final int bytesCopied;
-  final String currentName;
-
-  factory GameImportProgress.fromMap(Map<dynamic, dynamic> map) {
-    return GameImportProgress(
-      filesCopied: (map['files'] as num?)?.toInt() ?? 0,
-      bytesCopied: (map['bytes'] as num?)?.toInt() ?? 0,
-      currentName: map['current']?.toString() ?? '',
-    );
-  }
-
-  String get message {
-    final size = _formatBytes(bytesCopied);
-    final copied = '已复制 $filesCopied 个文件 · $size';
-    return currentName.isEmpty ? copied : '$copied\n$currentName';
-  }
-
-  static String _formatBytes(int bytes) {
-    if (bytes < 1024) return '$bytes B';
-    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
-    if (bytes < 1024 * 1024 * 1024) {
-      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
-    }
-    return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
-  }
-}
-
-/// 游戏数据沙箱导入。
+/// 统一的游戏导入:全平台均为「选择目录 → 探测 → 原地入库」,不再复制。
 ///
-/// Android/iOS 对文件系统有严格限制：
-/// - Android：native 代码无法稳定访问外部存储（Scoped Storage / SAF）
-/// - iOS：沙箱外的路径在下次启动后可能失效
+/// - 桌面 / iOS:文件系统直接可访问,选目录或扫描 App 文件夹后原地登记。
+/// - Android:引导用户授予「所有文件访问」(`MANAGE_EXTERNAL_STORAGE`,
+///   API < 30 用 `READ_EXTERNAL_STORAGE`),SAF 选目录后由原生层解析为真实
+///   路径,core 经 POSIX 路径直读。不复制、不产生沙箱副本。
 ///
-/// 解决方案：把游戏目录 / PFS 分卷整组复制到应用沙箱内，
-/// native 代码直接通过 `File::open` 读取。
+/// 早期 Android 版本的 SAF 整树复制机制(`.import-incomplete` 批次标记、
+/// 拷贝进度、入库即复制)已退役;沙箱内遗留拷贝继续可用,仅保留其删除
+/// 逻辑(`deleteManagedImport` 的托管根白名单)。
 class GameImporter {
   GameImporter._();
-
-  /// 桌面平台不需要沙箱导入（native 可直接访问文件系统）。
-  static bool get needsSandbox => Platform.isAndroid || Platform.isIOS;
 
   static const MethodChannel _nativeChannel = MethodChannel(
     'moe.alphaly.art3m1s/native_ptrs',
   );
-  static final StreamController<GameImportProgress> _progress =
-      StreamController<GameImportProgress>.broadcast();
-  static bool _nativeHandlerInstalled = false;
 
-  static void _ensureNativeHandler() {
-    if (_nativeHandlerInstalled) return;
-    _nativeHandlerInstalled = true;
-    _nativeChannel.setMethodCallHandler((call) async {
-      if (call.method == 'importProgress' && call.arguments is Map) {
-        _progress.add(
-          GameImportProgress.fromMap(call.arguments as Map<dynamic, dynamic>),
-        );
-      }
-    });
+  /// Android:是否已经拥有读取任意目录所需的存储访问权限。
+  static Future<bool> hasAllFilesAccess() async {
+    if (!Platform.isAndroid) return true;
+    try {
+      return await _nativeChannel.invokeMethod<bool>('hasAllFilesAccess') ??
+          false;
+    } on PlatformException catch (e) {
+      Log.warn('[GameImporter] hasAllFilesAccess 查询失败: ${e.message}');
+      return false;
+    }
   }
 
-  /// Android 专用：调原生 SAF 目录选择器，把整个目录拷贝到沙箱，
-  /// 返回沙箱目录路径（`<filesDir>/games/incoming/<timestamp>/`）。
-  /// 该目录下包含所有原始文件（含 .pfs 和 .pfs.NNN 分卷）。
-  static Future<String?> pickDirectoryAndCopy({
-    ValueChanged<GameImportProgress>? onProgress,
-  }) async {
-    if (!Platform.isAndroid) return null;
-    _ensureNativeHandler();
-    final subscription = onProgress == null
-        ? null
-        : _progress.stream.listen(onProgress);
+  /// Android:跳转到系统设置页引导用户授予「所有文件访问」。
+  static Future<void> requestAllFilesAccess() async {
+    if (!Platform.isAndroid) return;
     try {
-      return await _nativeChannel.invokeMethod<String>('pickDirectoryAndCopy');
+      await _nativeChannel.invokeMethod<void>('requestAllFilesAccess');
+    } on PlatformException catch (e) {
+      Log.error('[GameImporter] requestAllFilesAccess 失败: ${e.message}');
+    }
+  }
+
+  /// Android:调原生目录选择器(SAF),返回所选目录的真实文件系统路径。
+  ///
+  /// 返回 null 表示用户取消。权限未授予时抛 [GameImportException]
+  /// (`needsAllFilesAccess`),由调用方引导授权;URI 无法解析为真实路径时
+  /// 抛 `unresolved`,由调用方降级为手动路径输入。
+  static Future<String?> pickGameDirectory() async {
+    if (!Platform.isAndroid) return null;
+    try {
+      final result = await _nativeChannel.invokeMethod<Map<dynamic, dynamic>>(
+        'pickGameDirectory',
+      );
+      final status = result?['status'] as String? ?? 'unresolved';
+      switch (status) {
+        case 'ok':
+          final path = result?['path'] as String? ?? '';
+          if (path.isEmpty) {
+            throw const GameImportException('unresolved');
+          }
+          return path;
+        case 'needsAllFilesAccess':
+          throw const GameImportException('needsAllFilesAccess');
+        default:
+          throw const GameImportException('unresolved');
+      }
     } on PlatformException catch (e) {
       if (e.code == 'PICK_CANCELLED') return null;
-      Log.error('[GameImporter] pickDirectoryAndCopy 失败: ${e.message}');
+      Log.error('[GameImporter] pickGameDirectory 失败: ${e.message}');
       throw GameImportException(e.message ?? e.code);
-    } finally {
-      await subscription?.cancel();
     }
   }
 
@@ -152,8 +133,8 @@ class GameImporter {
 
   /// 递归枚举目录中的 base `.pfs` 文件。
   ///
-  /// `.pfs.NNN` 只是分卷，不会单独成为游戏。返回值按完整路径自然排序，因此同一
-  /// 文件夹有多个游戏时，资料库导入顺序稳定且每个条目都绑定具体 PFS 文件。
+  /// `.pfs.NNN` 只是分卷,不会单独成为游戏。返回值按完整路径自然排序,因此同一
+  /// 文件夹有多个游戏时,资料库导入顺序稳定且每个条目都绑定具体 PFS 文件。
   static List<String> discoverBasePfsFiles(String directoryPath) {
     final directory = Directory(directoryPath);
     if (!directory.existsSync()) return const [];
@@ -167,21 +148,25 @@ class GameImporter {
     return paths;
   }
 
-  /// 递归查找含 `system.ini` 的已解包工程根目录。
+  /// 递归查找已解包工程根目录。
   ///
-  /// 某个目录一旦含有 system.ini，就把它当作工程根，不再继续往下找，
+  /// Artemis 工程以 system.ini 为根标记,RFVP 工程以根目录中的 `.hcb`
+  /// 为标记。某个目录一旦命中标记,就把它当作工程根,不再继续往下找,
   /// 避免把工程内部的资源子目录误当成独立游戏。
   static List<String> discoverUnpackedProjects(String directoryPath) {
     final directory = Directory(directoryPath);
     if (!directory.existsSync()) return const [];
     final found = <String>[];
     void visit(Directory dir) {
-      FileSystemEntity? ini;
+      var hasSystemIni = false;
+      var hasHcb = false;
       final subdirs = <Directory>[];
       try {
         for (final entity in dir.listSync(followLinks: false)) {
           if (entity is File && _isSystemIniName(_basename(entity.path))) {
-            ini = entity;
+            hasSystemIni = true;
+          } else if (entity is File && _isHcbName(_basename(entity.path))) {
+            hasHcb = true;
           } else if (entity is Directory) {
             subdirs.add(entity);
           }
@@ -189,7 +174,7 @@ class GameImporter {
       } on FileSystemException {
         return;
       }
-      if (ini != null) {
+      if (hasSystemIni || hasHcb) {
         found.add(dir.path);
         return;
       }
@@ -203,54 +188,30 @@ class GameImporter {
     return found;
   }
 
-  /// 把 `sourcePath` 对应的游戏数据复制到沙箱。
-  ///
-  /// - `sourcePath` 是 `.pfs` 文件（自动连带 `.pfs.NNN` 分卷）或目录。
-  /// - 返回沙箱内的目标路径（目录或 base .pfs 文件）。
-  /// - 如果已导入过（同名 + 同大小），直接返回已有路径，不重复复制。
-  static Future<String> importToSandbox(String sourcePath) async {
-    final appSupport = await getApplicationSupportDirectory();
-    final gamesPrefix =
-        '${appSupport.path}${Platform.pathSeparator}games${Platform.pathSeparator}';
-
-    // 已在沙箱内（例如刚通过 pickDirectoryAndCopy 拷贝的）→ 直接返回。
-    if (sourcePath.startsWith(gamesPrefix)) {
-      return sourcePath;
+  /// 识别已解包目录的引擎;同时存在 system.ini 时优先按 Artemis 处理。
+  static GameEngineKind detectDirectoryEngine(String directoryPath) {
+    final directory = Directory(directoryPath);
+    if (!directory.existsSync()) return GameEngineKind.art3m1s;
+    var hasSystemIni = false;
+    var hasHcb = false;
+    try {
+      for (final entity in directory.listSync(followLinks: false)) {
+        if (entity is! File) continue;
+        final name = _basename(entity.path);
+        if (_isSystemIniName(name)) {
+          hasSystemIni = true;
+        } else if (_isHcbName(name)) {
+          hasHcb = true;
+        }
+      }
+    } on FileSystemException {
+      return GameEngineKind.art3m1s;
     }
-    if (Platform.isIOS && await _isInIosVisibleGamesFolder(sourcePath)) {
-      return sourcePath;
-    }
-
-    final gamesDir = Directory(
-      '${appSupport.path}${Platform.pathSeparator}games',
-    );
-    if (!gamesDir.existsSync()) gamesDir.createSync(recursive: true);
-
-    final isFile = _isFileLikePath(sourcePath);
-    final gameId = _computeGameId(sourcePath, isFile);
-    final targetDir = Directory(
-      '${gamesDir.path}${Platform.pathSeparator}$gameId',
-    );
-
-    // 已导入且大小一致 → 直接复用。
-    if (targetDir.existsSync() && _isComplete(sourcePath, isFile, targetDir)) {
-      return _resolvePath(sourcePath, isFile, targetDir);
-    }
-
-    // 否则清理旧副本后重新复制。
-    if (targetDir.existsSync()) targetDir.deleteSync(recursive: true);
-    targetDir.createSync(recursive: true);
-
-    if (isFile) {
-      await _copyPfsWithVolumes(File(sourcePath), targetDir);
-    } else {
-      await _copyDirectory(Directory(sourcePath), targetDir);
-    }
-
-    return _resolvePath(sourcePath, isFile, targetDir);
+    if (hasSystemIni) return GameEngineKind.art3m1s;
+    return hasHcb ? GameEngineKind.rfvp : GameEngineKind.art3m1s;
   }
 
-  /// 资料库路径比较：去掉尾部分隔符，并把 iOS 的 `/private/var` 折成 `/var`。
+  /// 资料库路径比较:去掉尾部分隔符,并把 iOS 的 `/private/var` 折成 `/var`。
   static String normalizeLibraryPath(String path) {
     var normalized = path.trim().replaceAll('\\', '/');
     while (normalized.length > 1 && normalized.endsWith('/')) {
@@ -282,9 +243,7 @@ class GameImporter {
     return false;
   }
 
-  static const incompleteImportMarker = '.import-incomplete';
-
-  /// SAF 导入批次：`<games>/incoming/<timestamp>/`。
+  /// SAF 导入批次遗留目录:`<games>/incoming/<timestamp>/`。
   static Directory? findManagedIncomingBatch(
     String path,
     Iterable<String> roots,
@@ -320,112 +279,14 @@ class GameImporter {
     });
   }
 
-  /// 删除 Android 导入到应用存储的游戏文件。iOS 的 Files 可见目录不删。
+  /// 删除遗留的 Android 沙箱导入副本;原位导入的用户目录绝不删除。
   static Future<void> removeImportedGameFiles(
     String path, {
     Iterable<String> retainedPaths = const [],
   }) async {
     if (!Platform.isAndroid) return;
     final roots = await _androidManagedGameRoots();
-    try {
-      if (File(path).existsSync() || Directory(path).existsSync()) {
-        final appSupport = await getApplicationSupportDirectory();
-        final gameId = _computeGameId(path, _isFileLikePath(path));
-        final legacy = Directory(
-          '${appSupport.path}${Platform.pathSeparator}games${Platform.pathSeparator}$gameId',
-        );
-        if (legacy.existsSync() &&
-            !isSameLibraryPath(legacy.path, path) &&
-            isManagedImportPath(legacy.path, roots)) {
-          legacy.deleteSync(recursive: true);
-        }
-      }
-    } catch (e) {
-      Log.warn('[GameImporter] 遗留沙箱副本清理失败: $e');
-    }
     deleteManagedImport(path, roots, retainedPaths: retainedPaths);
-  }
-
-  static Future<void> markAndroidImportComplete(String path) async {
-    if (!Platform.isAndroid) return;
-    markAndroidImportCompleteForRoots(path, await _androidManagedGameRoots());
-  }
-
-  static Future<void> discardAndroidImport(String path) async {
-    if (!Platform.isAndroid) return;
-    discardAndroidImportForRoots(path, await _androidManagedGameRoots());
-  }
-
-  static Future<void> pruneIncompleteAndroidImports() async {
-    if (!Platform.isAndroid) return;
-    pruneIncompleteImports(await _androidManagedGameRoots());
-  }
-
-  static Directory? findIncompleteBatchRoot(
-    String path,
-    Iterable<String> roots,
-  ) {
-    var current = Directory(normalizeLibraryPath(path));
-    if (!current.existsSync()) current = current.parent;
-    for (var i = 0; i < 8; i++) {
-      final marker = File(
-        '${current.path}${Platform.pathSeparator}$incompleteImportMarker',
-      );
-      if (marker.existsSync()) return current;
-      final normalized = normalizeLibraryPath(current.path);
-      final inManaged =
-          isManagedImportPath(normalized, roots) ||
-          roots.map(normalizeLibraryPath).contains(normalized);
-      if (!inManaged) return null;
-      current = current.parent;
-    }
-    return null;
-  }
-
-  static void markAndroidImportCompleteForRoots(
-    String path,
-    Iterable<String> roots,
-  ) {
-    final batch = findIncompleteBatchRoot(path, roots);
-    if (batch == null) return;
-    final marker = File(
-      '${batch.path}${Platform.pathSeparator}$incompleteImportMarker',
-    );
-    if (marker.existsSync()) marker.deleteSync();
-  }
-
-  static void discardAndroidImportForRoots(
-    String path,
-    Iterable<String> roots,
-  ) {
-    final batch = findIncompleteBatchRoot(path, roots);
-    final target = batch ?? Directory(normalizeLibraryPath(path));
-    if (batch == null && !isManagedImportPath(target.path, roots)) return;
-    if (target.existsSync()) target.deleteSync(recursive: true);
-    _pruneEmptyParents(target.path, roots);
-  }
-
-  static void pruneIncompleteImports(Iterable<String> roots) {
-    for (final root in roots) {
-      final incoming = Directory(
-        '${normalizeLibraryPath(root)}${Platform.pathSeparator}incoming',
-      );
-      if (!incoming.existsSync()) continue;
-      for (final entity in incoming.listSync(followLinks: false)) {
-        if (entity is! Directory) continue;
-        final marker = File(
-          '${entity.path}${Platform.pathSeparator}$incompleteImportMarker',
-        );
-        if (marker.existsSync()) {
-          entity.deleteSync(recursive: true);
-        }
-      }
-    }
-  }
-
-  /// 兼容旧调用：仅 Android 会删除导入副本。
-  static Future<void> removeFromSandbox(String originalPath) {
-    return removeImportedGameFiles(originalPath);
   }
 
   static Future<List<String>> _androidManagedGameRoots() async {
@@ -437,11 +298,11 @@ class GameImporter {
     return roots.map(normalizeLibraryPath).toList(growable: false);
   }
 
-  /// 删除位于托管根目录下的导入路径。
+  /// 删除位于托管根目录下的遗留导入路径。
   ///
   /// SAF 一次导入对应 `incoming/<timestamp>/` 整个批次。资料库里该批次
-  /// 没有其他条目时，删除整个导入目录，而不是只删 `.pfs`。同一批次还有
-  /// 其他资料库条目时，只删当前游戏自己的文件。
+  /// 没有其他条目时,删除整个导入目录,而不是只删 `.pfs`。同一批次还有
+  /// 其他资料库条目时,只删当前游戏自己的文件。
   static void deleteManagedImport(
     String path,
     Iterable<String> roots, {
@@ -503,147 +364,9 @@ class GameImporter {
     }
   }
 
-  /// 用文件名 + 大小生成稳定 ID（FNV-1a 64-bit）。
-  static String _computeGameId(String path, bool isFile) {
-    final name = _basename(
-      path,
-    ).replaceAll(RegExp(r'\.pfs$', caseSensitive: false), '');
-    int size;
-    if (isFile) {
-      size = File(path).lengthSync();
-    } else if (Directory(path).existsSync()) {
-      size = Directory(path)
-          .listSync(recursive: true)
-          .whereType<File>()
-          .fold<int>(0, (sum, f) => sum + f.lengthSync());
-    } else {
-      throw FileSystemException('路径既不是文件也不是目录', path);
-    }
-    return _computeGameIdFromNameAndSize(name, size);
-  }
-
-  /// 复制 PFS 文件 + 所有分卷 (.pfs.000, .pfs.001, ...)。
-  static Future<void> _copyPfsWithVolumes(
-    File basePfs,
-    Directory target,
-  ) async {
-    final parent = basePfs.parent;
-    final baseNameNoExt = _basename(
-      basePfs.path,
-    ).replaceAll(RegExp(r'\.pfs$', caseSensitive: false), '');
-
-    // 1) 复制 base .pfs
-    final dest = File(
-      '${target.path}${Platform.pathSeparator}${_basename(basePfs.path)}',
-    );
-    await _copyFile(basePfs, dest);
-
-    // 2) 扫父目录，找同名 .pfs.NNN 分卷。
-    if (parent.existsSync()) {
-      final volumePattern = RegExp(
-        '^${RegExp.escape(baseNameNoExt)}\\.pfs\\.\\d{3}\$',
-        caseSensitive: false,
-      );
-      final volumes =
-          parent
-              .listSync()
-              .whereType<File>()
-              .where((f) => volumePattern.hasMatch(_basename(f.path)))
-              .toList()
-            ..sort((a, b) => _basename(a.path).compareTo(_basename(b.path)));
-
-      for (final vol in volumes) {
-        final vDest = File(
-          '${target.path}${Platform.pathSeparator}${_basename(vol.path)}',
-        );
-        await _copyFile(vol, vDest);
-      }
-    }
-  }
-
-  /// 递归复制目录。
-  static Future<void> _copyDirectory(Directory src, Directory dst) async {
-    if (!dst.existsSync()) dst.createSync(recursive: true);
-    await for (final entity in src.list(recursive: false)) {
-      final name = _basename(entity.path);
-      if (entity is File) {
-        await _copyFile(
-          entity,
-          File('${dst.path}${Platform.pathSeparator}$name'),
-        );
-      } else if (entity is Directory) {
-        await _copyDirectory(
-          entity,
-          Directory('${dst.path}${Platform.pathSeparator}$name'),
-        );
-      }
-    }
-  }
-
-  static Future<void> _copyFile(File src, File dst) async {
-    await src.copy(dst.path);
-  }
-
-  /// 检查沙箱副本是否完整。
-  static bool _isComplete(
-    String sourcePath,
-    bool isFile,
-    Directory sandboxDir,
-  ) {
-    if (isFile) {
-      final source = File(sourcePath);
-      final baseInSandbox = File(
-        '${sandboxDir.path}${Platform.pathSeparator}${_basename(sourcePath)}',
-      );
-      if (!baseInSandbox.existsSync()) return false;
-      if (baseInSandbox.lengthSync() != source.lengthSync()) return false;
-      // 检查分卷。
-      final parent = source.parent;
-      if (!parent.existsSync()) return true;
-      final baseNameNoExt = _basename(
-        sourcePath,
-      ).replaceAll(RegExp(r'\.pfs$', caseSensitive: false), '');
-      final volumePattern = RegExp(
-        '^${RegExp.escape(baseNameNoExt)}\\.pfs\\.\\d{3}\$',
-        caseSensitive: false,
-      );
-      for (final vol in parent.listSync().whereType<File>().where(
-        (f) => volumePattern.hasMatch(_basename(f.path)),
-      )) {
-        final vInSandbox = File(
-          '${sandboxDir.path}${Platform.pathSeparator}${_basename(vol.path)}',
-        );
-        if (!vInSandbox.existsSync()) return false;
-        if (vInSandbox.lengthSync() != vol.lengthSync()) return false;
-      }
-      return true;
-    } else {
-      final srcFiles = Directory(
-        sourcePath,
-      ).listSync(recursive: true).whereType<File>().length;
-      final dstFiles = sandboxDir
-          .listSync(recursive: true)
-          .whereType<File>()
-          .length;
-      return srcFiles == dstFiles && dstFiles > 0;
-    }
-  }
-
-  /// 解析最终路径：base .pfs 文件或目录。
-  static String _resolvePath(
-    String sourcePath,
-    bool isFile,
-    Directory sandboxDir,
-  ) {
-    if (isFile) {
-      return '${sandboxDir.path}${Platform.pathSeparator}${_basename(sourcePath)}';
-    }
-    return sandboxDir.path;
-  }
-
-  /// 跨平台 basename（避免 `package:path` 依赖）。
+  /// 跨平台 basename(避免 `package:path` 依赖)。
   static String _basename(String path) {
-    // 同时处理 / 和 \（兼容不同来源的路径）
+    // 同时处理 / 和 \(兼容不同来源的路径)
     final idx = path.lastIndexOf(RegExp('[/\\\\]'));
     return idx >= 0 ? path.substring(idx + 1) : path;
   }
@@ -661,25 +384,7 @@ class GameImporter {
     return name.toLowerCase() == 'system.ini';
   }
 
-  static bool _isFileLikePath(String path) {
-    if (File(path).existsSync()) return true;
-    return _isBasePfsPath(path);
-  }
-
-  static String _computeGameIdFromNameAndSize(String name, int size) {
-    name = name.replaceAll(RegExp(r'\.pfs$', caseSensitive: false), '');
-    int hash = 0xcbf29ce484222325;
-    for (final code in '$name:$size'.codeUnits) {
-      hash ^= code;
-      hash = (hash * 0x100000001b3) & 0xffffffffffffffff;
-    }
-    return '${name}_${hash.toRadixString(16)}';
-  }
-
-  static Future<bool> _isInIosVisibleGamesFolder(String sourcePath) async {
-    final documents = await getApplicationDocumentsDirectory();
-    final visibleGamesPrefix =
-        '${documents.path}${Platform.pathSeparator}Art3m1s${Platform.pathSeparator}Games${Platform.pathSeparator}';
-    return sourcePath.startsWith(visibleGamesPrefix);
+  static bool _isHcbName(String name) {
+    return name.toLowerCase().endsWith('.hcb');
   }
 }
