@@ -188,6 +188,29 @@ class GameImporter {
     return found;
   }
 
+  /// 统一探测入口:返回文件夹中的全部游戏——解包工程目录(system.ini/
+  /// `.hcb` 标记)与打包成 PFS 归档的 Artemis 游戏(base `.pfs` 文件)。
+  ///
+  /// 位于已识别工程目录内部的 `.pfs` 是该工程的资源包,不会被重复登记为
+  /// 独立游戏。
+  static ({List<String> projects, List<String> pfsArchives}) probeGameFolder(
+    String directoryPath,
+  ) {
+    final projects = discoverUnpackedProjects(directoryPath);
+    final pfsArchives = discoverBasePfsFiles(directoryPath)
+        .where(
+          (file) => !projects.any(
+            (project) =>
+                isSameLibraryPath(project, file) ||
+                normalizeLibraryPath(
+                  file,
+                ).startsWith('${normalizeLibraryPath(project)}/'),
+          ),
+        )
+        .toList();
+    return (projects: projects, pfsArchives: pfsArchives);
+  }
+
   /// 识别已解包目录的引擎;同时存在 system.ini 时优先按 Artemis 处理。
   static GameEngineKind detectDirectoryEngine(String directoryPath) {
     final directory = Directory(directoryPath);

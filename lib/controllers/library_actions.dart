@@ -33,30 +33,38 @@ class LibraryActions {
   /// 统一的导入流程:选择目录 → 探测 → 原地入库,全平台一致、不复制。
   /// Android 走原生 SAF 选择器并解析真实路径(需要「所有文件访问」授权);
   /// 桌面用系统目录选择器;iOS 用 `scanIosAppFolder` 扫描 App 文件夹。
+  ///
+  /// 探测同时覆盖两类游戏:解包工程目录(system.ini → Artemis,
+  /// `.hcb` → RFVP)和打包成 PFS 归档的 Artemis 游戏(没有外露 system.ini,
+  /// 以 base `.pfs` 文件为标记)。位于已识别工程目录内部的 .pfs 是该工程的
+  /// 资源包,不重复登记为独立游戏。
   Future<void> pickDirectory() async {
     final path = await _pickImportDirectory();
     if (path == null || !context.mounted) return;
-    final projects = GameImporter.discoverUnpackedProjects(path);
-    if (projects.isEmpty) {
+    final probe = GameImporter.probeGameFolder(path);
+    if (probe.projects.isEmpty && probe.pfsArchives.isEmpty) {
       notify(context, '所选目录中没有可识别的游戏项目');
       return;
     }
-    if (projects.length == 1) {
-      await _editAndAdd(
-        _directoryDisplayName(projects.single),
-        projects.single,
-        GameSource.directory,
-      );
-      return;
-    }
-    await _addDiscoveredGamesAutomatically([
-      for (final path in projects)
+    final games = [
+      for (final path in probe.projects)
         DiscoveredGame(
           name: _directoryDisplayName(path),
           path: path,
           source: GameSource.directory.name,
         ),
-    ]);
+      for (final path in probe.pfsArchives)
+        DiscoveredGame(
+          name: _pfsDisplayName(path),
+          path: path,
+          source: GameSource.pfsArchive.name,
+        ),
+    ];
+    if (games.length == 1) {
+      await _addDiscoveredGame(games.single);
+      return;
+    }
+    await _addDiscoveredGamesAutomatically(games);
   }
 
   Future<void> pickPfs() async {

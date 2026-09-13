@@ -278,4 +278,36 @@ void main() {
     );
     expect(batch.existsSync(), isTrue);
   });
+
+  test('probeGameFolder finds packed Artemis games via base .pfs', () {
+    final root = Directory.systemTemp.createTempSync('art3m1s_probe_');
+    addTearDown(() => root.deleteSync(recursive: true));
+
+    // 打包游戏:没有外露 system.ini,只有 PFS 归档。
+    final packed = Directory('${root.path}${Platform.pathSeparator}PackedGame')
+      ..createSync();
+    File(
+      '${packed.path}${Platform.pathSeparator}data.pfs',
+    ).writeAsBytesSync([1]);
+    File(
+      '${packed.path}${Platform.pathSeparator}data.pfs.000',
+    ).writeAsBytesSync([2]);
+
+    // 解包工程:自带资源 PFS,不应重复登记为独立游戏。
+    final unpacked = Directory('${root.path}${Platform.pathSeparator}Unpacked')
+      ..createSync();
+    File(
+      '${unpacked.path}${Platform.pathSeparator}system.ini',
+    ).writeAsStringSync('[boot]');
+    File(
+      '${unpacked.path}${Platform.pathSeparator}res.pfs',
+    ).writeAsBytesSync([3]);
+
+    final probe = GameImporter.probeGameFolder(root.path);
+
+    expect(probe.projects, [unpacked.path]);
+    expect(probe.pfsArchives, [
+      '${packed.path}${Platform.pathSeparator}data.pfs',
+    ]);
+  });
 }
