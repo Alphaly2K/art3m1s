@@ -14,6 +14,7 @@ import '../../services/logger.dart';
 import '../../services/profiler_snapshot.dart';
 import '../../services/text_translation_service.dart';
 import '../engine_runtime.dart';
+import '../shared_texture_session.dart';
 import 'art3m1s/media_bridge.dart';
 import 'art3m1s/caption_table_probe.dart';
 import 'art3m1s/core_api.dart';
@@ -349,6 +350,8 @@ class Art3m1sEngineRuntime implements EngineRuntime {
 
   final void Function(EngineDialogRequest request)? onDialogRequested;
   bool _initialized = false;
+  EngineSessionState _sessionState = EngineSessionState.active;
+  Future<void> _sessionTransition = Future<void>.value();
   DynamicLibrary? _lib;
   CoreApiV1? _coreApi;
   Pointer<Void>? _resources;
@@ -569,6 +572,46 @@ class Art3m1sEngineRuntime implements EngineRuntime {
       _sharedTextureId != null && _sharedTextureAttached;
 
   @override
+  Set<EngineSessionState> get supportedSessionStates => const {
+    EngineSessionState.active,
+    EngineSessionState.frozen,
+    EngineSessionState.suspended,
+  };
+
+  @override
+  EngineSessionState get sessionState => _sessionState;
+
+  @override
+  Future<EngineSessionState> setSessionState(EngineSessionState state) {
+    final target = supportedSessionStates.contains(state)
+        ? state
+        : EngineSessionState.suspended;
+    final transition = _sessionTransition.then((_) async {
+      if (_sessionState == target) {
+        if (target == EngineSessionState.active) _activeRuntime = this;
+        return;
+      }
+      _sessionState = target;
+      if (target == EngineSessionState.active) {
+        _activeRuntime = this;
+        await media.setSuspended(false);
+        setWindowStateBits(minimized: false);
+        notifyLifecycle(2);
+        return;
+      }
+      if (_activeRuntime == this) _activeRuntime = null;
+      setWindowStateBits(minimized: true);
+      notifyLifecycle(1);
+      await media.setSuspended(true);
+      if (target.releasesPresentation) {
+        await SharedTextureSessionCoordinator.release(this);
+      }
+    });
+    _sessionTransition = transition.catchError((_) {});
+    return transition.then((_) => target);
+  }
+
+  @override
   Future<int?> enableSharedTexture({
     int? outputWidth,
     int? outputHeight,
@@ -615,33 +658,45 @@ class Art3m1sEngineRuntime implements EngineRuntime {
     }
 
     try {
-      // Stop Core from presenting into the old object before the native texture
-      // host unregisters/releases it during recreation.
-      _detachSharedTexture();
-      final raw = await _sharedTextureChannel.invokeMapMethod<String, dynamic>(
-        'create',
-        {'width': width, 'height': height},
-      );
-      if (raw == null ||
-          !_attachSharedTexture(raw, width: width, height: height)) {
-        await _sharedTextureChannel.invokeMethod<void>('release');
-        _sharedTextureId = null;
-        _sharedTextureKind = null;
-        return null;
+      final textureId =
+          await SharedTextureSessionCoordinator.runWithOwnership<
+            int?
+          >(this, _releaseSharedTextureForSession, () async {
+            if (_sessionState != EngineSessionState.active) return null;
+            if (!_sharedTextureHandlerAttached) {
+              _sharedTextureChannel.setMethodCallHandler(
+                _handleSharedTextureCall,
+              );
+              _sharedTextureHandlerAttached = true;
+            }
+            // Stop Core from presenting into the old object before the native texture
+            // host unregisters/releases it during recreation.
+            _detachSharedTexture();
+            final raw = await _sharedTextureChannel
+                .invokeMapMethod<String, dynamic>('create', {
+                  'width': width,
+                  'height': height,
+                });
+            if (raw == null ||
+                !_attachSharedTexture(raw, width: width, height: height)) {
+              return null;
+            }
+            Log.info(
+              '[Art3m1sEngineRuntime] 共享纹理已启用: id=$_sharedTextureId '
+              '${_sharedTextureWidth}x$_sharedTextureHeight '
+              '(stage=${_stageWidth}x$_stageHeight)',
+            );
+            return _sharedTextureId;
+          });
+      if (textureId == null) {
+        await SharedTextureSessionCoordinator.release(this);
       }
-      Log.info(
-        '[Art3m1sEngineRuntime] 共享纹理已启用: id=$_sharedTextureId '
-        '${_sharedTextureWidth}x$_sharedTextureHeight '
-        '(stage=${_stageWidth}x$_stageHeight)',
-      );
-      return _sharedTextureId;
+      return textureId;
     } catch (error) {
       Log.warn('[Art3m1sEngineRuntime] 共享纹理不可用，使用 RGBA 回读: $error');
       _sharedTextureId = null;
       _sharedTextureKind = null;
-      unawaited(
-        _sharedTextureChannel.invokeMethod<void>('release').catchError((_) {}),
-      );
+      await SharedTextureSessionCoordinator.release(this);
       return null;
     }
   }
@@ -713,11 +768,33 @@ class Art3m1sEngineRuntime implements EngineRuntime {
     _sharedTextureAttached = false;
   }
 
+  Future<void> _releaseSharedTextureForSession() async {
+    _detachSharedTexture();
+    try {
+      if (_sharedTextureId != null) {
+        await _sharedTextureChannel.invokeMethod<void>('release');
+      }
+    } catch (error) {
+      Log.warn('[Art3m1sEngineRuntime] 共享纹理释放失败: $error');
+    }
+    if (_sharedTextureHandlerAttached) {
+      _sharedTextureChannel.setMethodCallHandler(null);
+      _sharedTextureHandlerAttached = false;
+    }
+    _sharedTextureId = null;
+    _sharedTextureKind = null;
+    _sharedTextureWidth = 0;
+    _sharedTextureHeight = 0;
+  }
+
   @override
   int advanceAndPresent(int deltaMs) {
     final runtime = _runtime;
     final present = _advancePresent;
-    if (runtime == null || present == null || !_sharedTextureAttached) {
+    if (_sessionState != EngineSessionState.active ||
+        runtime == null ||
+        present == null ||
+        !_sharedTextureAttached) {
       return -1;
     }
     final result = present(runtime, deltaMs);
@@ -762,10 +839,6 @@ class Art3m1sEngineRuntime implements EngineRuntime {
 
   @override
   Future<void> initialize() async {
-    if (!_sharedTextureHandlerAttached) {
-      _sharedTextureChannel.setMethodCallHandler(_handleSharedTextureCall);
-      _sharedTextureHandlerAttached = true;
-    }
     try {
       _loadLibrary();
       final lib = _lib;
@@ -845,7 +918,7 @@ class Art3m1sEngineRuntime implements EngineRuntime {
 
   void _registerHostEvents() {
     if (_lib == null) return;
-    _activeRuntime = this;
+    if (_sessionState == EngineSessionState.active) _activeRuntime = this;
     if (!_tryEnableHostEvents()) {
       throw StateError('core 缺少 host events v1，拒绝使用旧 callback ABI');
     }
@@ -1291,6 +1364,7 @@ class Art3m1sEngineRuntime implements EngineRuntime {
   void registerFileReader() {
     if (_lib == null) return;
     FileProvider.mountCore(_lib!, coreApi: _coreApi, resources: _resources);
+    FileProvider.detachCoreMount();
   }
 
   @override
@@ -1810,6 +1884,7 @@ class Art3m1sEngineRuntime implements EngineRuntime {
 
   @override
   Uint8List? advanceAndRender(int deltaMs) {
+    if (_sessionState != EngineSessionState.active) return null;
     if (_runtime == null || _lib == null) return null;
     final coreApi = _coreApi;
     final int Function(Pointer<Void>, int, Pointer<Uint8>, int) fn;
@@ -1838,6 +1913,7 @@ class Art3m1sEngineRuntime implements EngineRuntime {
   /// E-Mote 口型和真实音频时钟因漏 tick 而逐渐错位。
   @override
   bool advanceWithoutRender(int deltaMs) {
+    if (_sessionState != EngineSessionState.active) return false;
     if (_runtime == null || _lib == null || _advanceWithoutRenderUnavailable) {
       return false;
     }
@@ -1983,6 +2059,7 @@ class Art3m1sEngineRuntime implements EngineRuntime {
       _sharedTextureChannel.setMethodCallHandler(null);
       _sharedTextureHandlerAttached = false;
     }
+    unawaited(SharedTextureSessionCoordinator.abandon(this));
     _sharedTextureId = null;
     _sharedTextureKind = null;
     _sharedTextureWidth = 0;

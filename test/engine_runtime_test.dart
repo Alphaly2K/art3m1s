@@ -1,4 +1,5 @@
 import 'package:art3m1s/engine/engine_runtime_factory.dart';
+import 'package:art3m1s/engine/engine_runtime.dart';
 import 'package:art3m1s/engine/backends/art3m1s_engine_runtime.dart';
 import 'package:art3m1s/engine/backends/rfvp_engine_runtime.dart';
 import 'package:art3m1s/engine/backends/krkr_engine_runtime.dart';
@@ -39,5 +40,29 @@ void main() {
     expect(runtime, isA<Art3m1sEngineRuntime>());
     expect(runtime.kind, GameEngineKind.art3m1s);
     runtime.shutdown();
+  });
+
+  test('Artemis and RFVP expose frozen and suspended residency only', () async {
+    for (final engine in [GameEngineKind.art3m1s, GameEngineKind.rfvp]) {
+      final runtime = EngineRuntimeFactory.create(engine: engine);
+
+      expect(
+        runtime.supportedSessionStates,
+        contains(EngineSessionState.frozen),
+      );
+      expect(
+        runtime.supportedSessionStates,
+        contains(EngineSessionState.suspended),
+      );
+      expect(
+        runtime.supportedSessionStates,
+        isNot(contains(EngineSessionState.hibernated)),
+      );
+      expect(
+        await runtime.setSessionState(EngineSessionState.hibernated),
+        EngineSessionState.suspended,
+      );
+      runtime.shutdown();
+    }
   });
 }

@@ -14,6 +14,7 @@ class Log {
   static Future<void> _fileWriteQueue = Future<void>.value();
   static bool _debugEnabled = false;
   static bool _runtimeSessionActive = false;
+  static int _runtimeSessionCount = 0;
   static bool _hasRuntimeSession = false;
   static bool _fileStarted = false;
   static bool overlayVisible = false;
@@ -40,6 +41,8 @@ class Log {
   }
 
   static void startRuntimeSession() {
+    _runtimeSessionCount += 1;
+    if (_runtimeSessionCount > 1) return;
     _runtimeSessionLogs.clear();
     _runtimeSessionActive = true;
     _hasRuntimeSession = true;
@@ -51,7 +54,8 @@ class Log {
   }
 
   static void endRuntimeSession() {
-    _runtimeSessionActive = false;
+    if (_runtimeSessionCount > 0) _runtimeSessionCount -= 1;
+    _runtimeSessionActive = _runtimeSessionCount > 0;
     _scheduleFileFlush();
   }
 

@@ -53,10 +53,25 @@ class MediaBridge implements EngineMediaHost {
   _AudioHandle? _bgm;
   final Map<int, Uint8List> _engineEncoded = {};
   final Map<int, _AudioHandle> _engineHandles = {};
+  bool _suspended = false;
   bool _disposed = false;
 
   @override
   bool get isFullscreenVideoBlocking => false;
+
+  @override
+  Future<void> setSuspended(bool suspended) async {
+    if (_disposed || _suspended == suspended) return;
+    _suspended = suspended;
+    final handles = <_AudioHandle>{
+      ?_bgm,
+      ..._sounds.values,
+      ..._engineHandles.values,
+    };
+    for (final handle in handles) {
+      await handle.setHostSuspended(suspended);
+    }
+  }
 
   @override
   void handleEngineAudioCommand(EngineAudioCommand command) {
@@ -151,6 +166,7 @@ class MediaBridge implements EngineMediaHost {
         );
         handle = created;
         _engineHandles[streamId] = handle;
+        await handle.setHostSuspended(_suspended);
         await handle.setEffectiveVolume(
           command.fadeMs > 0 ? 0 : _effectiveVolume(channel, handle.gain),
         );
@@ -167,9 +183,9 @@ class MediaBridge implements EngineMediaHost {
         if (command.fadeMs > 0) await handle.fadeTo(0, command.fadeMs);
         await handle.dispose();
       case EngineAudioCommandKind.pause:
-        await _engineHandles[streamId]?.player.pause();
+        await _engineHandles[streamId]?.pause();
       case EngineAudioCommandKind.resume:
-        await _engineHandles[streamId]?.player.resume();
+        await _engineHandles[streamId]?.play();
       case EngineAudioCommandKind.setParams:
         final handle = _engineHandles[streamId];
         if (handle == null) return;
@@ -276,6 +292,7 @@ class MediaBridge implements EngineMediaHost {
       }
 
       _bgm = created;
+      await created.setHostSuspended(_suspended);
       await created.setEffectiveVolume(
         fadeMs > 0 ? 0 : _effectiveVolume('bgm', gain),
       );
@@ -344,6 +361,7 @@ class MediaBridge implements EngineMediaHost {
 
       final previous = _bgm;
       _bgm = created;
+      await created.setHostSuspended(_suspended);
       await created.setEffectiveVolume(
         durationMs > 0 ? 0 : _effectiveVolume('bgm', gain),
       );
@@ -442,6 +460,7 @@ class MediaBridge implements EngineMediaHost {
       }
 
       _sounds[key] = created;
+      await created.setHostSuspended(_suspended);
       final fadeMs = _int(payload['fade_ms']);
       await created.setEffectiveVolume(
         fadeMs > 0 ? 0 : _effectiveVolume(channel, gain),
@@ -654,6 +673,9 @@ class _AudioHandle {
   StreamSubscription<void>? _completionSubscription;
   bool _completed = false;
   bool _loopSegmentStarted = false;
+  bool _hostSuspended = false;
+  bool _resumePrimaryAfterSuspend = false;
+  bool _resumeLoopAfterSuspend = false;
   bool _disposed = false;
   double _effectiveVolume = 1;
 
@@ -724,7 +746,11 @@ class _AudioHandle {
           await _complete();
           return;
         }
-        await nextPlayer.resume();
+        if (_hostSuspended) {
+          _resumeLoopAfterSuspend = true;
+        } else {
+          await nextPlayer.resume();
+        }
         Log.debug('[MediaBridge] BGM 已进入 B 段循环: ${next.path}');
       } catch (error, stackTrace) {
         Log.warn(
@@ -744,7 +770,46 @@ class _AudioHandle {
     onCompleted(id);
   }
 
-  Future<void> play() => player.resume();
+  Future<void> play() async {
+    if (_disposed) return;
+    if (_hostSuspended) {
+      _resumePrimaryAfterSuspend = true;
+      return;
+    }
+    await player.resume();
+  }
+
+  Future<void> pause() async {
+    _resumePrimaryAfterSuspend = false;
+    if (!_disposed) await player.pause();
+  }
+
+  Future<void> setHostSuspended(bool suspended) async {
+    if (_disposed || _hostSuspended == suspended) return;
+    _hostSuspended = suspended;
+    if (suspended) {
+      _resumePrimaryAfterSuspend =
+          _resumePrimaryAfterSuspend ||
+          player.state == audio.PlayerState.playing;
+      final nextPlayer = loopPlayer;
+      _resumeLoopAfterSuspend =
+          _resumeLoopAfterSuspend ||
+          nextPlayer?.state == audio.PlayerState.playing;
+      await Future.wait([
+        if (player.state == audio.PlayerState.playing) player.pause(),
+        if (nextPlayer?.state == audio.PlayerState.playing) nextPlayer!.pause(),
+      ]);
+      return;
+    }
+    final resumePrimary = _resumePrimaryAfterSuspend;
+    final resumeLoop = _resumeLoopAfterSuspend;
+    _resumePrimaryAfterSuspend = false;
+    _resumeLoopAfterSuspend = false;
+    await Future.wait([
+      if (resumePrimary && !_completed) player.resume(),
+      if (resumeLoop && !_completed && loopPlayer != null) loopPlayer!.resume(),
+    ]);
+  }
 
   Future<void> setEffectiveVolume(double volume) async {
     _effectiveVolume = volume.clamp(0, 1);

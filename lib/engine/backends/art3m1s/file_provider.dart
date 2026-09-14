@@ -181,6 +181,23 @@ class FileProvider {
     _coreApi = null;
     _resources = null;
     _ownsResources = false;
+    _closeHostMount();
+  }
+
+  /// Leaves the mounted native resource handle owned by its EngineRuntime and
+  /// drops only FileProvider's process-global staging state.
+  ///
+  /// Each resident game has its own native resources. Clearing that handle
+  /// while another game is being prepared would otherwise unmount the frozen
+  /// session's files.
+  static void detachCoreMount() {
+    _coreApi = null;
+    _resources = null;
+    _ownsResources = false;
+    _closeHostMount();
+  }
+
+  static void _closeHostMount() {
     for (final h in _archives) {
       _pfs.close(h);
     }

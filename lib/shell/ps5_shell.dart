@@ -11,12 +11,15 @@ import '../adaptive/ps5_menu.dart';
 import '../adaptive/ps5_sounds.dart';
 import '../controllers/library_actions.dart';
 import '../controllers/ps5_input.dart';
+import '../controllers/ps5_game_sessions.dart';
+import '../models/game_engine.dart';
 import '../models/game_entry.dart';
 import '../models/render_backend.dart';
 import '../models/render_output.dart';
 import '../providers/library_provider.dart';
 import '../providers/settings_provider.dart';
 import '../screens/translation_settings_ps5.dart';
+import '../screens/player_screen.dart';
 import '../services/app_info.dart';
 import '../services/logger.dart';
 import '../widgets/debug_overlay_host.dart';
@@ -49,7 +52,7 @@ class Ps5ShellApp extends StatelessWidget {
           );
         },
         home: DebugOverlayHost(
-          child: _Ps5Home(onExitBigScreen: onExitBigScreen),
+          child: _Ps5SessionHost(onExitBigScreen: onExitBigScreen),
         ),
       ),
     );
@@ -85,6 +88,92 @@ class Ps5ShellApp extends StatelessWidget {
         trackColor: const WidgetStatePropertyAll(Colors.transparent),
         radius: const Radius.circular(99),
         thickness: const WidgetStatePropertyAll(4),
+      ),
+    );
+  }
+}
+
+class _Ps5SessionHost extends StatefulWidget {
+  const _Ps5SessionHost({this.onExitBigScreen});
+
+  final Future<bool> Function()? onExitBigScreen;
+
+  @override
+  State<_Ps5SessionHost> createState() => _Ps5SessionHostState();
+}
+
+class _Ps5SessionHostState extends State<_Ps5SessionHost> {
+  final Ps5GameSessionRegistry _sessions = Ps5GameSessionRegistry();
+
+  void _activate(GameEntry entry) {
+    if (entry.engine == GameEngineKind.krkr) return;
+    setState(() => _sessions.activate(entry));
+  }
+
+  void _freezeToHome(String gameId) {
+    if (_sessions.activeSessionId != gameId) return;
+    setState(() => _sessions.freezeToHome(gameId));
+  }
+
+  void _endSession(String gameId) {
+    setState(() => _sessions.remove(gameId));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final activeId = _sessions.activeSessionId;
+    return Ps5GameSessionScope(
+      activeSessionId: activeId,
+      sessionIds: _sessions.sessionIds,
+      activate: _activate,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Offstage(
+            offstage: activeId != null,
+            child: TickerMode(
+              enabled: activeId == null,
+              child: _Ps5Home(onExitBigScreen: widget.onExitBigScreen),
+            ),
+          ),
+          for (final session in _sessions.sessions)
+            Offstage(
+              key: ValueKey('ps5-session-${session.entry.id}'),
+              offstage: activeId != session.entry.id,
+              child: TickerMode(
+                enabled: activeId == session.entry.id,
+                child: ExcludeFocus(
+                  excluding: activeId != session.entry.id,
+                  child: PlayerScreen(
+                    key: ValueKey('ps5-player-${session.entry.id}'),
+                    gameId: session.entry.id,
+                    projectPath: session.entry.path,
+                    source: session.entry.source,
+                    engine: session.entry.engine,
+                    translationEnabled: session.entry.translationEnabled,
+                    translationPatchPath: session.entry.translationPatchPath,
+                    environmentPatchEnabled:
+                        session.entry.environmentPatchEnabled,
+                    experimentalElunaEnabled:
+                        session.entry.experimentalElunaEnabled,
+                    ps5BigScreen: true,
+                    sessionState: session.state,
+                    onFreezeToHome: () => _freezeToHome(session.entry.id),
+                    onSessionEnded: () => _endSession(session.entry.id),
+                    addedAt: session.entry.addedAt,
+                    lastPlayedAt: session.entry.lastPlayedAt,
+                    screenshotPath: session.entry.screenshotPath,
+                    inputGate: session.entry.inputGate,
+                    fontOverridePath: session.entry.fontOverridePath,
+                    fontOverrideFilePath: session.entry.fontOverrideFilePath,
+                    reportedOs: session.entry.reportedOs,
+                    runtimePlatform: session.entry.runtimePlatform,
+                    manifestPath: session.entry.manifestPath,
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }

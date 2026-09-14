@@ -44,6 +44,9 @@ class PlayerScreen extends ConsumerStatefulWidget {
   final bool environmentPatchEnabled;
   final bool experimentalElunaEnabled;
   final bool ps5BigScreen;
+  final EngineSessionState sessionState;
+  final VoidCallback? onFreezeToHome;
+  final VoidCallback? onSessionEnded;
   final DateTime addedAt;
   final DateTime? lastPlayedAt;
   final String? screenshotPath;
@@ -76,6 +79,9 @@ class PlayerScreen extends ConsumerStatefulWidget {
     required this.environmentPatchEnabled,
     required this.experimentalElunaEnabled,
     this.ps5BigScreen = false,
+    this.sessionState = EngineSessionState.active,
+    this.onFreezeToHome,
+    this.onSessionEnded,
     required this.addedAt,
     this.lastPlayedAt,
     this.screenshotPath,
@@ -140,6 +146,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   Timer? _profilerTimer;
   bool _profilerEnabled = false;
   bool _appActive = true;
+  bool _sessionReadyToRun = false;
   bool _gameLoopStarted = false;
   bool _ps5MenuOpen = false;
   final Stopwatch _frameClock = Stopwatch();
@@ -154,6 +161,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   void initState() {
     super.initState();
     Log.startRuntimeSession();
+    _sessionReadyToRun = widget.sessionState.isRunning;
     _sessionStartedAt = DateTime.now();
     _bridge = EngineRuntimeFactory.create(
       engine: widget.engine,
@@ -173,15 +181,49 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   }
 
   @override
+  void didUpdateWidget(PlayerScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.sessionState == widget.sessionState) return;
+    _sessionReadyToRun = false;
+    _releasePointerButtons();
+    _endTouchpadDrag();
+    if (!widget.sessionState.isRunning) {
+      if (_ps5MenuOpen) _ps5MenuOpen = false;
+      unawaited(_bridge.setSessionState(widget.sessionState));
+      _syncGameTicker();
+      return;
+    }
+    unawaited(_resumeSession());
+  }
+
+  Future<void> _resumeSession() async {
+    final applied = await _bridge.setSessionState(EngineSessionState.active);
+    if (!mounted || _closing || !widget.sessionState.isRunning) return;
+    if (applied != EngineSessionState.active) return;
+    if (widget.sessionState.isRunning) await _applyFontOverride();
+    if (!mounted || _closing || !widget.sessionState.isRunning) return;
+    _sessionReadyToRun = true;
+    _scheduleSharedTextureResize();
+    _syncGameTicker();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && !_closing && widget.sessionState.isRunning) {
+        _gameFocusNode.requestFocus();
+      }
+    });
+  }
+
+  @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // 生命周期 → core：驱动 [autosave allow=1]（切后台自动存档）+ 同步最小化位。
     switch (state) {
       case AppLifecycleState.resumed:
         _appActive = true;
         _syncGameTicker();
-        _scheduleSharedTextureResize();
-        _bridge.setWindowStateBits(minimized: false);
-        _bridge.notifyLifecycle(2); // 回前台
+        if (widget.sessionState.isRunning) {
+          _scheduleSharedTextureResize();
+          _bridge.setWindowStateBits(minimized: false);
+          _bridge.notifyLifecycle(2); // 回前台
+        }
       case AppLifecycleState.paused:
       case AppLifecycleState.hidden:
         _appActive = false;
@@ -237,6 +279,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       }
       return;
     }
+    final appliedState = await _bridge.setSessionState(widget.sessionState);
+    _sessionReadyToRun = appliedState.isRunning;
 
     final settings = ref.read(settingsProvider);
     final baseConfig = GameEntry(
@@ -323,7 +367,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     }
     // 覆盖字体按局显式安装或清除：Artemis 是进程级全局设置，不能残留到下一局；
     // RFVP 是 per-runtime，后端会在 createRuntime 后自行推送。
-    await _applyFontOverride();
+    if (widget.sessionState.isRunning) await _applyFontOverride();
 
     // 输入门控：项目补丁/资料库条目的环境特化过滤，在 bridge 出口统一生效。
     _bridge.configureInputGate(config.inputGate);
@@ -358,7 +402,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         Platform.isIOS ||
         (Platform.isMacOS && renderBackend != 0)) {
       _sharedTextureRequested = true;
-      await _syncSharedTextureExtent();
+      if (widget.sessionState.isRunning) await _syncSharedTextureExtent();
     } else {
       _bridge.setRenderQuality(EngineRenderQuality.native);
     }
@@ -487,7 +531,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   }
 
   void _scheduleSharedTextureResize() {
-    if (!_sharedTextureRequested || _closing || !mounted) return;
+    if (!_sharedTextureRequested ||
+        !widget.sessionState.isRunning ||
+        _closing ||
+        !mounted) {
+      return;
+    }
     _sharedTextureResizeTimer?.cancel();
     _sharedTextureResizeTimer = Timer(const Duration(milliseconds: 120), () {
       if (mounted && !_closing) unawaited(_syncSharedTextureExtent());
@@ -495,7 +544,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   }
 
   Future<void> _syncSharedTextureExtent() async {
-    if (!_sharedTextureRequested || _closing || !mounted) return;
+    if (!_sharedTextureRequested ||
+        !widget.sessionState.isRunning ||
+        _closing ||
+        !mounted) {
+      return;
+    }
     if (_sharedTextureResizeInFlight) {
       _sharedTextureResizePending = true;
       return;
@@ -504,6 +558,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     try {
       do {
         _sharedTextureResizePending = false;
+        if (!widget.sessionState.isRunning) break;
         final extent = _desiredSharedTextureExtent();
         if (_bridge.hasActiveSharedTexture &&
             _bridge.sharedTextureWidth == extent.width &&
@@ -533,6 +588,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         _gameLoopStarted &&
         !_closing &&
         _appActive &&
+        _sessionReadyToRun &&
         !_ps5MenuOpen &&
         !_bridge.media.isFullscreenVideoBlocking;
     if (shouldRun) {
@@ -711,9 +767,24 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     if (_closing) return;
     _closing = true;
     _syncGameTicker();
+    final onSessionEnded = widget.onSessionEnded;
+    if (onSessionEnded != null) {
+      onSessionEnded();
+      return;
+    }
     if (mounted) {
       Navigator.of(context).pop();
     }
+  }
+
+  void _freezeToHome() {
+    final callback = widget.onFreezeToHome;
+    if (callback == null) {
+      _closePlayer();
+      return;
+    }
+    if (_ps5MenuOpen) setState(() => _ps5MenuOpen = false);
+    callback();
   }
 
   void _lockOrientation() {
@@ -970,7 +1041,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
               onShowFpsChanged: (value) =>
                   ref.read(settingsProvider.notifier).setShowFps(value),
               onResume: () => _setPs5MenuOpen(false),
-              onExit: _closePlayer,
+              onExit: _freezeToHome,
               onScreenshot: _captureScreenshot,
               onVolumeChanged: _setMasterVolume,
               onExitBigScreen: _exitBigScreenFromPlayer,

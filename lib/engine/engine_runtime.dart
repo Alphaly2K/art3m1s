@@ -10,6 +10,22 @@ import '../services/text_translation_service.dart';
 
 enum EngineRenderQuality { native, quality, balanced, performance }
 
+/// Host-visible residency level for a live game session.
+///
+/// [frozen] keeps the runtime and presentation resources resident for the
+/// fastest return. [suspended] additionally releases the foreground surface
+/// while retaining the engine instance. [hibernated] requires a backend
+/// checkpoint that can recreate the exact runtime state with minimal memory.
+enum EngineSessionState { active, frozen, suspended, hibernated }
+
+extension EngineSessionStateSemantics on EngineSessionState {
+  bool get isRunning => this == EngineSessionState.active;
+
+  bool get releasesPresentation =>
+      this == EngineSessionState.suspended ||
+      this == EngineSessionState.hibernated;
+}
+
 class EngineDialogRequest {
   const EngineDialogRequest({
     required this.title,
@@ -113,6 +129,7 @@ abstract interface class EngineMediaHost {
   ValueListenable<bool> get fullscreenVideoBlocking;
   bool get isFullscreenVideoBlocking;
   void handleEngineAudioCommand(EngineAudioCommand command);
+  Future<void> setSuspended(bool suspended);
   Future<void> skipVideo();
 }
 
@@ -130,6 +147,16 @@ abstract interface class EngineRuntime {
   ValueListenable<AvoidOverlay?> get avoidOverlay;
   ValueListenable<String?> get windowTitle;
   EngineMediaHost get media;
+
+  /// Residency levels this backend can preserve without losing game state.
+  Set<EngineSessionState> get supportedSessionStates;
+  EngineSessionState get sessionState;
+
+  /// Applies a session residency request and returns the state actually used.
+  ///
+  /// A backend without exact checkpoint/restore support must downgrade
+  /// [EngineSessionState.hibernated] instead of restarting from a save file.
+  Future<EngineSessionState> setSessionState(EngineSessionState state);
 
   Future<void> initialize();
   void shutdown();
@@ -220,6 +247,15 @@ class UnsupportedEngineRuntime implements EngineRuntime {
   ValueListenable<AvoidOverlay?> get avoidOverlay => _avoidOverlay;
   @override
   ValueListenable<String?> get windowTitle => _windowTitle;
+  @override
+  Set<EngineSessionState> get supportedSessionStates => const {
+    EngineSessionState.active,
+  };
+  @override
+  EngineSessionState get sessionState => EngineSessionState.active;
+  @override
+  Future<EngineSessionState> setSessionState(EngineSessionState state) async =>
+      EngineSessionState.active;
 
   @override
   Future<void> initialize() async {}
@@ -327,6 +363,8 @@ class _UnsupportedEngineMediaHost implements EngineMediaHost {
   bool get isFullscreenVideoBlocking => false;
   @override
   void handleEngineAudioCommand(EngineAudioCommand command) {}
+  @override
+  Future<void> setSuspended(bool suspended) async {}
   @override
   Future<void> skipVideo() async {}
 }

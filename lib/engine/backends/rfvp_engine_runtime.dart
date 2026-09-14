@@ -13,6 +13,7 @@ import '../../services/logger.dart';
 import '../../services/profiler_snapshot.dart';
 import '../../services/text_translation_service.dart';
 import '../engine_runtime.dart';
+import '../shared_texture_session.dart';
 import 'rfvp/core_rfvp_api.dart';
 import 'rfvp/rfvp_media_host.dart';
 
@@ -38,6 +39,8 @@ class RfvpEngineRuntime implements EngineRuntime {
   CoreRfvpApiV1? _api;
   int _runtime = 0;
   bool _initialized = false;
+  EngineSessionState _sessionState = EngineSessionState.active;
+  Future<void> _sessionTransition = Future<void>.value();
   bool _exitRequested = false;
   String? _lastError;
   int _stageWidth = 0;
@@ -88,6 +91,39 @@ class RfvpEngineRuntime implements EngineRuntime {
 
   @override
   EngineMediaHost get media => _media;
+
+  @override
+  Set<EngineSessionState> get supportedSessionStates => const {
+    EngineSessionState.active,
+    EngineSessionState.frozen,
+    EngineSessionState.suspended,
+  };
+
+  @override
+  EngineSessionState get sessionState => _sessionState;
+
+  @override
+  Future<EngineSessionState> setSessionState(EngineSessionState state) {
+    final target = supportedSessionStates.contains(state)
+        ? state
+        : EngineSessionState.suspended;
+    final transition = _sessionTransition.then((_) async {
+      if (_sessionState == target) return;
+      _sessionState = target;
+      if (target == EngineSessionState.active) {
+        await _media.setSuspended(false);
+        notifyLifecycle(2);
+        return;
+      }
+      notifyLifecycle(1);
+      await _media.setSuspended(true);
+      if (target.releasesPresentation) {
+        await SharedTextureSessionCoordinator.release(this);
+      }
+    });
+    _sessionTransition = transition.catchError((_) {});
+    return transition.then((_) => target);
+  }
 
   @override
   Future<void> initialize() async {
@@ -384,36 +420,46 @@ class RfvpEngineRuntime implements EngineRuntime {
     }
 
     try {
-      _detachSharedTexture();
-      final raw = await _sharedTextureChannel.invokeMapMethod<String, dynamic>(
-        'create',
-        {'width': width, 'height': height},
-      );
-      if (raw == null ||
-          !_attachSharedTexture(raw, width: width, height: height)) {
-        await _sharedTextureChannel.invokeMethod<void>('release');
-        _sharedTextureId = null;
-        _sharedTextureKind = null;
-        Log.warn('[RfvpEngineRuntime] 共享纹理 attach 失败，使用 RGBA 回读');
-        return null;
+      final textureId =
+          await SharedTextureSessionCoordinator.runWithOwnership<int?>(
+            this,
+            _releaseSharedTextureForSession,
+            () async {
+              if (_sessionState != EngineSessionState.active) return null;
+              if (!_sharedTextureHandlerAttached) {
+                _sharedTextureChannel.setMethodCallHandler(
+                  _handleSharedTextureCall,
+                );
+                _sharedTextureHandlerAttached = true;
+              }
+              _detachSharedTexture();
+              final raw = await _sharedTextureChannel
+                  .invokeMapMethod<String, dynamic>('create', {
+                    'width': width,
+                    'height': height,
+                  });
+              if (raw == null ||
+                  !_attachSharedTexture(raw, width: width, height: height)) {
+                Log.warn('[RfvpEngineRuntime] 共享纹理 attach 失败，使用 RGBA 回读');
+                return null;
+              }
+              Log.info(
+                '[RfvpEngineRuntime] 共享纹理已启用: id=$_sharedTextureId '
+                '${_sharedTextureWidth}x$_sharedTextureHeight '
+                '(stage=${_stageWidth}x$_stageHeight)',
+              );
+              return _sharedTextureId;
+            },
+          );
+      if (textureId == null) {
+        await SharedTextureSessionCoordinator.release(this);
       }
-      if (!_sharedTextureHandlerAttached) {
-        _sharedTextureChannel.setMethodCallHandler(_handleSharedTextureCall);
-        _sharedTextureHandlerAttached = true;
-      }
-      Log.info(
-        '[RfvpEngineRuntime] 共享纹理已启用: id=$_sharedTextureId '
-        '${_sharedTextureWidth}x$_sharedTextureHeight '
-        '(stage=${_stageWidth}x$_stageHeight)',
-      );
-      return _sharedTextureId;
+      return textureId;
     } catch (error) {
       Log.warn('[RfvpEngineRuntime] 共享纹理不可用，使用 RGBA 回读: $error');
       _sharedTextureId = null;
       _sharedTextureKind = null;
-      unawaited(
-        _sharedTextureChannel.invokeMethod<void>('release').catchError((_) {}),
-      );
+      await SharedTextureSessionCoordinator.release(this);
       return null;
     }
   }
@@ -484,6 +530,25 @@ class RfvpEngineRuntime implements EngineRuntime {
     _sharedTextureAttached = false;
   }
 
+  Future<void> _releaseSharedTextureForSession() async {
+    _detachSharedTexture();
+    try {
+      if (_sharedTextureId != null) {
+        await _sharedTextureChannel.invokeMethod<void>('release');
+      }
+    } catch (error) {
+      Log.warn('[RfvpEngineRuntime] 共享纹理释放失败: $error');
+    }
+    if (_sharedTextureHandlerAttached) {
+      _sharedTextureChannel.setMethodCallHandler(null);
+      _sharedTextureHandlerAttached = false;
+    }
+    _sharedTextureId = null;
+    _sharedTextureKind = null;
+    _sharedTextureWidth = 0;
+    _sharedTextureHeight = 0;
+  }
+
   @override
   bool isExitRequested() {
     final api = _api;
@@ -496,6 +561,7 @@ class RfvpEngineRuntime implements EngineRuntime {
 
   @override
   bool advanceWithoutRender(int deltaMs) {
+    if (_sessionState != EngineSessionState.active) return false;
     final api = _api;
     final runtime = _runtime;
     if (api == null || runtime <= 0) return false;
@@ -509,6 +575,7 @@ class RfvpEngineRuntime implements EngineRuntime {
 
   @override
   int advanceAndPresent(int deltaMs) {
+    if (_sessionState != EngineSessionState.active) return -1;
     final api = _api;
     final runtime = _runtime;
     if (api == null || runtime <= 0 || !_sharedTextureAttached) return -1;
@@ -534,6 +601,7 @@ class RfvpEngineRuntime implements EngineRuntime {
 
   @override
   Uint8List? advanceAndRender(int deltaMs) {
+    if (_sessionState != EngineSessionState.active) return null;
     final api = _api;
     final runtime = _runtime;
     if (api == null || runtime <= 0) return null;
@@ -603,7 +671,9 @@ class RfvpEngineRuntime implements EngineRuntime {
     final json = api.profilerSnapshot(runtime);
     if (json == null || json.isEmpty) return null;
     try {
-      return ProfilerSnapshot.fromJson(jsonDecode(json) as Map<String, dynamic>);
+      return ProfilerSnapshot.fromJson(
+        jsonDecode(json) as Map<String, dynamic>,
+      );
     } catch (error) {
       Log.warn('[RfvpEngineRuntime] profiler snapshot 解析失败: $error');
       return null;
@@ -783,6 +853,7 @@ class RfvpEngineRuntime implements EngineRuntime {
       _sharedTextureChannel.setMethodCallHandler(null);
       _sharedTextureHandlerAttached = false;
     }
+    unawaited(SharedTextureSessionCoordinator.abandon(this));
     _runtime = 0;
     _projectDirectory = null;
     _initialized = false;

@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../adaptive/dialogs.dart';
 import '../adaptive/feedback.dart';
 import '../adaptive/ps5_chrome.dart';
+import 'ps5_game_sessions.dart';
 import '../engine/engine_runtime_factory.dart';
 import '../models/game_engine.dart';
 import '../models/game_entry.dart';
@@ -503,6 +504,11 @@ class LibraryActions {
     if (!context.mounted) return;
     await ref.read(libraryProvider.notifier).markPlayed(configured.path);
     if (!context.mounted) return;
+    final sessionHost = Ps5GameSessionScope.maybeOf(context);
+    if (sessionHost != null && configured.engine != GameEngineKind.krkr) {
+      sessionHost.activate(configured);
+      return;
+    }
     Navigator.of(context, rootNavigator: true).push(
       PlayerPageRoute<void>(
         builder: (_) => wrapPlayerRoute(

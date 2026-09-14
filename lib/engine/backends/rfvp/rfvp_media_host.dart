@@ -32,6 +32,7 @@ class RfvpMediaHost implements EngineMediaHost {
   );
   Future<void> _commandTail = Future<void>.value();
   int _pcmSequence = 0;
+  bool _suspended = false;
   bool _disposed = false;
 
   @override
@@ -45,6 +46,17 @@ class RfvpMediaHost implements EngineMediaHost {
 
   @override
   bool get isFullscreenVideoBlocking => false;
+
+  @override
+  Future<void> setSuspended(bool suspended) {
+    if (_disposed || _suspended == suspended) return Future<void>.value();
+    _suspended = suspended;
+    return _commandTail = _commandTail.then((_) async {
+      for (final handle in _handles.values.toList()) {
+        await handle.setHostSuspended(suspended);
+      }
+    });
+  }
 
   @override
   void handleEngineAudioCommand(EngineAudioCommand command) {
@@ -118,6 +130,7 @@ class RfvpMediaHost implements EngineMediaHost {
           pan: command.pan,
         );
         _handles[streamId] = handle;
+        await handle.setHostSuspended(_suspended);
         await handle.setEffectiveVolume(
           command.fadeMs > 0 ? 0 : _effectiveVolume(channel, handle.gain),
         );
@@ -134,9 +147,9 @@ class RfvpMediaHost implements EngineMediaHost {
         if (command.fadeMs > 0) await handle.fadeTo(0, command.fadeMs);
         await handle.dispose();
       case EngineAudioCommandKind.pause:
-        await _handles[streamId]?.player.pause();
+        await _handles[streamId]?.pause();
       case EngineAudioCommandKind.resume:
-        await _handles[streamId]?.player.resume();
+        await _handles[streamId]?.play();
       case EngineAudioCommandKind.setParams:
         final handle = _handles[streamId];
         if (handle == null) return;
@@ -428,6 +441,8 @@ class _RfvpAudioHandle {
   double pan;
   Timer? _fadeTimer;
   Completer<void>? _fadeCompleter;
+  bool _hostSuspended = false;
+  bool _resumeAfterSuspend = false;
   bool _disposed = false;
 
   static Future<_RfvpAudioHandle> create({
@@ -457,7 +472,33 @@ class _RfvpAudioHandle {
     }
   }
 
-  Future<void> play() => player.resume();
+  Future<void> play() async {
+    if (_disposed) return;
+    if (_hostSuspended) {
+      _resumeAfterSuspend = true;
+      return;
+    }
+    await player.resume();
+  }
+
+  Future<void> pause() async {
+    _resumeAfterSuspend = false;
+    if (!_disposed) await player.pause();
+  }
+
+  Future<void> setHostSuspended(bool suspended) async {
+    if (_disposed || _hostSuspended == suspended) return;
+    _hostSuspended = suspended;
+    if (suspended) {
+      _resumeAfterSuspend =
+          _resumeAfterSuspend || player.state == audio.PlayerState.playing;
+      if (player.state == audio.PlayerState.playing) await player.pause();
+      return;
+    }
+    final shouldResume = _resumeAfterSuspend;
+    _resumeAfterSuspend = false;
+    if (shouldResume) await player.resume();
+  }
 
   Future<void> setEffectiveVolume(double volume) async {
     await player.setVolume(volume.clamp(0, 1));

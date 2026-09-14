@@ -59,6 +59,15 @@ class KrkrEngineRuntime implements EngineRuntime {
   ValueListenable<String?> get windowTitle => _windowTitle;
   @override
   EngineMediaHost get media => _media;
+  @override
+  Set<EngineSessionState> get supportedSessionStates => const {
+    EngineSessionState.active,
+  };
+  @override
+  EngineSessionState get sessionState => EngineSessionState.active;
+  @override
+  Future<EngineSessionState> setSessionState(EngineSessionState state) async =>
+      EngineSessionState.active;
 
   @override
   Future<void> initialize() async {
@@ -500,6 +509,8 @@ class _KrkrMutedMediaHost implements EngineMediaHost {
   bool get isFullscreenVideoBlocking => false;
   @override
   void handleEngineAudioCommand(EngineAudioCommand command) {}
+  @override
+  Future<void> setSuspended(bool suspended) async {}
   @override
   Future<void> skipVideo() async {}
 
