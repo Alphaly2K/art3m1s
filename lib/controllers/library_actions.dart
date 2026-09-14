@@ -161,8 +161,11 @@ class LibraryActions {
   }
 
   Future<void> scanIosAppFolder() async {
-    await GameImporter.prepareIosAppFolders();
+    Log.info('[Library] 开始扫描 iOS App 游戏目录');
+    final root = await GameImporter.prepareIosAppFolders();
+    Log.info('[Library] 游戏目录已准备: ${root ?? 'unknown'}');
     final games = await GameImporter.scanIosAppGamesFolder();
+    Log.info('[Library] 扫描到 ${games.length} 个候选游戏');
     if (!context.mounted) return;
 
     if (games.isEmpty) {
@@ -204,6 +207,7 @@ class LibraryActions {
     for (var index = 0; index < pending.length; index++) {
       if (!context.mounted) return added;
       final game = pending[index];
+      Log.info('[Library] 正在解析 ${index + 1}/${pending.length}: ${game.path}');
       notify(context, '正在添加 ${index + 1}/${pending.length}：${game.name}');
       if (await _addDiscoveredGameAutomatically(game)) added++;
     }

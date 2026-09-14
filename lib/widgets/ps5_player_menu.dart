@@ -76,6 +76,7 @@ class Ps5PlayerMenu extends StatefulWidget {
     this.onVolumeChanged,
     this.onExitBigScreen,
     this.onCloseApp,
+    this.now,
   });
 
   final String title;
@@ -96,6 +97,7 @@ class Ps5PlayerMenu extends StatefulWidget {
   final ValueChanged<double>? onVolumeChanged;
   final FutureOr<void> Function()? onExitBigScreen;
   final FutureOr<void> Function()? onCloseApp;
+  final DateTime Function()? now;
 
   @override
   State<Ps5PlayerMenu> createState() => _Ps5PlayerMenuState();
@@ -149,9 +151,9 @@ class _Ps5PlayerMenuState extends State<Ps5PlayerMenu> {
   }
 
   KeyEventResult _handleMenuKey(FocusNode _, KeyEvent event) {
-    if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
-      return KeyEventResult.ignored;
-    }
+    // 只在首次按下时切换。Tab / 手柄菜单键的长按 repeat 不能在菜单刚打开
+    // 后马上又把它关掉，这是“时灵时不灵”的主要原因。
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
     if (_isToggle(event) || _isGamepadMenu(event)) {
       _resume();
       return KeyEventResult.handled;
@@ -214,10 +216,13 @@ class _Ps5PlayerMenuState extends State<Ps5PlayerMenu> {
                   child: _Ps5PlayerMenuBackdrop(),
                 ),
               ),
-              const Positioned(
+              Positioned(
                 right: 34,
                 top: 24,
-                child: SafeArea(bottom: false, child: _Ps5MenuClock()),
+                child: SafeArea(
+                  bottom: false,
+                  child: _Ps5MenuClock(now: widget.now),
+                ),
               ),
               Positioned(
                 left: 28,
@@ -1096,7 +1101,9 @@ class _Ps5PowerChoiceState extends State<_Ps5PowerChoice> {
 }
 
 class _Ps5MenuClock extends StatefulWidget {
-  const _Ps5MenuClock();
+  const _Ps5MenuClock({this.now});
+
+  final DateTime Function()? now;
 
   @override
   State<_Ps5MenuClock> createState() => _Ps5MenuClockState();
@@ -1109,11 +1116,13 @@ class _Ps5MenuClockState extends State<_Ps5MenuClock> {
   @override
   void initState() {
     super.initState();
-    _now = DateTime.now();
+    _now = _current();
     _timer = Timer.periodic(const Duration(minutes: 1), (_) {
-      if (mounted) setState(() => _now = DateTime.now());
+      if (mounted) setState(() => _now = _current());
     });
   }
+
+  DateTime _current() => widget.now?.call() ?? DateTime.now();
 
   @override
   void dispose() {

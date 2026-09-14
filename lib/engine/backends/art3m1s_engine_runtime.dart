@@ -378,6 +378,8 @@ class Art3m1sEngineRuntime implements EngineRuntime {
   bool _sharedTextureHandlerAttached = false;
   int _sharedTextureWidth = 0;
   int _sharedTextureHeight = 0;
+  String? _projectPath;
+  bool _projectIsArchive = false;
   TextTranslationService? translation;
   int _stageWidth = 1280;
   int _stageHeight = 720;
@@ -410,6 +412,40 @@ class Art3m1sEngineRuntime implements EngineRuntime {
     final bridge = PfsBridge();
     final archive = bridge.open(archivePath);
     if (archive.address == 0) return null;
+    try {
+      final size = bridge.fileSize(archive, normalized);
+      if (size <= 0) return null;
+      final buffer = malloc.allocate<Uint8>(size);
+      try {
+        final read = bridge.read(archive, normalized, 0, buffer, size);
+        if (read <= 0) return null;
+        return Uint8List.fromList(buffer.asTypedList(read));
+      } finally {
+        malloc.free(buffer);
+      }
+    } finally {
+      bridge.close(archive);
+    }
+  }
+
+  Uint8List? _readProjectAsset(String path) {
+    final projectPath = _projectPath;
+    if (projectPath == null) return null;
+    final normalized = path.trim().replaceAll('\\', '/');
+    if (normalized.isEmpty || normalized.contains(':')) return null;
+    final parts = normalized.split('/');
+    if (parts.any((part) => part == '..')) return null;
+    if (!_projectIsArchive) {
+      final file = File(
+        '$projectPath${Platform.pathSeparator}'
+        '${normalized.replaceAll('/', Platform.pathSeparator)}',
+      );
+      return file.existsSync() ? file.readAsBytesSync() : null;
+    }
+
+    final bridge = PfsBridge();
+    final archive = bridge.open(projectPath);
+    if (archive == nullptr) return null;
     try {
       final size = bridge.fileSize(archive, normalized);
       if (size <= 0) return null;
@@ -885,6 +921,9 @@ class Art3m1sEngineRuntime implements EngineRuntime {
     required bool environmentPatchEnabled,
     required String platform,
   }) async {
+    _projectPath = projectPath;
+    _projectIsArchive = isArchive;
+    media.configureAssetReader(_readProjectAsset);
     if (!isArchive) {
       FileProvider.openDirectory(
         projectPath,

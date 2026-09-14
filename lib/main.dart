@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 import 'package:macos_window_utils/macos/ns_window_button_type.dart';
 import 'package:macos_window_utils/macos_window_utils.dart';
 import 'package:window_manager/window_manager.dart';
@@ -10,6 +11,7 @@ import 'package:window_manager/window_manager.dart';
 import 'services/app_info.dart';
 import 'services/app_data_paths.dart';
 import 'services/logger.dart';
+import 'services/platform_capabilities.dart';
 import 'services/sentry_telemetry_sink.dart';
 import 'services/storage_service.dart';
 import 'services/startup_diagnostics.dart';
@@ -32,6 +34,10 @@ const String _sentryDsn = String.fromEnvironment('SENTRY_DSN');
 
 void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
+  final liquidGlassEnabled = PlatformCapabilities.supportsLiquidGlass;
+  if (liquidGlassEnabled) {
+    await LiquidGlassWidgets.initialize();
+  }
   final isDesktop = Platform.isMacOS || Platform.isWindows || Platform.isLinux;
   if (isDesktop) {
     await windowManager.ensureInitialized();
@@ -82,8 +88,13 @@ void main(List<String> args) async {
   // 崩溃/错误上报：默认关闭，用户在设置中明确开启且构建注入了 DSN 才启用。
   final crashReporting = await _loadCrashReportingPreference();
   TelemetryService.instance.setEnabled(crashReporting);
+  Widget appRoot(Widget child) {
+    if (!liquidGlassEnabled) return child;
+    return LiquidGlassWidgets.wrap(adaptiveQuality: true, child: child);
+  }
+
   void startApp() {
-    runApp(const ProviderScope(child: Art3m1sApp()));
+    runApp(appRoot(const ProviderScope(child: Art3m1sApp())));
   }
 
   if (_sentryDsn.isEmpty || !crashReporting) {
@@ -102,8 +113,9 @@ void main(List<String> args) async {
       options.replay.sessionSampleRate = 0.0;
       options.replay.onErrorSampleRate = 0.0;
     },
-    appRunner: () =>
-        runApp(SentryWidget(child: const ProviderScope(child: Art3m1sApp()))),
+    appRunner: () => runApp(
+      appRoot(SentryWidget(child: const ProviderScope(child: Art3m1sApp()))),
+    ),
   );
   TelemetryService.instance.registerSink(const SentryTelemetrySink());
 }
@@ -188,7 +200,10 @@ class _Art3m1sAppState extends ConsumerState<Art3m1sApp> {
         },
       );
     }
-    if (Platform.isIOS) return const CupertinoShellApp();
+    if (Platform.isIOS) {
+      // ignore: deprecated_member_use
+      return const CupertinoShellApp();
+    }
     if (Platform.isAndroid &&
         ref.watch(settingsProvider.select((s) => s.hostUiTheme)) ==
             HostUiTheme.miuix) {

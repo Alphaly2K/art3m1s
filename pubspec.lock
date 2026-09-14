@@ -68,10 +68,9 @@ packages:
   audio_decode:
     dependency: "direct main"
     description:
-      name: audio_decode
-      sha256: c4bb933925cddb24e215002c67f2bac31376e3d7a7e354a2cb65bbe6dce0268e
-      url: "https://pub.dev"
-    source: hosted
+      path: "third_party/audio_decode"
+      relative: true
+    source: path
     version: "1.3.3"
   audioplayers:
     dependency: "direct main"
@@ -186,7 +185,7 @@ packages:
     source: hosted
     version: "0.3.5+2"
   crypto:
-    dependency: "direct main"
+    dependency: "direct overridden"
     description:
       name: crypto
       sha256: c8ea0233063ba03258fbcf2ca4d6dadfefe14f02fab57702265467a19f27fadf
@@ -330,7 +329,7 @@ packages:
     source: hosted
     version: "1.1.1"
   fluent_ui:
-    dependency: "direct main"
+    dependency: "direct overridden"
     description:
       name: fluent_ui
       sha256: "79baa6b22876b0881d556e5b87ddb23fa7dad9f010c77638f3d4099f26cc6a8d"
@@ -356,7 +355,7 @@ packages:
     source: sdk
     version: "0.0.0"
   flutter_miuix:
-    dependency: "direct main"
+    dependency: "direct overridden"
     description:
       name: flutter_miuix
       sha256: c4798651f526b4b042a847d11294d87b42381c741426517494574519a85fc516
@@ -371,6 +370,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.6.1"
+  flutter_shaders:
+    dependency: transitive
+    description:
+      name: flutter_shaders
+      sha256: "34794acadd8275d971e02df03afee3dee0f98dbfb8c4837082ad0034f612a3e2"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.1.3"
   flutter_test:
     dependency: "direct dev"
     description: flutter
@@ -470,7 +477,7 @@ packages:
     source: hosted
     version: "0.20.2"
   jis0208:
-    dependency: "direct main"
+    dependency: "direct overridden"
     description:
       name: jis0208
       sha256: a9746973cc55330728fc4b642cfbff16d68dcbc2c0475fd5fa58381bae4d3e60
@@ -525,6 +532,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "6.1.0"
+  liquid_glass_widgets:
+    dependency: "direct main"
+    description:
+      name: liquid_glass_widgets
+      sha256: "52dfcfd753af4acc43b98abd9ac0cc90c45dc060554a59422b953897f6909f7e"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.23.0"
   logging:
     dependency: transitive
     description:
@@ -534,7 +549,7 @@ packages:
     source: hosted
     version: "1.3.0"
   macos_ui:
-    dependency: "direct main"
+    dependency: "direct overridden"
     description:
       name: macos_ui
       sha256: "09fb51d65b6a2d328ba5aa429ba0f7aabad5bc770193ea6e49da9f29bf95d835"
@@ -542,7 +557,7 @@ packages:
     source: hosted
     version: "2.2.2"
   macos_window_utils:
-    dependency: "direct main"
+    dependency: "direct overridden"
     description:
       name: macos_window_utils
       sha256: cb918e1ff0b31fdaa5cd8631eded7c24bd72e1025cf1f95c819e483f0057c652
@@ -614,7 +629,7 @@ packages:
     source: hosted
     version: "2.2.0"
   package_info_plus:
-    dependency: "direct main"
+    dependency: "direct overridden"
     description:
       name: package_info_plus
       sha256: f5c435dc0e0d461e5b32471a870f769b6a1cc46930637efe24fbc535314e78ad
@@ -750,7 +765,7 @@ packages:
     source: hosted
     version: "2.1.1"
   protobuf:
-    dependency: "direct main"
+    dependency: "direct overridden"
     description:
       name: protobuf
       sha256: "75ec242d22e950bdcc79ee38dd520ce4ee0bc491d7fadc4ea47694604d22bf06"
@@ -1043,7 +1058,7 @@ packages:
     source: hosted
     version: "6.3.0"
   window_manager:
-    dependency: "direct main"
+    dependency: "direct overridden"
     description:
       name: window_manager
       sha256: "05c231fd7b23d2380f14c5cc10b7b93d60d4fa4a2fb4e0f032de27e44b5560e9"
@@ -1075,7 +1090,7 @@ packages:
     source: hosted
     version: "3.1.3"
   yaru:
-    dependency: "direct main"
+    dependency: "direct overridden"
     description:
       name: yaru
       sha256: "95e801c52dfda458bcb772baee6b2575c711fd951616a24910d6d30e70f5fb0d"

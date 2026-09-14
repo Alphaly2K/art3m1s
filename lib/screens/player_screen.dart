@@ -817,6 +817,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     if (_ps5MenuOpen == open || _closing) return;
     _endTouchpadDrag();
     _releasePointerButtons();
+    if (open) {
+      _gameFocusNode.unfocus();
+      _keyboardNode.unfocus();
+    }
     setState(() => _ps5MenuOpen = open);
     _syncGameTicker();
     if (!open) {

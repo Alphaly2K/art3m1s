@@ -1,6 +1,19 @@
 import XCTest
 
 final class StartupUITests: XCTestCase {
+  func testScanGameFolder() {
+    continueAfterFailure = false
+    let app = XCUIApplication(bundleIdentifier: "moe.alphaly.art3m1s")
+    app.launch()
+    let scan = app.descendants(matching: .any)
+      .matching(NSPredicate(format: "label CONTAINS %@", "\u{626b}\u{63cf}"))
+      .firstMatch
+    XCTAssertTrue(scan.waitForExistence(timeout: 40), app.debugDescription)
+    scan.tap()
+    sleep(20)
+    XCTAssertTrue(app.state == .runningForeground, app.debugDescription)
+  }
+
   func testStartupAndForeground() {
     continueAfterFailure = false
     let app = XCUIApplication(bundleIdentifier: "moe.alphaly.art3m1s")

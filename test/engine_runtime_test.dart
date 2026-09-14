@@ -1,3 +1,7 @@
+import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:art3m1s/engine/backends/art3m1s/file_provider.dart';
 import 'package:art3m1s/engine/engine_runtime_factory.dart';
 import 'package:art3m1s/engine/engine_runtime.dart';
 import 'package:art3m1s/engine/backends/art3m1s_engine_runtime.dart';
@@ -41,6 +45,42 @@ void main() {
     expect(runtime.kind, GameEngineKind.art3m1s);
     runtime.shutdown();
   });
+
+  test(
+    'Artemis media keeps its own asset reader for resident sessions',
+    () async {
+      final project = Directory.systemTemp.createTempSync('artemis-media-test');
+      addTearDown(() {
+        FileProvider.close();
+        if (project.existsSync()) project.deleteSync(recursive: true);
+      });
+      final sound = File(
+        '${project.path}${Platform.pathSeparator}'
+        'sound${Platform.pathSeparator}bgm.ogg',
+      )..createSync(recursive: true);
+      sound.writeAsBytesSync(Uint8List.fromList([1, 2, 3, 4]));
+
+      final runtime = Art3m1sEngineRuntime();
+      await runtime.prepareProject(
+        projectPath: project.path,
+        isArchive: false,
+        environmentPatchEnabled: false,
+        platform: 'WINDOWS',
+      );
+      // 常驻会话切换时，进程级 FileProvider 索引会被 detach；媒体仍必须能从
+      // 当前 runtime 自己的项目路径读取资源。
+      FileProvider.detachCoreMount();
+
+      final resolved = await runtime.media.resolveAssetForTest({
+        'file': 'sound/bgm.ogg',
+        'resolved_file': ':sysse/bgm.ogg',
+      });
+      expect(resolved, isNotNull);
+      expect(resolved!.readAsBytesSync(), [1, 2, 3, 4]);
+
+      runtime.shutdown();
+    },
+  );
 
   test('Artemis and RFVP expose frozen and suspended residency only', () async {
     for (final engine in [GameEngineKind.art3m1s, GameEngineKind.rfvp]) {

@@ -84,6 +84,26 @@ void main() {
     expect(find.text('resumed'), findsOneWidget);
   });
 
+  testWidgets('PS5 player menu ignores repeated toggle keys', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1600, 1000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(const MaterialApp(home: _MenuProbe()));
+    await tester.pump();
+
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.sendKeyRepeatEvent(LogicalKeyboardKey.tab);
+    await tester.pump();
+    expect(find.byKey(const ValueKey('ps5-player-menu')), findsOneWidget);
+
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.gameButtonStart);
+    await tester.pump();
+    expect(find.byKey(const ValueKey('ps5-player-menu')), findsNothing);
+  });
+
   testWidgets('PS5 player menu renders the in-game control strip', (
     tester,
   ) async {
@@ -141,6 +161,7 @@ class _MenuProbeState extends State<_MenuProbe> {
                 engineLabel: 'Artemis',
                 sourceLabel: '工程目录',
                 masterVolume: 0.6,
+                now: () => DateTime(2026, 9, 13, 22, 15),
                 onShowFpsChanged: (value) => setState(() => _showFps = value),
                 onResume: () => setState(() => _open = false),
                 onExit: _noop,

@@ -15,11 +15,49 @@ import '../services/app_info.dart';
 import '../screens/licenses_cupertino.dart';
 import '../screens/translation_settings_screen.dart';
 import '../services/logger.dart';
+import '../services/platform_capabilities.dart';
 import '../widgets/debug_overlay_host.dart';
 import '../widgets/game_grid.dart';
 import '../widgets/render_resolution_dialog.dart';
+import 'liquid_glass_shell.dart';
 
-/// iOS 壳：CupertinoApp，导航栏 + ActionSheet + 分组设置页。
+TextStyle _iosLargeTitleStyle(BuildContext context) {
+  return CupertinoTheme.of(
+    context,
+  ).textTheme.navLargeTitleTextStyle.copyWith(fontSize: 34, letterSpacing: 0);
+}
+
+double _iosTopContentInset(BuildContext context) {
+  return MediaQuery.paddingOf(context).top;
+}
+
+double _iosBottomContentInset(BuildContext context) {
+  return 0;
+}
+
+class _IosLargeTitle extends StatelessWidget {
+  const _IosLargeTitle({required this.title, this.trailing});
+
+  final String title;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.fromLTRB(16, _iosTopContentInset(context), 16, 8),
+      child: Row(
+        children: [
+          Expanded(child: Text(title, style: _iosLargeTitleStyle(context))),
+          ?trailing,
+        ],
+      ),
+    );
+  }
+}
+
+/// OBSOLETE: iOS Flutter UI. New iOS work belongs in
+/// `native/ios/Art3m1sNative`; keep this only for transition and rollback.
+@Deprecated('Use native/ios/Art3m1sNative for iOS UI')
 class CupertinoShellApp extends StatelessWidget {
   const CupertinoShellApp({super.key});
 
@@ -33,16 +71,27 @@ class CupertinoShellApp extends StatelessWidget {
         DefaultCupertinoLocalizations.delegate,
         DefaultWidgetsLocalizations.delegate,
       ],
-      home: const DebugOverlayHost(child: _CupertinoHome()),
+      home: DebugOverlayHost(
+        child: PlatformCapabilities.supportsLiquidGlass
+            ? const LiquidGlassShell()
+            : const _CupertinoHome(),
+      ),
     );
   }
 }
 
-class _CupertinoHome extends StatelessWidget {
+class _CupertinoHome extends ConsumerWidget {
   const _CupertinoHome();
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final actions = LibraryActions(context, ref);
+    final pages = <Widget>[
+      _CupertinoLibraryScreen(onScan: actions.scanIosAppFolder),
+      const _CupertinoSettingsScreen(),
+      const _CupertinoAboutScreen(),
+    ];
+
     return CupertinoTabScaffold(
       tabBar: CupertinoTabBar(
         height: 56,
@@ -73,11 +122,8 @@ class _CupertinoHome extends StatelessWidget {
       ),
       tabBuilder: (context, index) {
         return CupertinoTabView(
-          builder: (context) => switch (index) {
-            0 => const _CupertinoLibraryScreen(),
-            1 => const _CupertinoSettingsScreen(),
-            _ => const _CupertinoAboutScreen(),
-          },
+          builder: (context) =>
+              CupertinoPageScaffold(child: SafeArea(child: pages[index])),
         );
       },
     );
@@ -85,7 +131,9 @@ class _CupertinoHome extends StatelessWidget {
 }
 
 class _CupertinoLibraryScreen extends ConsumerWidget {
-  const _CupertinoLibraryScreen();
+  const _CupertinoLibraryScreen({required this.onScan});
+
+  final VoidCallback onScan;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -94,36 +142,56 @@ class _CupertinoLibraryScreen extends ConsumerWidget {
       ..sort((a, b) => b.addedAt.compareTo(a.addedAt));
     final actions = LibraryActions(context, ref);
 
-    return CupertinoPageScaffold(
-      navigationBar: CupertinoNavigationBar(
-        middle: const Text('资料库'),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            CupertinoButton(
-              padding: EdgeInsets.zero,
-              sizeStyle: CupertinoButtonSize.small,
-              onPressed: actions.scanIosAppFolder,
-              child: const Icon(CupertinoIcons.search),
-            ),
-          ],
+    final scanButton = CupertinoButton(
+      padding: EdgeInsets.zero,
+      sizeStyle: CupertinoButtonSize.medium,
+      onPressed: onScan,
+      child: const Icon(CupertinoIcons.search),
+    );
+
+    return CustomScrollView(
+      slivers: [
+        SliverToBoxAdapter(
+          child: _IosLargeTitle(title: '资料库', trailing: scanButton),
         ),
-      ),
-      child: SafeArea(
-        child: sorted.isEmpty
-            ? LibraryEmptyState(
-                action: CupertinoButton.filled(
-                  onPressed: actions.scanIosAppFolder,
-                  child: const Text('扫描游戏'),
-                ),
-              )
-            : GameGrid(
-                games: sorted,
-                onOpen: actions.launch,
-                onEdit: actions.editGame,
-                onDelete: actions.confirmDelete,
+        if (sorted.isEmpty)
+          SliverFillRemaining(
+            hasScrollBody: false,
+            child: LibraryEmptyState(
+              action: CupertinoButton.filled(
+                onPressed: onScan,
+                child: const Text('扫描游戏'),
               ),
-      ),
+            ),
+          )
+        else
+          SliverPadding(
+            padding: EdgeInsets.fromLTRB(
+              20,
+              12,
+              20,
+              _iosBottomContentInset(context),
+            ),
+            sliver: SliverGrid.builder(
+              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                maxCrossAxisExtent: 200,
+                mainAxisSpacing: 16,
+                crossAxisSpacing: 16,
+                childAspectRatio: 0.68,
+              ),
+              itemCount: sorted.length,
+              itemBuilder: (context, index) {
+                final entry = sorted[index];
+                return GameCard(
+                  entry: entry,
+                  onOpen: () => actions.launch(entry),
+                  onEdit: () => actions.editGame(entry),
+                  onDelete: () => actions.confirmDelete(entry),
+                );
+              },
+            ),
+          ),
+      ],
     );
   }
 }
@@ -163,11 +231,11 @@ class _CupertinoSettingsScreen extends ConsumerWidget {
     final notifier = ref.read(settingsProvider.notifier);
     final backends = availableBackends();
 
-    return CupertinoPageScaffold(
-      navigationBar: const CupertinoNavigationBar(middle: Text('设置')),
-      child: SafeArea(
-        child: ListView(
-          children: [
+    return CustomScrollView(
+      slivers: [
+        const SliverToBoxAdapter(child: _IosLargeTitle(title: '设置')),
+        SliverList(
+          delegate: SliverChildListDelegate([
             CupertinoSymmetricListSection(
               header: const Text('渲染'),
               children: [
@@ -322,9 +390,10 @@ class _CupertinoSettingsScreen extends ConsumerWidget {
                 ),
               ],
             ),
-          ],
+            SizedBox(height: _iosBottomContentInset(context)),
+          ]),
         ),
-      ),
+      ],
     );
   }
 }
@@ -339,11 +408,11 @@ class _CupertinoAboutScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return CupertinoPageScaffold(
-      navigationBar: const CupertinoNavigationBar(middle: Text('关于')),
-      child: SafeArea(
-        child: ListView(
-          children: [
+    return CustomScrollView(
+      slivers: [
+        const SliverToBoxAdapter(child: _IosLargeTitle(title: '关于')),
+        SliverList(
+          delegate: SliverChildListDelegate([
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 24, 20, 8),
               child: Row(
@@ -418,9 +487,10 @@ class _CupertinoAboutScreen extends StatelessWidget {
                 ),
               ],
             ),
-          ],
+            SizedBox(height: _iosBottomContentInset(context)),
+          ]),
         ),
-      ),
+      ],
     );
   }
 }
