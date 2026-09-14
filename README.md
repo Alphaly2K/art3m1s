@@ -11,6 +11,12 @@ Art3m1s 是使用 Flutter 编写的跨平台 Artemis 视觉小说运行时宿主
 
 当前应用版本为 **1.3.0**，对应 `art3m1s-core 0.4.0` 兼容周期。
 
+> [!IMPORTANT]
+> iOS 的 Flutter 界面已经进入 **obsolete** 状态。`lib/shell/cupertino_shell.dart`
+> 和 `lib/shell/liquid_glass_shell.dart` 仅保留用于过渡与回滚，不再接受新功能。
+> 后续 iOS UI 与业务逻辑统一维护在
+> [`native/ios/Art3m1sNative`](native/ios/Art3m1sNative)。
+
 ## 功能
 
 - 从解包目录、单卷/分卷 PFS 和移动端应用目录导入游戏；同一目录中的多个 PFS
@@ -126,7 +132,7 @@ PFS 归档的 Artemis 游戏。Android 通过「所有文件访问」授权
 | 平台 | 界面 | 导入方式 |
 |---|---|---|
 | macOS | 窗口化 `macos_ui`；全屏 PS5 大屏 | 窗口化目录选择器 / 大屏自绘浏览器 |
-| iOS | Cupertino、原生文件与资料库管理器 | UIDocumentPicker 或 `Art3m1s/Games` |
+| iOS | **Obsolete Flutter/Cupertino 实现**；新实现见 `native/ios/Art3m1sNative` | UIDocumentPicker 或 `Art3m1s/Games` |
 | Windows | 窗口化 Fluent UI；全屏 PS5 大屏 | 窗口化目录选择器 / 大屏自绘浏览器 |
 | Linux | 窗口化 Yaru/Material；全屏 PS5 大屏 | 窗口化目录选择器 / 大屏自绘浏览器 |
 | Android | Material 3 或 Miuix | 原生 SAF 目录选择（原地导入） |
@@ -170,27 +176,28 @@ E-Mote 后端，并覆盖上报给脚本的机种。
 与图形运行库：
 
 ```bash
-dart run tool/build.dart [all|ios|macos|android|windows|linux] \
+dart run tool/build.dart [all|ios|ios-obsolete|macos|android|windows|linux] \
   [--release|--profile|--debug] [--device-only] [--sign-only]
 ```
 
 `all` 表示当前宿主能够原生构建的全部目标：macOS 构建 iOS、macOS 和 Android，
-Windows 构建 Windows 和 Android，Linux 构建 Linux 和 Android。iOS 默认同时生成真机与
-Apple Silicon 模拟器切片；发布真机包可加 `--device-only`。iOS 会先用
-`--no-codesign` 构建，再对选定构建的副本及其 framework/dylib 做 ad-hoc 签名，
-打包为 `build/ios/Art3m1s-trollstore.ipa`，同时保存匹配的 dSYM。
+Windows 构建 Windows 和 Android，Linux 构建 Linux 和 Android；其中 iOS 指原生
+SwiftUI 客户端，已废弃的 Flutter iOS 目标为 `ios-obsolete`，且不会加入 `all`。
+iOS 默认同时生成真机与 Apple Silicon 模拟器切片；发布真机包可加 `--device-only`。
+原生 iOS 用 `Art3m1sNative.xcodeproj` 构建，再对选定构建的副本及其 framework/dylib
+做 ad-hoc 签名，打包为 `build/ios/Art3m1s-trollstore.ipa`。旧目标产物位于
+`build/ios-obsolete/Art3m1s-obsolete-trollstore.ipa`。
 采用已成功 Trace 的普通容器签名，不额外注入 `platform-application` 或 Unsandbox 权限。
 `--sign-only` 只打包指定配置的已有原生入口产物，不重签其他历史构建。
 
-iOS 的 Debug、Profile、Release 均使用原生窗口先启动、随后加载 Flutter 的路径。
-不包含 Probe 的人工逐步等待；Release 不记录逐库及 Dart 启动阶段日志。
-结构、日志恢复及验证方式见[原生入口说明](doc/ios-native-launcher-assessment-2026-09-11.md)。
+`ios` 目标的 Debug、Profile、Release 均由 `native/ios/Art3m1sNative` 提供，不启动
+Flutter engine。需要旧 Flutter iOS 壳时使用 `ios-obsolete`。
 
 巨魔（TrollStore，不是普通越狱）安装注意：
 
 - 不要开启 Unsandbox，也不要自行添加 `no-container` / `no-sandbox`
 - 不要用 Finder 压缩 `Runner.app`（会带上 `__MACOSX`，且 Profile 默认未签名）
-- iOS 14 请安装 `dart run tool/build.dart ios --release --device-only` 产出的签名 IPA
+- iOS 15 请安装 `dart run tool/build.dart ios --release --device-only` 产出的签名 IPA
 
 可通过 `CORE_SRC`、`PFS_SRC`、`FLUTTER_ROOT` 和 `VCPKG_ROOT` 指定依赖位置。Darwin
 脚本在未设置 `VCPKG_ROOT` 时会把 vcpkg 引导到 `.build/vcpkg`。Windows 沿用发布链
@@ -244,6 +251,11 @@ Chromium ANGLE Metal 后端，输出包含真机与 Apple Silicon 模拟器切�
 `libEGL.xcframework` 和 `libGLESv2.xcframework`。只为真机构建时使用 `--device-only`；
 需要在打包过程中直接签署 framework 时使用 `--sign "证书名称"`。
 构建完成后 `ios/Frameworks/` 中会生成 core、PFS、EGL 与 GLESv2 XCFramework。
+
+视频解码依赖 LGPL 动态链接的 FFmpeg。`tool/build.dart ios` 会先调用
+`scripts/build_ffmpeg_ios.sh` 生成 `.build/ffmpeg-ios/` 与
+`ios/Frameworks/libav*.xcframework`，已完成的构建会直接复用；清空这两个位置即可
+强制重建。脚本不会在没有 FFmpeg 的情况下静默退回无视频解码的 core。
 
 ### 验证
 

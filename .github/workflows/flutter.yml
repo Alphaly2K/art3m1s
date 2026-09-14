@@ -121,7 +121,12 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-ios aarch64-apple-darwin
+          targets: aarch64-apple-ios aarch64-apple-ios-sim aarch64-apple-darwin
+      - name: Cache FFmpeg
+        uses: actions/cache@v4
+        with:
+          path: art3m1s/.build/ffmpeg-ios
+          key: ffmpeg-ios-8.1.2-${{ runner.os }}-${{ runner.arch }}
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -146,4 +151,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Art3m1s-ios-arm64
-          path: art3m1s/build/ios/iphoneos/Runner.app
+          path: art3m1s/build/ios-native/DerivedData/Build/Products/Release-iphoneos/Art3m1sNative.app

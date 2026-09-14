@@ -41,6 +41,12 @@
 		A00000000000000000000022 /* audio_decode_mp3.c in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000001D /* audio_decode_mp3.c */; };
 		A00000000000000000000023 /* GameInputView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000001E /* GameInputView.swift */; };
 		A00000000000000000000024 /* MetalHostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000001F /* MetalHostView.swift */; };
+		A20000000000000000000001 /* LicensesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000001 /* LicensesView.swift */; };
+		A30000000000000000000001 /* rust_third_party.json in Resources */ = {isa = PBXBuildFile; fileRef = B30000000000000000000001 /* rust_third_party.json */; };
+		A30000000000000000000002 /* Art3m1s-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = B30000000000000000000002 /* Art3m1s-LICENSE.txt */; };
+		A30000000000000000000003 /* FFmpeg-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = B30000000000000000000003 /* FFmpeg-LICENSE.txt */; };
+		A30000000000000000000004 /* ANGLE-NOTICE.txt in Resources */ = {isa = PBXBuildFile; fileRef = B30000000000000000000004 /* ANGLE-NOTICE.txt */; };
+		A30000000000000000000005 /* AudioDecode-THIRD-PARTY-NOTICES.txt in Resources */ = {isa = PBXBuildFile; fileRef = B30000000000000000000005 /* AudioDecode-THIRD-PARTY-NOTICES.txt */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -95,6 +101,12 @@
 		B0000000000000000000001E /* GameInputView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameInputView.swift; sourceTree = "<group>"; };
 		B0000000000000000000001F /* MetalHostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetalHostView.swift; sourceTree = "<group>"; };
 		B00000000000000000000020 /* AudioDecodeShim.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AudioDecodeShim.h; sourceTree = "<group>"; };
+		B20000000000000000000001 /* LicensesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicensesView.swift; sourceTree = "<group>"; };
+		B30000000000000000000001 /* rust_third_party.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = rust_third_party.json; sourceTree = "<group>"; };
+		B30000000000000000000002 /* Art3m1s-LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Art3m1s-LICENSE.txt"; sourceTree = "<group>"; };
+		B30000000000000000000003 /* FFmpeg-LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "FFmpeg-LICENSE.txt"; sourceTree = "<group>"; };
+		B30000000000000000000004 /* ANGLE-NOTICE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "ANGLE-NOTICE.txt"; sourceTree = "<group>"; };
+		B30000000000000000000005 /* AudioDecode-THIRD-PARTY-NOTICES.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "AudioDecode-THIRD-PARTY-NOTICES.txt"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -174,6 +186,7 @@
 				B00000000000000000000003 /* LibraryView.swift */,
 				B00000000000000000000004 /* SettingsView.swift */,
 				B00000000000000000000005 /* AboutView.swift */,
+				B20000000000000000000001 /* LicensesView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -182,8 +195,21 @@
 			isa = PBXGroup;
 			children = (
 				B0000000000000000000000E /* Assets.xcassets */,
+				D30000000000000000000001 /* Licenses */,
 			);
 			path = Resources;
+			sourceTree = "<group>";
+		};
+		D30000000000000000000001 /* Licenses */ = {
+			isa = PBXGroup;
+			children = (
+				B30000000000000000000001 /* rust_third_party.json */,
+				B30000000000000000000002 /* Art3m1s-LICENSE.txt */,
+				B30000000000000000000003 /* FFmpeg-LICENSE.txt */,
+				B30000000000000000000004 /* ANGLE-NOTICE.txt */,
+				B30000000000000000000005 /* AudioDecode-THIRD-PARTY-NOTICES.txt */,
+			);
+			path = Licenses;
 			sourceTree = "<group>";
 		};
 		D00000000000000000000007 /* Products */ = {
@@ -269,6 +295,11 @@
 			buildActionMask = 2147483647;
 			files = (
 				A0000000000000000000000E /* Assets.xcassets in Resources */,
+				A30000000000000000000001 /* rust_third_party.json in Resources */,
+				A30000000000000000000002 /* Art3m1s-LICENSE.txt in Resources */,
+				A30000000000000000000003 /* FFmpeg-LICENSE.txt in Resources */,
+				A30000000000000000000004 /* ANGLE-NOTICE.txt in Resources */,
+				A30000000000000000000005 /* AudioDecode-THIRD-PARTY-NOTICES.txt in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -323,6 +354,7 @@
 				A00000000000000000000022 /* audio_decode_mp3.c in Sources */,
 				A00000000000000000000023 /* GameInputView.swift in Sources */,
 				A00000000000000000000024 /* MetalHostView.swift in Sources */,
+				A20000000000000000000001 /* LicensesView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -104,6 +104,40 @@ if [[ "$CLEAN" == "1" ]]; then
   rm -rf "$FFMPEG_BUILD_DIR"
 fi
 
+required_frameworks_ready() {
+  local directory="$1"
+  local name
+  for name in "${LIBRARIES[@]}"; do
+    [[ -d "$directory/lib${name}.xcframework" ]] || return 1
+  done
+  return 0
+}
+
+symbols_ready() {
+  local prefix="$1"
+  local name
+  for name in "${LIBRARIES[@]}"; do
+    [[ -f "$prefix/lib/lib${name}.dylib" ]] || return 1
+  done
+  return 0
+}
+
+# Reuse an existing build when every requested slice is already complete.
+if [[ "$CLEAN" != "1" ]]; then
+  if [[ "$BUILD_DEVICE" == "1" ]] \
+    && { [[ ! -d "$FFMPEG_BUILD_DIR/frameworks/device" ]] \
+      || ! symbols_ready "$FFMPEG_BUILD_DIR/device/prefix"; }; then
+    :
+  elif [[ "$BUILD_SIM" == "1" ]] \
+    && { [[ ! -d "$FFMPEG_BUILD_DIR/frameworks/simulator" ]] \
+      || ! symbols_ready "$FFMPEG_BUILD_DIR/simulator/prefix"; }; then
+    :
+  elif required_frameworks_ready "$FFMPEG_OUT_DIR"; then
+    echo "FFmpeg $FFMPEG_VERSION already prepared in $FFMPEG_OUT_DIR"
+    exit 0
+  fi
+fi
+
 mkdir -p "$FFMPEG_BUILD_DIR" "$FFMPEG_OUT_DIR"
 
 source_dir="$FFMPEG_SOURCE"

@@ -43,13 +43,12 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
-CARGO_FLAGS=()
+CARGO_FLAGS=""
 TARGET_DIR_SUFFIX="debug"
 if [[ "$PROFILE" == "release" ]]; then
-  CARGO_FLAGS=(--release)
+  CARGO_FLAGS="--release"
   TARGET_DIR_SUFFIX="release"
 else
-  CARGO_FLAGS=(--debug)
   TARGET_DIR_SUFFIX="debug"
 fi
 
@@ -201,52 +200,56 @@ make_framework() {
     exit 1
   fi
 
-  local device_ffmpeg_dir="${FFMPEG_DIR:-$FFMPEG_BUILD_ROOT/device/prefix}"
-  local simulator_ffmpeg_dir="${FFMPEG_DIR_SIMULATOR:-$FFMPEG_BUILD_ROOT/simulator/prefix}"
-  local device_cargo_flags=("${CARGO_FLAGS[@]}")
-  local simulator_cargo_flags=("${CARGO_FLAGS[@]}")
+  local device_ffmpeg_dir="${FFMPEG_DIR:-}"
+  local simulator_ffmpeg_dir="${FFMPEG_DIR_SIMULATOR:-}"
+  if [[ -z "$device_ffmpeg_dir" && -d "$FFMPEG_BUILD_ROOT/device/prefix" ]]; then
+    device_ffmpeg_dir="$FFMPEG_BUILD_ROOT/device/prefix"
+  fi
+  if [[ -z "$simulator_ffmpeg_dir" && -d "$FFMPEG_BUILD_ROOT/simulator/prefix" ]]; then
+    simulator_ffmpeg_dir="$FFMPEG_BUILD_ROOT/simulator/prefix"
+  fi
+  local device_cargo_args=(
+    --lib
+    --manifest-path "$src_dir/Cargo.toml"
+    --target "$IOS_DEVICE_TARGET"
+  )
+  local simulator_cargo_args=(
+    --lib
+    --manifest-path "$src_dir/Cargo.toml"
+    --target "$IOS_SIM_ARM64_TARGET"
+  )
+  if [[ "$CARGO_FLAGS" == "--release" ]]; then
+    device_cargo_args=(--release "${device_cargo_args[@]}")
+    simulator_cargo_args=(--release "${simulator_cargo_args[@]}")
+  fi
   if [[ "$src_dir" == "$CORE_SRC" ]]; then
-    if [[ -d "$device_ffmpeg_dir" ]]; then
-      device_cargo_flags+=(--features ffmpeg)
+    if [[ -z "$device_ffmpeg_dir" ]]; then
+      echo "ERROR: FFmpeg device prefix 缺失，无法构建带视频解码的 art3m1s_core" >&2
+      echo "       先运行 scripts/build_ffmpeg_ios.sh" >&2
+      exit 1
     fi
-    if [[ -d "$simulator_ffmpeg_dir" ]]; then
-      simulator_cargo_flags+=(--features ffmpeg)
+    if [[ "$BUILD_SIM" == "1" && -z "$simulator_ffmpeg_dir" ]]; then
+      echo "ERROR: FFmpeg simulator prefix 缺失，无法构建模拟器切片" >&2
+      echo "       先运行 scripts/build_ffmpeg_ios.sh" >&2
+      exit 1
     fi
+    device_cargo_args=(--features ffmpeg "${device_cargo_args[@]}")
+    simulator_cargo_args=(--features ffmpeg "${simulator_cargo_args[@]}")
   fi
 
   echo "  -> $IOS_DEVICE_TARGET"
-  if [[ "$CARGO_FLAGS[@]" == "--release" ]]; then
-    if [[ -d "$device_ffmpeg_dir" ]]; then
-      FFMPEG_DIR="$device_ffmpeg_dir" cargo build "${device_cargo_flags[@]}" --lib \
-        --manifest-path "$src_dir/Cargo.toml" \
-        --target "$IOS_DEVICE_TARGET"
-    else
-      cargo build "${device_cargo_flags[@]}" --lib \
-        --manifest-path "$src_dir/Cargo.toml" \
-        --target "$IOS_DEVICE_TARGET"
-    fi
+  if [[ -n "$device_ffmpeg_dir" ]]; then
+    FFMPEG_DIR="$device_ffmpeg_dir" cargo build "${device_cargo_args[@]}"
   else
-    if [[ -d "$device_ffmpeg_dir" ]]; then
-      FFMPEG_DIR="$device_ffmpeg_dir" cargo build "${device_cargo_flags[@]}" --lib \
-        --manifest-path "$src_dir/Cargo.toml" \
-        --target "$IOS_DEVICE_TARGET"
-    else
-      cargo build "${device_cargo_flags[@]}" --lib \
-        --manifest-path "$src_dir/Cargo.toml" \
-        --target "$IOS_DEVICE_TARGET"
-    fi
+    cargo build "${device_cargo_args[@]}"
   fi
 
   if [[ "$BUILD_SIM" == "1" ]]; then
     echo "  -> $IOS_SIM_ARM64_TARGET"
-    if [[ -d "$simulator_ffmpeg_dir" ]]; then
-      FFMPEG_DIR="$simulator_ffmpeg_dir" cargo build "${simulator_cargo_flags[@]}" --lib \
-        --manifest-path "$src_dir/Cargo.toml" \
-        --target "$IOS_SIM_ARM64_TARGET"
+    if [[ -n "$simulator_ffmpeg_dir" ]]; then
+      FFMPEG_DIR="$simulator_ffmpeg_dir" cargo build "${simulator_cargo_args[@]}"
     else
-      cargo build "${simulator_cargo_flags[@]}" --lib \
-        --manifest-path "$src_dir/Cargo.toml" \
-        --target "$IOS_SIM_ARM64_TARGET"
+      cargo build "${simulator_cargo_args[@]}"
     fi
   fi
 

@@ -10,15 +10,20 @@ struct AboutView: View {
     List {
       Section {
         HStack(spacing: 16) {
-          Image(systemName: "sparkles.rectangle.stack")
-            .font(.system(size: 34, weight: .semibold))
-            .frame(width: 64, height: 64)
-            .background(.tint.opacity(0.14), in: RoundedRectangle(cornerRadius: 14))
+          Image("BrandLogo")
+            .resizable()
+            .scaledToFit()
+            .frame(width: 72, height: 72)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay {
+              RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(.quaternary, lineWidth: 0.5)
+            }
 
           VStack(alignment: .leading, spacing: 4) {
             Text("Art3m1s")
               .font(.title2.weight(.bold))
-            Text("Artemis 视觉小说引擎前端")
+            Text("Art3m1s Native Host")
               .font(.subheadline)
               .foregroundStyle(.secondary)
             Text("版本 \(versionText) · MPL-2.0")
@@ -27,6 +32,14 @@ struct AboutView: View {
           }
         }
         .padding(.vertical, 6)
+      }
+
+      Section("许可证") {
+        NavigationLink {
+          LicensesView()
+        } label: {
+          LabeledContent("开源许可证", value: "MPL-2.0")
+        }
       }
 
       Section("仓库") {
@@ -50,7 +63,7 @@ struct AboutView: View {
   private var versionText: String {
     let version = Bundle.main.object(
       forInfoDictionaryKey: "CFBundleShortVersionString"
-    ) as? String ?? "1.0"
+    ) as? String ?? "1.4.0"
     let build = Bundle.main.object(
       forInfoDictionaryKey: "CFBundleVersion"
     ) as? String ?? "1"

@@ -19,7 +19,17 @@ Future<void> main(List<String> arguments) async {
     stdout.writeln('\n=== Building $target (${options.profile}) ===');
     switch (target) {
       case 'ios':
-        await _buildIos(project, core, pfs, flutter, metadata, secrets, options);
+        await _buildNativeIos(project, core, pfs, options);
+      case 'ios-obsolete':
+        await _buildIosObsolete(
+          project,
+          core,
+          pfs,
+          flutter,
+          metadata,
+          secrets,
+          options,
+        );
       case 'macos':
         await _buildMacos(
           project,
@@ -98,6 +108,7 @@ final class BuildOptions {
           signOnly = true;
         case 'all':
         case 'ios':
+        case 'ios-obsolete':
         case 'macos':
         case 'android':
         case 'windows':
@@ -107,7 +118,7 @@ final class BuildOptions {
         case '--help':
           stdout.writeln(
             'Usage: dart run tool/build.dart '
-            '[all|ios|macos|android|windows|linux] '
+            '[all|ios|ios-obsolete|macos|android|windows|linux] '
             '[--release|--profile|--debug] [--device-only] [--sign-only]',
           );
           exit(0);
@@ -231,7 +242,9 @@ Future<BuildMetadata> _buildMetadata(Directory project) async {
 }
 
 List<String> _hostTargets() {
-  if (Platform.isMacOS) return const <String>['ios', 'macos', 'android'];
+  if (Platform.isMacOS) {
+    return const <String>['ios', 'macos', 'android'];
+  }
   if (Platform.isWindows) return const <String>['windows', 'android'];
   if (Platform.isLinux) return const <String>['linux', 'android'];
   throw UnsupportedError('Unsupported build host: ${Platform.operatingSystem}');
@@ -239,7 +252,7 @@ List<String> _hostTargets() {
 
 void _ensureHostSupports(String target) {
   final supported = switch (target) {
-    'ios' || 'macos' => Platform.isMacOS,
+    'ios' || 'ios-obsolete' || 'macos' => Platform.isMacOS,
     'windows' => Platform.isWindows,
     'linux' => Platform.isLinux,
     'android' => true,
@@ -252,7 +265,116 @@ void _ensureHostSupports(String target) {
   }
 }
 
-Future<void> _buildIos(
+Future<void> _buildNativeIos(
+  Directory project,
+  Directory core,
+  Directory pfs,
+  BuildOptions options,
+) async {
+  if (options.signOnly) {
+    await _signNativeIosAppForTrollStore(project, profile: options.profile);
+    return;
+  }
+
+  await _buildIosFfmpeg(project, options);
+
+  final rustArgs = <String>[
+    options.profile == 'debug' ? '--debug' : '--release',
+  ];
+  if (options.deviceOnly) {
+    rustArgs.add('--device-only');
+  }
+  await _run(
+    '${project.path}/scripts/ios_build_rust.sh',
+    rustArgs,
+    workingDirectory: project,
+    environment: <String, String>{'CORE_SRC': core.path, 'PFS_SRC': pfs.path},
+  );
+
+  final configuration = options.profile == 'debug' ? 'Debug' : 'Release';
+  final derivedData = Directory('${project.path}/build/ios-native/DerivedData');
+  final commonArgs = <String>[
+    '-project',
+    '${project.path}/native/ios/Art3m1sNative/Art3m1sNative.xcodeproj',
+    '-scheme',
+    'Art3m1sNative',
+    '-configuration',
+    configuration,
+    '-derivedDataPath',
+    derivedData.path,
+    'CODE_SIGNING_ALLOWED=NO',
+  ];
+
+  await _run('xcodebuild', <String>[
+    ...commonArgs,
+    '-destination',
+    'generic/platform=iOS',
+    'build',
+  ], workingDirectory: project);
+
+  if (!options.deviceOnly) {
+    await _run('xcodebuild', <String>[
+      ...commonArgs,
+      '-destination',
+      'generic/platform=iOS Simulator',
+      'ARCHS=arm64',
+      'build',
+    ], workingDirectory: project);
+  }
+
+  await _signNativeIosAppForTrollStore(project, profile: options.profile);
+}
+
+Future<void> _buildIosFfmpeg(
+  Directory project,
+  BuildOptions options,
+) async {
+  final devicePrefix = Directory('${project.path}/.build/ffmpeg-ios/device/prefix');
+  if (_ffmpegIosReady(project, devicePrefix, includeSimulator: !options.deviceOnly)) {
+    stdout.writeln('FFmpeg build is up to date, reusing it.');
+    return;
+  }
+  await _run(
+    '${project.path}/scripts/build_ffmpeg_ios.sh',
+    <String>[if (options.deviceOnly) '--device-only'],
+    workingDirectory: project,
+  );
+}
+
+bool _ffmpegIosReady(
+  Directory project,
+  Directory devicePrefix, {
+  required bool includeSimulator,
+}) {
+  const libraries = <String>[
+    'avcodec',
+    'avformat',
+    'avutil',
+    'swresample',
+    'swscale',
+  ];
+  final prefixes = <Directory>[
+    devicePrefix,
+    if (includeSimulator)
+      Directory('${project.path}/.build/ffmpeg-ios/simulator/prefix'),
+  ];
+  for (final prefix in prefixes) {
+    for (final name in libraries) {
+      if (!File('${prefix.path}/lib/lib$name.dylib').existsSync()) {
+        return false;
+      }
+    }
+  }
+  final frameworks = Directory('${project.path}/ios/Frameworks');
+  for (final name in libraries) {
+    if (!Directory('${frameworks.path}/lib$name.xcframework').existsSync()) {
+      return false;
+    }
+  }
+  return true;
+}
+
+Future<void> _buildIosObsolete(
   Directory project,
   Directory core,
   Directory pfs,
@@ -262,7 +384,7 @@ Future<void> _buildIos(
   BuildOptions options,
 ) async {
   if (options.signOnly) {
-    await _signIosAppForTrollStore(project, profile: options.profile);
+    await _signIosObsoleteAppForTrollStore(project, profile: options.profile);
     return;
   }
   final args = <String>[options.profile == 'release' ? '--release' : '--debug'];
@@ -286,7 +408,7 @@ Future<void> _buildIos(
     workingDirectory: project,
     environment: secrets.environment,
   );
-  await _signIosAppForTrollStore(project, profile: options.profile);
+  await _signIosObsoleteAppForTrollStore(project, profile: options.profile);
 }
 
 Future<void> _buildMacos(
@@ -505,7 +627,33 @@ Directory _findDirectory(Directory root, String basename) {
   return matches.first;
 }
 
-List<Directory> _iosAppCandidates(Directory project, String profile) {
+List<Directory> _nativeIosAppCandidates(Directory project, String profile) {
+  final configuration = profile == 'debug' ? 'Debug' : 'Release';
+  final path =
+      '${project.path}/build/ios-native/DerivedData/Build/Products/'
+      '$configuration-iphoneos/Art3m1sNative.app';
+  return Directory(path).existsSync() ? <Directory>[Directory(path)] : const [];
+}
+
+Future<void> _signNativeIosAppForTrollStore(
+  Directory project, {
+  required String profile,
+}) async {
+  final apps = _nativeIosAppCandidates(project, profile);
+  if (apps.isEmpty) {
+    throw StateError(
+      'No $profile Art3m1sNative.app found under '
+      '${project.path}/build/ios-native/DerivedData',
+    );
+  }
+  await _run('/usr/bin/python3', <String>[
+    '${project.path}/tool/package_ios_ipa.py',
+    apps.first.path,
+    '${project.path}/build/ios/Art3m1s-trollstore.ipa',
+  ], workingDirectory: project);
+}
+
+List<Directory> _iosObsoleteAppCandidates(Directory project, String profile) {
   final ordered = <String>[
     if (profile == 'profile')
       '${project.path}/build/ios/Profile-iphoneos/Runner.app'
@@ -522,20 +670,20 @@ List<Directory> _iosAppCandidates(Directory project, String profile) {
   ];
 }
 
-Future<void> _signIosAppForTrollStore(
+Future<void> _signIosObsoleteAppForTrollStore(
   Directory project, {
   required String profile,
 }) async {
-  final apps = _iosAppCandidates(project, profile);
+  final apps = _iosObsoleteAppCandidates(project, profile);
   if (apps.isEmpty) {
     throw StateError(
       'No $profile Runner.app found under ${project.path}/build/ios',
     );
   }
   await _run('/usr/bin/python3', <String>[
-    '${project.path}/tool/package_ios_native.py',
+    '${project.path}/tool/package_ios_ipa.py',
     apps.first.path,
-    '${project.path}/build/ios/Art3m1s-trollstore.ipa',
+    '${project.path}/build/ios-obsolete/Art3m1s-obsolete-trollstore.ipa',
   ], workingDirectory: project);
 }
 
