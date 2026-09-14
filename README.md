@@ -163,8 +163,8 @@ E-Mote 后端，并覆盖上报给脚本的机种。
 
 ### 前置要求
 
-- Flutter 稳定版
-- Rust 稳定版
+- Flutter 3.47.4
+- Rust Edition 2024/2021
 - [vcpkg](https://github.com/microsoft/vcpkg)（构建 Darwin 官方 ANGLE）
 - 对应目标平台的 SDK
 - 为目标平台编译的 `art3m1s-core` native library
