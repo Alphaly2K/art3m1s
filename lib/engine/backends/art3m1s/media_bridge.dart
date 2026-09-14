@@ -11,6 +11,7 @@ import '../../engine_runtime.dart';
 import 'file_provider.dart';
 
 typedef MediaFinishedCallback = void Function(String? id);
+typedef MediaAssetReader = Uint8List? Function(String path);
 
 /// Host-owned audio output and runtime video presentation adapter.
 ///
@@ -42,6 +43,7 @@ class MediaBridge implements EngineMediaHost {
     'bgm': 1,
     'se': 1,
     'voice': 1,
+    'video': 1,
   };
   final Map<String, _AudioHandle> _sounds = {};
   final MediaOperationGate _audioOperations = MediaOperationGate();
@@ -51,6 +53,8 @@ class MediaBridge implements EngineMediaHost {
   );
 
   _AudioHandle? _bgm;
+  _AudioHandle? _videoAudio;
+  MediaAssetReader? _assetReader;
   final Map<int, Uint8List> _engineEncoded = {};
   final Map<int, _AudioHandle> _engineHandles = {};
   bool _suspended = false;
@@ -59,12 +63,19 @@ class MediaBridge implements EngineMediaHost {
   @override
   bool get isFullscreenVideoBlocking => false;
 
+  /// 常驻会话下 host 侧不能依赖进程级 [FileProvider] 索引；每个 runtime
+  /// 注入自己的项目资源读取器，MediaBridge 才能稳定读取 BGM/SE/语音。
+  void configureAssetReader(MediaAssetReader? reader) {
+    _assetReader = reader;
+  }
+
   @override
   Future<void> setSuspended(bool suspended) async {
     if (_disposed || _suspended == suspended) return;
     _suspended = suspended;
     final handles = <_AudioHandle>{
       ?_bgm,
+      ?_videoAudio,
       ..._sounds.values,
       ..._engineHandles.values,
     };
@@ -82,6 +93,10 @@ class MediaBridge implements EngineMediaHost {
   void handleCommand(String kind, Map<String, dynamic> payload) {
     if (_disposed) return;
     unawaited(_handleCommand(kind, payload));
+  }
+
+  Future<File?> resolveAssetForTest(Map<String, dynamic> payload) {
+    return _resolveAsset(payload);
   }
 
   Future<void> _handleCommand(String kind, Map<String, dynamic> payload) async {
@@ -114,10 +129,12 @@ class MediaBridge implements EngineMediaHost {
           await _playSound(payload, channel: 'voice');
         case 'audio_stop_all':
           await _stopAllAudio();
+        case 'video_audio_play':
+          await _playVideoAudio(payload);
         case 'video_play':
           _failHostVideoCommand(payload);
         case 'video_stop_all':
-          break;
+          await _stopVideoAudio();
         default:
           Log.debug('[MediaBridge] 未处理媒体命令: $kind');
       }
@@ -235,6 +252,69 @@ class MediaBridge implements EngineMediaHost {
         _effectiveVolume(sound.channel, sound.gain),
       );
     }
+    final videoAudio = _videoAudio;
+    if (videoAudio != null) {
+      await videoAudio.setEffectiveVolume(
+        _effectiveVolume('video', videoAudio.gain),
+      );
+    }
+  }
+
+  Future<void> _playVideoAudio(Map<String, dynamic> payload) async {
+    final path = _string(payload['path']);
+    if (path == null) return;
+    final ticket = _audioOperations.begin(_videoAudioOperationKey);
+    Uint8List bytes;
+    try {
+      final file = File(path);
+      bytes = await file.readAsBytes();
+      try {
+        await file.delete();
+      } catch (_) {}
+    } catch (error) {
+      Log.warn('[MediaBridge] 视频音轨读取失败: $path: $error');
+      return;
+    }
+    if (!_isCurrentAudioOperation(ticket)) return;
+
+    final previous = _videoAudio;
+    _videoAudio = null;
+    if (previous != null) await previous.dispose();
+    if (!_isCurrentAudioOperation(ticket)) return;
+
+    _AudioHandle? handle;
+    final created = await _AudioHandle.create(
+      id: _string(payload['id']),
+      file: null,
+      bytes: bytes,
+      loopFile: null,
+      channel: 'video',
+      gain: 1,
+      pan: 0,
+      loop: _bool(payload['loop']),
+      onCompleted: (_) {
+        if (identical(_videoAudio, handle)) {
+          _videoAudio = null;
+          if (handle != null) unawaited(handle.dispose());
+        }
+      },
+    );
+    handle = created;
+    if (!_isCurrentAudioOperation(ticket)) {
+      await created.dispose();
+      return;
+    }
+    _videoAudio = created;
+    await created.setHostSuspended(_suspended);
+    await created.setEffectiveVolume(_effectiveVolume('video', 1));
+    await created.play();
+  }
+
+  Future<void> _stopVideoAudio() async {
+    _audioOperations.invalidate(_videoAudioOperationKey);
+    final handle = _videoAudio;
+    _videoAudio = null;
+    if (handle != null) await handle.dispose();
   }
 
   Future<void> _playBgm(
@@ -526,12 +606,15 @@ class MediaBridge implements EngineMediaHost {
     _audioOperations.invalidateAll();
     final bgm = _bgm;
     _bgm = null;
+    final videoAudio = _videoAudio;
+    _videoAudio = null;
     final handles = _sounds.values.toList();
     _sounds.clear();
     final engineHandles = _engineHandles.values.toList();
     _engineHandles.clear();
     _engineEncoded.clear();
     if (bgm != null) await bgm.dispose();
+    if (videoAudio != null) await videoAudio.dispose();
     for (final handle in handles) {
       await handle.dispose();
     }
@@ -557,6 +640,7 @@ class MediaBridge implements EngineMediaHost {
   Future<void> skipVideo() async {
     // Runtime video is submitted as part of the normal core frame. A host
     // skip button is therefore only a completion notification.
+    await _stopVideoAudio();
     _videoFinishedCallback(null);
   }
 
@@ -576,7 +660,8 @@ class MediaBridge implements EngineMediaHost {
     for (final candidate in _expandCandidates(candidates)) {
       final cached = _assetCache[candidate];
       if (cached != null && cached.existsSync()) return cached;
-      final bytes = FileProvider.readFile(candidate);
+      final bytes =
+          _assetReader?.call(candidate) ?? FileProvider.readFile(candidate);
       if (bytes == null) continue;
       final file = File(
         '${_cacheDir.path}${Platform.pathSeparator}'
@@ -940,6 +1025,7 @@ bool _bool(Object? value) => value == true;
 String _soundKey(String channel, String id) => '$channel:$id';
 
 const String _bgmOperationKey = 'bgm';
+const String _videoAudioOperationKey = 'video-audio';
 
 final class MediaOperationTicket {
   const MediaOperationTicket(this.key, this.epoch, this.generation);

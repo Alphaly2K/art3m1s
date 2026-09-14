@@ -17,7 +17,7 @@ FFMPEG_SOURCE="${FFMPEG_SOURCE:-}"
 FFMPEG_ARCHIVE="${FFMPEG_ARCHIVE:-}"
 FFMPEG_SHA256="${FFMPEG_SHA256:-}"
 FFMPEG_JOBS="${FFMPEG_JOBS:-$(sysctl -n hw.logicalcpu 2>/dev/null || printf '4')}"
-IPHONEOS_DEPLOYMENT_TARGET="${IPHONEOS_DEPLOYMENT_TARGET:-13.0}"
+IPHONEOS_DEPLOYMENT_TARGET="${IPHONEOS_DEPLOYMENT_TARGET:-15.0}"
 
 BUILD_DEVICE=1
 BUILD_SIM=1
@@ -45,7 +45,7 @@ Environment:
   FFMPEG_OUT_DIR         xcframework output. Default: ios/Frameworks.
   FFMPEG_JOBS            Parallel build jobs.
   IPHONEOS_DEPLOYMENT_TARGET
-                         Minimum iOS version. Default: 13.0.
+                         Minimum iOS version. Default: 15.0.
 EOF
 }
 

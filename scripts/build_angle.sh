@@ -90,7 +90,7 @@ write_framework_plist() {
   <key>CFBundleShortVersionString</key><string>7258</string>
   <key>CFBundleVersion</key><string>7258</string>
   <key>CFBundleSupportedPlatforms</key><array><string>$platform</string></array>
-  <key>MinimumOSVersion</key><string>13.0</string>
+  <key>MinimumOSVersion</key><string>15.0</string>
 </dict>
 </plist>
 PLIST

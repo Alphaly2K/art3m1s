@@ -4,7 +4,7 @@ set -euo pipefail
 # ── iOS Rust 动态 Framework 编译脚本 ────────────────────────────────────
 # 从 Rust 源码编译 cdylib，分别封装真机/模拟器 framework，再组合为
 # .xcframework，输出到
-# ios/Frameworks/ 供 CocoaPods vendored_frameworks 使用。
+# ios/Frameworks/ 供 Xcode 直接链接和嵌入使用。
 #
 # 用法:
 #   ./scripts/ios_build_rust.sh [--release] [--device-only] [--skip-angle] [--sign "证书名"]
@@ -27,7 +27,7 @@ PROFILE="release"
 CODE_SIGN_ID=""
 BUILD_SIM=1
 BUILD_ANGLE=1
-export IPHONEOS_DEPLOYMENT_TARGET="${IPHONEOS_DEPLOYMENT_TARGET:-13.0}"
+export IPHONEOS_DEPLOYMENT_TARGET="${IPHONEOS_DEPLOYMENT_TARGET:-15.0}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -58,7 +58,9 @@ require() { command -v "$1" >/dev/null 2>&1 || { echo "ERROR: $1 not found"; exi
 require cargo
 require lipo
 require xcodebuild
+require codesign
 require install_name_tool
+require python3
 
 if [[ "$BUILD_ANGLE" == "1" ]]; then
   # Build official Chromium ANGLE before packaging the Rust frameworks.
@@ -119,7 +121,7 @@ write_framework_plist() {
         <string>$platform_name</string>
     </array>
     <key>MinimumOSVersion</key>
-    <string>13.0</string>
+    <string>15.0</string>
 </dict>
 </plist>
 PLIST
@@ -138,13 +140,46 @@ make_framework_slice() {
   cp "$dylib" "$fw_dir/$lib_name"
   install_name_tool -id "@rpath/${lib_name}.framework/$lib_name" \
     "$fw_dir/$lib_name"
+  codesign --remove-signature "$fw_dir/$lib_name" 2>/dev/null || true
+  python3 "$SCRIPT_DIR/fix_macho_linkedit_alignment.py" "$fw_dir/$lib_name"
   write_framework_plist \
     "$fw_dir" "$lib_name" "$bundle_id" "$platform_name" "$framework_version"
 
   if [[ -n "$CODE_SIGN_ID" ]]; then
     echo "  -> 签名 $platform_name slice: $CODE_SIGN_ID"
     codesign --force --sign "$CODE_SIGN_ID" --timestamp=none "$fw_dir"
+  elif [[ "$platform_name" == "iPhoneSimulator" ]]; then
+    # Simulator refuses to load embedded frameworks that have no signature.
+    codesign --force --sign - --timestamp=none "$fw_dir"
   fi
+}
+
+stage_krkr_host_slice() {
+  local target="$1"
+  local slice="$2"
+  local core_dylib="$3"
+  local host_source
+
+  if ! otool -L "$core_dylib" | grep -q '@rpath/libart3m1s_krkr_host.dylib'; then
+    rm -rf "$OUT_DIR/.ios-framework-build/krkr_host/$slice"
+    return
+  fi
+
+  host_source="$(
+    find "$CORE_SRC/target/$target/$TARGET_DIR_SUFFIX/build" \
+      -path '*/out/native-bootstrap/libart3m1s_krkr_host.dylib' \
+      -print -quit 2>/dev/null || true
+  )"
+  if [[ -z "$host_source" || ! -f "$host_source" ]]; then
+    echo "ERROR: art3m1s_core links libart3m1s_krkr_host.dylib, but the $slice slice was not found" >&2
+    exit 1
+  fi
+
+  local destination="$OUT_DIR/.ios-framework-build/krkr_host/$slice/libart3m1s_krkr_host.dylib"
+  mkdir -p "$(dirname "$destination")"
+  cp "$host_source" "$destination"
+  install_name_tool -id '@rpath/libart3m1s_krkr_host.dylib' "$destination"
+  echo "  -> 暂存 KRKR host ($slice)"
 }
 
 make_framework() {
@@ -222,6 +257,10 @@ make_framework() {
     echo "ERROR: $lib_name 编译产物缺失"
     exit 1
   fi
+  if [[ "$lib_name" == "art3m1s_core" ]]; then
+    stage_krkr_host_slice \
+      "$IOS_DEVICE_TARGET" "device" "$device_dylib"
+  fi
 
   local slices_dir="$OUT_DIR/.ios-framework-build/$lib_name"
   local device_fw="$slices_dir/device/${lib_name}.framework"
@@ -233,6 +272,14 @@ make_framework() {
 
   local xcframework_args=(-framework "$device_fw")
   if [[ "$BUILD_SIM" == "1" ]]; then
+    if [[ ! -f "$sim_arm64_dylib" ]]; then
+      echo "ERROR: $lib_name 模拟器编译产物缺失"
+      exit 1
+    fi
+    if [[ "$lib_name" == "art3m1s_core" ]]; then
+      stage_krkr_host_slice \
+        "$IOS_SIM_ARM64_TARGET" "simulator" "$sim_arm64_dylib"
+    fi
     make_framework_slice \
       "$lib_name" "$sim_arm64_dylib" "$sim_fw" "$bundle_id" "iPhoneSimulator" "$crate_version"
     xcframework_args+=(-framework "$sim_fw")
