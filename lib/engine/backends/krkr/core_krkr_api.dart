@@ -42,50 +42,78 @@ const int art3m1sKrkrAudioFormatI32 = 5;
 
 typedef _GetApiNative = Pointer<_Art3m1sKrkrApiV1> Function(Pointer<UintPtr>);
 typedef _GetApiDart = Pointer<_Art3m1sKrkrApiV1> Function(Pointer<UintPtr>);
-typedef _ProbeProjectNative =
-    Int32 Function(Pointer<Char>, Pointer<_KrkrProbeV1>);
+typedef _ProbeProjectNative = Int32 Function(
+  Pointer<Char>,
+  Pointer<_KrkrProbeV1>,
+);
 typedef _ProbeProjectDart = int Function(Pointer<Char>, Pointer<_KrkrProbeV1>);
-typedef _RuntimeCreateNative =
-    Int32 Function(
-      Pointer<Char>,
-      Pointer<Char>,
-      Pointer<_KrkrRuntimeConfigV1>,
-      Pointer<Uint64>,
-    );
-typedef _RuntimeCreateDart =
-    int Function(
-      Pointer<Char>,
-      Pointer<Char>,
-      Pointer<_KrkrRuntimeConfigV1>,
-      Pointer<Uint64>,
-    );
+typedef _RuntimeCreateNative = Int32 Function(
+  Pointer<Char>,
+  Pointer<Char>,
+  Pointer<_KrkrRuntimeConfigV1>,
+  Pointer<Uint64>,
+);
+typedef _RuntimeCreateDart = int Function(
+  Pointer<Char>,
+  Pointer<Char>,
+  Pointer<_KrkrRuntimeConfigV1>,
+  Pointer<Uint64>,
+);
 typedef _RuntimeDestroyNative = Void Function(Uint64);
 typedef _RuntimeDestroyDart = void Function(int);
 typedef _RuntimeStageNative = Uint32 Function(Uint64);
 typedef _RuntimeStageDart = int Function(int);
-typedef _RuntimePushInputNative =
-    Int32 Function(Uint64, Pointer<_KrkrInputEventV1>, UintPtr);
-typedef _RuntimePushInputDart =
-    int Function(int, Pointer<_KrkrInputEventV1>, int);
+typedef _RuntimePushInputNative = Int32 Function(
+  Uint64,
+  Pointer<_KrkrInputEventV1>,
+  UintPtr,
+);
+typedef _RuntimePushInputDart = int Function(
+  int,
+  Pointer<_KrkrInputEventV1>,
+  int,
+);
 typedef _RuntimeTickNative = Int32 Function(Uint64);
 typedef _RuntimeTickDart = int Function(int);
-typedef _RuntimeAcquireFrameNative =
-    Int32 Function(Uint64, Pointer<_KrkrFrameV1>);
+typedef _RuntimeAcquireFrameNative = Int32 Function(
+  Uint64,
+  Pointer<_KrkrFrameV1>,
+);
 typedef _RuntimeAcquireFrameDart = int Function(int, Pointer<_KrkrFrameV1>);
 typedef _RuntimeReleaseFrameNative = Int32 Function(Uint64, Uint64);
 typedef _RuntimeReleaseFrameDart = int Function(int, int);
-typedef _RuntimePollAudioCommandNative =
-    Int32 Function(Uint64, Pointer<_KrkrAudioCommandV1>);
-typedef _RuntimePollAudioCommandDart =
-    int Function(int, Pointer<_KrkrAudioCommandV1>);
-typedef _RuntimeSubmitAudioConsumedNative =
-    Int32 Function(Uint64, Pointer<_KrkrAudioConsumedV1>);
-typedef _RuntimeSubmitAudioConsumedDart =
-    int Function(int, Pointer<_KrkrAudioConsumedV1>);
+typedef _RuntimePollAudioCommandNative = Int32 Function(
+  Uint64,
+  Pointer<_KrkrAudioCommandV1>,
+);
+typedef _RuntimePollAudioCommandDart = int Function(
+  int,
+  Pointer<_KrkrAudioCommandV1>,
+);
+typedef _RuntimeSubmitAudioConsumedNative = Int32 Function(
+  Uint64,
+  Pointer<_KrkrAudioConsumedV1>,
+);
+typedef _RuntimeSubmitAudioConsumedDart = int Function(
+  int,
+  Pointer<_KrkrAudioConsumedV1>,
+);
 typedef _RuntimeIsExitRequestedNative = Int32 Function(Uint64);
 typedef _RuntimeIsExitRequestedDart = int Function(int);
-typedef _RuntimeSetExternalSurfaceNative =
-    Int32 Function(Uint64, Int32, Pointer<Void>, Uint32, Uint32);
+typedef _RuntimeSetExternalSurfaceNative = Int32 Function(
+  Uint64,
+  Int32,
+  Pointer<Void>,
+  Uint32,
+  Uint32,
+);
+typedef _RuntimeSetExternalSurfaceDart = int Function(
+  int,
+  int,
+  Pointer<Void>,
+  int,
+  int,
+);
 
 final class _KrkrProbeV1 extends Struct {
   @Uint32()
@@ -349,7 +377,8 @@ class CoreKrkrApiV1 {
           table.runtimeReleaseFrame == nullptr ||
           table.runtimePollAudioCommand == nullptr ||
           table.runtimeSubmitAudioConsumed == nullptr ||
-          table.runtimeIsExitRequested == nullptr) {
+          table.runtimeIsExitRequested == nullptr ||
+          table.runtimeSetExternalSurface == nullptr) {
         return null;
       }
       return CoreKrkrApiV1._(pointer);
@@ -381,6 +410,7 @@ class CoreKrkrApiV1 {
     String? saveRoot,
     required int width,
     required int height,
+    int backend = 0,
   }) {
     final nativeGameRoot = gameRoot.toNativeUtf8();
     final nativeSaveRoot = saveRoot?.toNativeUtf8();
@@ -389,6 +419,7 @@ class CoreKrkrApiV1 {
     try {
       config.ref
         ..structSize = sizeOf<_KrkrRuntimeConfigV1>()
+        ..flags = backend & 0xff
         ..width = width
         ..height = height
         ..audioSampleRate = 48000
@@ -425,6 +456,28 @@ class CoreKrkrApiV1 {
     );
     return _lastStatus;
   }
+
+  int setExternalSurface(
+    int runtime,
+    int kind,
+    Pointer<Void> handle,
+    int width,
+    int height,
+  ) {
+    _lastStatus =
+        _pointer.ref.runtimeSetExternalSurface
+            .asFunction<_RuntimeSetExternalSurfaceDart>()(
+          runtime,
+          kind,
+          handle,
+          width,
+          height,
+        );
+    return _lastStatus;
+  }
+
+  int clearExternalSurface(int runtime) =>
+      setExternalSurface(runtime, 0, nullptr, 0, 0);
 
   int pushInput(int runtime, List<KrkrCoreInputEvent> events) {
     if (events.isEmpty) return art3m1sKrkrStatusOk;

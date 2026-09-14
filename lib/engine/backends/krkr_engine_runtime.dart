@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:ffi';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 import '../../models/game_engine.dart';
 import '../../models/input_gate.dart';
@@ -10,6 +12,7 @@ import '../../services/logger.dart';
 import '../../services/profiler_snapshot.dart';
 import '../../services/text_translation_service.dart';
 import '../engine_runtime.dart';
+import '../shared_texture_session.dart';
 import 'krkr/core_krkr_api.dart';
 
 /// KRKRSDL3 adapter exposed through art3m1s-core's public KRKR ABI.
@@ -28,6 +31,10 @@ class KrkrEngineRuntime implements EngineRuntime {
   final _KrkrMutedMediaHost _media = _KrkrMutedMediaHost();
   final Map<int, _KrkrAudioClock> _audioStreams = {};
 
+  static const MethodChannel _sharedTextureChannel = MethodChannel(
+    'moe.alphaly.art3m1s/shared_texture',
+  );
+
   DynamicLibrary? _library;
   CoreKrkrApiV1? _api;
   TextTranslationService? _translation;
@@ -42,6 +49,12 @@ class KrkrEngineRuntime implements EngineRuntime {
   bool _initialized = false;
   bool _exitRequested = false;
   bool _reportedMutedAudio = false;
+  int? _sharedTextureId;
+  int? _sharedTextureKind;
+  bool _sharedTextureAttached = false;
+  bool _sharedTextureHandlerAttached = false;
+  int _sharedTextureWidth = 0;
+  int _sharedTextureHeight = 0;
 
   @override
   GameEngineKind get kind => GameEngineKind.krkr;
@@ -101,6 +114,15 @@ class KrkrEngineRuntime implements EngineRuntime {
   void _shutdownNative() {
     final api = _api;
     final runtime = _runtime;
+    _detachSharedTexture();
+    if (_sharedTextureId != null) {
+      unawaited(_sharedTextureChannel.invokeMethod<void>('release'));
+    }
+    if (_sharedTextureHandlerAttached) {
+      _sharedTextureChannel.setMethodCallHandler(null);
+      _sharedTextureHandlerAttached = false;
+    }
+    unawaited(SharedTextureSessionCoordinator.abandon(this));
     _runtime = 0;
     if (api != null && runtime > 0) api.destroyRuntime(runtime);
     _audioStreams.clear();
@@ -108,6 +130,10 @@ class KrkrEngineRuntime implements EngineRuntime {
     _exitRequested = false;
     _api = null;
     _library = null;
+    _sharedTextureId = null;
+    _sharedTextureKind = null;
+    _sharedTextureWidth = 0;
+    _sharedTextureHeight = 0;
   }
 
   @override
@@ -142,6 +168,7 @@ class KrkrEngineRuntime implements EngineRuntime {
       gameRoot: projectPath,
       width: stageWidth,
       height: stageHeight,
+      backend: backend,
     );
     if (_runtime <= 0) {
       Log.error(
@@ -436,20 +463,180 @@ class KrkrEngineRuntime implements EngineRuntime {
   bool configureSpatialUpscale(double renderScale, {double sharpness = 0}) =>
       false;
   @override
-  bool get hasActiveSharedTexture => false;
+  bool get hasActiveSharedTexture =>
+      _sharedTextureId != null && _sharedTextureAttached;
   @override
-  int? get sharedTextureId => null;
+  int? get sharedTextureId => _sharedTextureId;
   @override
-  int get sharedTextureWidth => 0;
+  int get sharedTextureWidth => _sharedTextureWidth;
   @override
-  int get sharedTextureHeight => 0;
+  int get sharedTextureHeight => _sharedTextureHeight;
   @override
   Future<int?> enableSharedTexture({
     int? outputWidth,
     int? outputHeight,
-  }) async => null;
+  }) async {
+    final api = _api;
+    final runtime = _runtime;
+    if (api == null || runtime <= 0) return null;
+    final width = math.max(outputWidth ?? _stageWidth, _stageWidth);
+    final height = math.max(outputHeight ?? _stageHeight, _stageHeight);
+    if (_sharedTextureAttached &&
+        _sharedTextureId != null &&
+        _sharedTextureWidth == width &&
+        _sharedTextureHeight == height) {
+      return _sharedTextureId;
+    }
+
+    try {
+      final textureId =
+          await SharedTextureSessionCoordinator.runWithOwnership<int?>(
+            this,
+            _releaseSharedTextureForSession,
+            () async {
+              if (!_sharedTextureHandlerAttached) {
+                _sharedTextureChannel.setMethodCallHandler(
+                  _handleSharedTextureCall,
+                );
+                _sharedTextureHandlerAttached = true;
+              }
+              _detachSharedTexture();
+              final descriptor = await _sharedTextureChannel
+                  .invokeMapMethod<String, dynamic>('create', {
+                    'width': width,
+                    'height': height,
+                  });
+              if (descriptor == null ||
+                  !_attachSharedTexture(
+                    descriptor,
+                    width: width,
+                    height: height,
+                  )) {
+                Log.warn('[KrkrEngineRuntime] 共享纹理 attach 失败，使用 RGBA 回读');
+                return null;
+              }
+              Log.info(
+                '[KrkrEngineRuntime] art3m1s-render 共享纹理已启用: '
+                'id=$_sharedTextureId ${width}x$height',
+              );
+              return _sharedTextureId;
+            },
+          );
+      if (textureId == null) {
+        await SharedTextureSessionCoordinator.release(this);
+      }
+      return textureId;
+    } catch (error) {
+      Log.warn('[KrkrEngineRuntime] 共享纹理不可用，使用 RGBA 回读: $error');
+      _sharedTextureId = null;
+      _sharedTextureKind = null;
+      await SharedTextureSessionCoordinator.release(this);
+      return null;
+    }
+  }
+
+  bool _attachSharedTexture(
+    Map<dynamic, dynamic> descriptor, {
+    int? width,
+    int? height,
+  }) {
+    final api = _api;
+    final runtime = _runtime;
+    final textureId = (descriptor['textureId'] as num?)?.toInt();
+    if (api == null || runtime <= 0 || textureId == null) return false;
+    final surfaceWidth = width ?? _sharedTextureWidth;
+    final surfaceHeight = height ?? _sharedTextureHeight;
+    if (surfaceWidth <= 0 || surfaceHeight <= 0) return false;
+
+    final candidates = <(int?, int?)>[
+      (
+        (descriptor['kind'] as num?)?.toInt(),
+        (descriptor['handle'] as num?)?.toInt(),
+      ),
+      (
+        (descriptor['fallbackKind'] as num?)?.toInt(),
+        (descriptor['fallbackHandle'] as num?)?.toInt(),
+      ),
+    ];
+    for (final (kind, handle) in candidates) {
+      if (kind == null || handle == null || handle == 0) continue;
+      final status = api.setExternalSurface(
+        runtime,
+        kind,
+        Pointer<Void>.fromAddress(handle),
+        surfaceWidth,
+        surfaceHeight,
+      );
+      if (status != art3m1sKrkrStatusOk) continue;
+      _sharedTextureId = textureId;
+      _sharedTextureKind = kind;
+      _sharedTextureAttached = true;
+      _sharedTextureWidth = surfaceWidth;
+      _sharedTextureHeight = surfaceHeight;
+      return true;
+    }
+    return false;
+  }
+
+  Future<void> _handleSharedTextureCall(MethodCall call) async {
+    switch (call.method) {
+      case 'surfaceCleanup':
+        _detachSharedTexture();
+      case 'surfaceAvailable':
+        final descriptor = call.arguments;
+        if (descriptor is Map && !_attachSharedTexture(descriptor)) {
+          Log.warn('[KrkrEngineRuntime] 无法重新绑定共享纹理 surface');
+        }
+    }
+  }
+
+  void _detachSharedTexture() {
+    final api = _api;
+    final runtime = _runtime;
+    if (api != null && runtime > 0 && _sharedTextureAttached) {
+      api.clearExternalSurface(runtime);
+    }
+    _sharedTextureAttached = false;
+  }
+
+  Future<void> _releaseSharedTextureForSession() async {
+    _detachSharedTexture();
+    try {
+      if (_sharedTextureId != null) {
+        await _sharedTextureChannel.invokeMethod<void>('release');
+      }
+    } catch (error) {
+      Log.warn('[KrkrEngineRuntime] 共享纹理释放失败: $error');
+    }
+    if (_sharedTextureHandlerAttached) {
+      _sharedTextureChannel.setMethodCallHandler(null);
+      _sharedTextureHandlerAttached = false;
+    }
+    _sharedTextureId = null;
+    _sharedTextureKind = null;
+    _sharedTextureWidth = 0;
+    _sharedTextureHeight = 0;
+  }
+
   @override
-  int advanceAndPresent(int deltaMs) => -1;
+  int advanceAndPresent(int deltaMs) {
+    if (!_sharedTextureAttached) return -1;
+    if (!_tick(deltaMs)) {
+      _detachSharedTexture();
+      return -1;
+    }
+    if (_sharedTextureKind == 2 || _sharedTextureKind == 3) {
+      unawaited(
+        _sharedTextureChannel.invokeMethod<void>('frameAvailable').catchError((
+          Object error,
+        ) {
+          Log.warn('[KrkrEngineRuntime] 共享纹理帧通知失败: $error');
+        }),
+      );
+    }
+    return 1;
+  }
+
   @override
   bool setProfilerEnabled(bool enabled) => false;
   @override
