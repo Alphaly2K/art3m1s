@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:isolate';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -10,6 +9,7 @@ import 'package:flutter/widgets.dart';
 
 import '../../../services/logger.dart';
 import '../../engine_runtime.dart';
+import '../audio_decode_utils.dart';
 
 /// RFVP host-side playback.
 ///
@@ -310,31 +310,7 @@ class RfvpMediaHost implements EngineMediaHost {
 /// buffer in memory.
 @visibleForTesting
 Future<void> decodeRfvpAudioToWavFile(Uint8List bytes, String outputPath) {
-  return Isolate.run(() {
-    final decoded = decodeAudio(bytes);
-    final samples = decoded.samples;
-    final sampleBytes = samples.buffer.asUint8List(
-      samples.offsetInBytes,
-      samples.lengthInBytes,
-    );
-    final output = File(outputPath).openSync(mode: FileMode.write);
-    try {
-      output.writeFromSync(
-        _pcmWavHeader(
-          dataBytes: sampleBytes.length,
-          sampleRate: decoded.sampleRate,
-          channels: decoded.channels,
-        ),
-      );
-      const chunkBytes = 1024 * 1024;
-      for (var offset = 0; offset < sampleBytes.length; offset += chunkBytes) {
-        final end = math.min(offset + chunkBytes, sampleBytes.length);
-        output.writeFromSync(Uint8List.sublistView(sampleBytes, offset, end));
-      }
-    } finally {
-      output.closeSync();
-    }
-  });
+  return decodeAudioToPcmWavFile(bytes, outputPath);
 }
 
 class _PcmStream {

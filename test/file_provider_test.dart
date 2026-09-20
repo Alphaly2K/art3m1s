@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:art3m1s/engine/backends/art3m1s/file_provider.dart';
+import 'package:art3m1s/engine/backends/art3m1s/project_asset_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -62,4 +63,34 @@ void main() {
       contains('environment compatibility patch'),
     );
   });
+
+  test('listArchiveCandidates keeps split volumes and skips AppleDouble', () {
+    File('${project.path}/game.pfs').writeAsBytesSync([1]);
+    File('${project.path}/game.pfs.000').writeAsBytesSync([2]);
+    File('${project.path}/._game.pfs.001').writeAsBytesSync([3]);
+
+    final names = FileProvider.listArchiveCandidates(
+      '${project.path}/game.pfs',
+    ).map((path) => path.split(RegExp(r'[/\\]')).last).toList();
+
+    expect(names, ['game.pfs', 'game.pfs.000']);
+  });
+
+  test(
+    'project asset store reads directory files and rejects unsafe paths',
+    () {
+      File('${project.path}/sound/se/beep.ogg')
+        ..createSync(recursive: true)
+        ..writeAsBytesSync([9, 8, 7]);
+      final store = ProjectAssetStore()..openDirectory(project.path);
+      addTearDown(store.close);
+
+      expect(store.read('sound/se/beep.ogg'), [9, 8, 7]);
+      expect(store.read(r'sound\se\beep.ogg'), [9, 8, 7]);
+      expect(store.read('sound/se/../se/beep.ogg'), isNull);
+      expect(store.read('sound/se/beep:ogg'), isNull);
+      FileProvider.detachCoreMount();
+      expect(store.read('sound/se/beep.ogg'), [9, 8, 7]);
+    },
+  );
 }

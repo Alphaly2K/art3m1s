@@ -67,6 +67,30 @@ class FileProvider {
     }
   }
 
+  /// Collect `.pfs` and standalone `.pfs.NNN` siblings beside [archivePath].
+  /// AppleDouble metadata such as `._game.pfs.001` is skipped.
+  static List<String> listArchiveCandidates(String archivePath) {
+    final dir = File(archivePath).parent;
+    final candidates = <String>[];
+    for (final entity in dir.listSync()) {
+      if (entity is! File) continue;
+      final name = _fileName(entity.path);
+      if (name.startsWith('._')) continue;
+      final lower = entity.path.toLowerCase();
+      if (lower.endsWith('.pfs') || RegExp(r'\.pfs\.\d{3}$').hasMatch(lower)) {
+        candidates.add(entity.path);
+      }
+    }
+    candidates.sort();
+    return candidates;
+  }
+
+  static String _fileName(String path) {
+    final normalized = path.replaceAll('\\', '/');
+    final index = normalized.lastIndexOf('/');
+    return index < 0 ? normalized : normalized.substring(index + 1);
+  }
+
   static void openPfs(
     String archivePath, {
     String archiveEncoding = 'Shift_JIS',
@@ -78,26 +102,7 @@ class FileProvider {
     _environmentPatchEnabled = environmentPatchEnabled;
     _pfs.initialize();
 
-    final dir = File(archivePath).parent;
-    // Collect BOTH .pfs and .pfs.NNN files.
-    // .pfs          → game data or split-volume base
-    // .pfs.NNN      → either a split volume (handled by MultiFileReader)
-    //                 OR a standalone patch (translation/mod). We open it
-    //                 standalone — if it has a valid PFS header it joins
-    //                 the override chain; if it's raw split data it fails
-    //                 harmlessly.
-    final candidates =
-        dir
-            .listSync()
-            .whereType<File>()
-            .where((f) {
-              final lower = f.path.toLowerCase();
-              return lower.endsWith('.pfs') ||
-                  RegExp(r'\.pfs\.\d{3}$').hasMatch(lower);
-            })
-            .map((f) => f.path)
-            .toList()
-          ..sort();
+    final candidates = listArchiveCandidates(archivePath);
 
     for (final path in candidates) {
       final h = _pfs.openWithEncoding(path, archiveEncoding);

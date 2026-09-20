@@ -20,6 +20,7 @@ import 'art3m1s/caption_table_probe.dart';
 import 'art3m1s/core_api.dart';
 import 'art3m1s/file_provider.dart';
 import 'art3m1s/pfs_bridge.dart';
+import 'art3m1s/project_asset_store.dart';
 import 'art3m1s/project_charset.dart';
 
 typedef HostEventsEnableNative = Void Function(Pointer<Void>, Int32);
@@ -380,6 +381,7 @@ class Art3m1sEngineRuntime implements EngineRuntime {
   int _sharedTextureHeight = 0;
   String? _projectPath;
   bool _projectIsArchive = false;
+  final ProjectAssetStore _projectAssets = ProjectAssetStore();
   TextTranslationService? translation;
   int _stageWidth = 1280;
   int _stageHeight = 720;
@@ -429,37 +431,7 @@ class Art3m1sEngineRuntime implements EngineRuntime {
   }
 
   Uint8List? _readProjectAsset(String path) {
-    final projectPath = _projectPath;
-    if (projectPath == null) return null;
-    final normalized = path.trim().replaceAll('\\', '/');
-    if (normalized.isEmpty || normalized.contains(':')) return null;
-    final parts = normalized.split('/');
-    if (parts.any((part) => part == '..')) return null;
-    if (!_projectIsArchive) {
-      final file = File(
-        '$projectPath${Platform.pathSeparator}'
-        '${normalized.replaceAll('/', Platform.pathSeparator)}',
-      );
-      return file.existsSync() ? file.readAsBytesSync() : null;
-    }
-
-    final bridge = PfsBridge();
-    final archive = bridge.open(projectPath);
-    if (archive == nullptr) return null;
-    try {
-      final size = bridge.fileSize(archive, normalized);
-      if (size <= 0) return null;
-      final buffer = malloc.allocate<Uint8>(size);
-      try {
-        final read = bridge.read(archive, normalized, 0, buffer, size);
-        if (read <= 0) return null;
-        return Uint8List.fromList(buffer.asTypedList(read));
-      } finally {
-        malloc.free(buffer);
-      }
-    } finally {
-      bridge.close(archive);
-    }
+    return _projectAssets.read(path);
   }
 
   static const MethodChannel _sharedTextureChannel = MethodChannel(
@@ -923,12 +895,14 @@ class Art3m1sEngineRuntime implements EngineRuntime {
   }) async {
     _projectPath = projectPath;
     _projectIsArchive = isArchive;
+    _projectAssets.close();
     media.configureAssetReader(_readProjectAsset);
     if (!isArchive) {
       FileProvider.openDirectory(
         projectPath,
         environmentPatchEnabled: environmentPatchEnabled,
       );
+      _projectAssets.openDirectory(projectPath);
       final ini = File('$projectPath${Platform.pathSeparator}system.ini');
       if (!ini.existsSync()) {
         FileProvider.close();
@@ -952,6 +926,7 @@ class Art3m1sEngineRuntime implements EngineRuntime {
       archiveEncoding: charset,
       environmentPatchEnabled: environmentPatchEnabled,
     );
+    _projectAssets.openArchives(projectPath, charset: charset);
     return content;
   }
 
@@ -2082,6 +2057,7 @@ class Art3m1sEngineRuntime implements EngineRuntime {
     if (_activeRuntime == this) _activeRuntime = null;
     _resetCursorState();
     unawaited(media.dispose());
+    _projectAssets.close();
     final translationService = translation;
     translation = null;
     if (translationService != null) {

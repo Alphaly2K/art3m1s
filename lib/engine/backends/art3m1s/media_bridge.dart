@@ -8,10 +8,15 @@ import 'package:flutter/widgets.dart';
 
 import '../../../services/logger.dart';
 import '../../engine_runtime.dart';
+import '../audio_decode_utils.dart';
 import 'file_provider.dart';
 
 typedef MediaFinishedCallback = void Function(String? id);
 typedef MediaAssetReader = Uint8List? Function(String path);
+typedef AudioToWavDecoder = Future<void> Function(
+  Uint8List bytes,
+  String outputPath,
+);
 
 /// Host-owned audio output and runtime video presentation adapter.
 ///
@@ -23,11 +28,17 @@ class MediaBridge implements EngineMediaHost {
   MediaBridge({
     required MediaFinishedCallback onVideoFinished,
     required MediaFinishedCallback onSoundFinished,
+    bool? decodeCompressedAudio,
+    this.audioDecoder = decodeAudioToPcmWavFile,
   }) : _videoFinishedCallback = onVideoFinished,
-       _soundFinishedCallback = onSoundFinished;
+       _soundFinishedCallback = onSoundFinished,
+       _decodeCompressedAudio =
+           decodeCompressedAudio ?? (Platform.isMacOS || Platform.isIOS);
 
   final MediaFinishedCallback _videoFinishedCallback;
   final MediaFinishedCallback _soundFinishedCallback;
+  final bool _decodeCompressedAudio;
+  final AudioToWavDecoder audioDecoder;
 
   @override
   final ValueNotifier<EngineVideoPlayback?> videoPlayback =
@@ -48,6 +59,7 @@ class MediaBridge implements EngineMediaHost {
   final Map<String, _AudioHandle> _sounds = {};
   final MediaOperationGate _audioOperations = MediaOperationGate();
   final Map<String, File> _assetCache = {};
+  final Map<String, Future<File>> _audioDecodeTasks = {};
   final Directory _cacheDir = Directory.systemTemp.createTempSync(
     'art3m1s_media_',
   );
@@ -147,9 +159,11 @@ class MediaBridge implements EngineMediaHost {
   Future<void> _handleEngineAudioCommand(EngineAudioCommand command) async {
     final streamId = command.streamId;
     final channel = command.channel;
+    final operationKey = 'engine:$streamId';
 
     switch (command.kind) {
       case EngineAudioCommandKind.loadEncoded:
+        _audioOperations.invalidate(operationKey);
         _engineEncoded[streamId] = command.payload;
         final old = _engineHandles.remove(streamId);
         if (old != null) await old.dispose();
@@ -158,6 +172,7 @@ class MediaBridge implements EngineMediaHost {
       case EngineAudioCommandKind.submitF32:
         Log.warn('[MediaBridge] PCM stream $streamId 尚未接入 Host 混音');
       case EngineAudioCommandKind.play:
+        final ticket = _audioOperations.begin(operationKey);
         final bytes = _engineEncoded[streamId];
         if (bytes == null) {
           Log.warn('[MediaBridge] stream $streamId 尚未加载，忽略播放');
@@ -165,11 +180,16 @@ class MediaBridge implements EngineMediaHost {
         }
         final old = _engineHandles.remove(streamId);
         if (old != null) await old.dispose();
+        final playableFile = await _decodeBytesIfNeeded(
+          bytes,
+          cacheKey: 'engine:$streamId:${_stableBytesId(bytes)}',
+        );
+        if (!_isCurrentAudioOperation(ticket)) return;
         _AudioHandle? handle;
         final created = await _AudioHandle.create(
           id: command.id,
-          file: null,
-          bytes: bytes,
+          file: playableFile,
+          bytes: playableFile == null ? bytes : null,
           loopFile: null,
           channel: channel,
           gain: command.volume,
@@ -182,6 +202,10 @@ class MediaBridge implements EngineMediaHost {
           },
         );
         handle = created;
+        if (!_isCurrentAudioOperation(ticket)) {
+          await created.dispose();
+          return;
+        }
         _engineHandles[streamId] = handle;
         await handle.setHostSuspended(_suspended);
         await handle.setEffectiveVolume(
@@ -195,6 +219,7 @@ class MediaBridge implements EngineMediaHost {
           );
         }
       case EngineAudioCommandKind.stop:
+        _audioOperations.invalidate(operationKey);
         final handle = _engineHandles.remove(streamId);
         if (handle == null) return;
         if (command.fadeMs > 0) await handle.fadeTo(0, command.fadeMs);
@@ -212,6 +237,7 @@ class MediaBridge implements EngineMediaHost {
         );
         await handle.setPan(command.pan);
       case EngineAudioCommandKind.destroyStream:
+        _audioOperations.invalidate(operationKey);
         _engineEncoded.remove(streamId);
         final handle = _engineHandles.remove(streamId);
         if (handle != null) await handle.dispose();
@@ -282,11 +308,17 @@ class MediaBridge implements EngineMediaHost {
     if (previous != null) await previous.dispose();
     if (!_isCurrentAudioOperation(ticket)) return;
 
+    final playableFile = await _decodeBytesIfNeeded(
+      bytes,
+      cacheKey: 'video:${_stableBytesId(bytes)}',
+    );
+    if (!_isCurrentAudioOperation(ticket)) return;
+
     _AudioHandle? handle;
     final created = await _AudioHandle.create(
       id: _string(payload['id']),
-      file: null,
-      bytes: bytes,
+      file: playableFile,
+      bytes: playableFile == null ? bytes : null,
       loopFile: null,
       channel: 'video',
       gain: 1,
@@ -663,6 +695,14 @@ class MediaBridge implements EngineMediaHost {
       final bytes =
           _assetReader?.call(candidate) ?? FileProvider.readFile(candidate);
       if (bytes == null) continue;
+      final decoded = await _decodeBytesIfNeeded(
+        bytes,
+        cacheKey: 'asset:$candidate',
+      );
+      if (decoded != null) {
+        _assetCache[candidate] = decoded;
+        return decoded;
+      }
       final file = File(
         '${_cacheDir.path}${Platform.pathSeparator}'
         '${_stableId(candidate)}${_extension(candidate)}',
@@ -674,6 +714,50 @@ class MediaBridge implements EngineMediaHost {
 
     Log.warn('[MediaBridge] 媒体资源不存在: ${candidates.join(' -> ')}');
     return null;
+  }
+
+  Future<File?> _decodeBytesIfNeeded(
+    Uint8List bytes, {
+    required String cacheKey,
+  }) async {
+    if (!_decodeCompressedAudio || !encodedAudioNeedsPcmWav(bytes)) {
+      return null;
+    }
+    final internalKey = '@decoded:$cacheKey';
+    final cached = _assetCache[internalKey];
+    if (cached != null && cached.existsSync()) return cached;
+
+    final task = _audioDecodeTasks.putIfAbsent(internalKey, () async {
+      final output = File(
+        '${_cacheDir.path}${Platform.pathSeparator}'
+        'decoded_${_stableId(cacheKey)}.wav',
+      );
+      final stopwatch = Stopwatch()..start();
+      try {
+        await audioDecoder(bytes, output.path);
+      } catch (_) {
+        try {
+          if (output.existsSync()) output.deleteSync();
+        } catch (_) {}
+        rethrow;
+      }
+      stopwatch.stop();
+      Log.debug(
+        '[MediaBridge] 已将压缩音频转换为 PCM WAV '
+        '(${bytes.length} bytes, ${stopwatch.elapsedMilliseconds} ms): '
+        '${output.path}',
+      );
+      return output;
+    });
+    try {
+      final output = await task;
+      _assetCache[internalKey] = output;
+      return output;
+    } finally {
+      if (identical(_audioDecodeTasks[internalKey], task)) {
+        _audioDecodeTasks.remove(internalKey);
+      }
+    }
   }
 
   Iterable<String> _expandCandidates(List<String> paths) sync* {
@@ -719,6 +803,12 @@ class MediaBridge implements EngineMediaHost {
     if (_disposed) return;
     _disposed = true;
     await _stopAllAudio();
+    for (final task in _audioDecodeTasks.values.toList()) {
+      try {
+        await task;
+      } catch (_) {}
+    }
+    _audioDecodeTasks.clear();
     videoPlayback.dispose();
     fullscreenVideoBlocking.dispose();
     try {
@@ -1061,6 +1151,19 @@ final class MediaOperationGate {
     return ticket.epoch == _epoch &&
         _generations[ticket.key] == ticket.generation;
   }
+}
+
+String _stableBytesId(Uint8List bytes) {
+  var first = 2166136261;
+  var second = 2246822519;
+  for (final byte in bytes) {
+    first ^= byte;
+    first = (first * 16777619) & 0xffffffff;
+    second ^= byte;
+    second = (second * 3266489917) & 0xffffffff;
+  }
+  return '${first.toRadixString(16).padLeft(8, '0')}'
+      '${second.toRadixString(16).padLeft(8, '0')}_${bytes.length}';
 }
 
 String _stableId(String value) {

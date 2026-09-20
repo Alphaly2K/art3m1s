@@ -14,14 +14,6 @@ topics:
   - pcm
   - ffi
 
-screenshots:
-  - description: |-
-      Compressed bytes in, PCM samples out: the first bytes pick stb_vorbis or minimp3, which yields interleaved 16-bit samples.
-    path: doc/architecture.png
-  - description: |-
-      Decoding one Ogg file in process versus through ffmpeg: every ffmpeg bar starts with the same 24.8 ms of process startup.
-    path: doc/benchmark.png
-
 environment:
   sdk: ^3.10.0
 
