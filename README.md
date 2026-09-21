@@ -183,6 +183,18 @@ dart run tool/build.dart [all|ios|ios-obsolete|macos|android|windows|linux] \
 `all` 表示当前宿主能够原生构建的全部目标：macOS 构建 iOS、macOS 和 Android，
 Windows 构建 Windows 和 Android，Linux 构建 Linux 和 Android；其中 iOS 指原生
 SwiftUI 客户端，已废弃的 Flutter iOS 目标为 `ios-obsolete`，且不会加入 `all`。
+macOS 若需打包可运行的 Kirikiri 引擎，使用项目固定版本的上游源码与构建仓库，
+并显式启用 `--krkr`（缺少上游目录时构建会失败，不会静默打包占位实现）：
+
+```bash
+VCPKG_ROOT=/path/to/vcpkg \
+KRKRSDL3_SOURCE_DIR=/path/to/krkrsdl3 \
+KRKRSDL3_BUILD_DIR=/path/to/krkrsdl3_build \
+dart run tool/build.dart macos --release --krkr
+```
+
+该模式会将 KRKR native host、`Res` 与许可证一同放入 macOS 应用包，并在
+`build/macos/Build/Products/Release/` 生成 `art3m1s-krkr-macos-release.zip`。
 iOS 默认同时生成真机与 Apple Silicon 模拟器切片；发布真机包可加 `--device-only`。
 原生 iOS 用 `Art3m1sNative.xcodeproj` 构建，再对选定构建的副本及其 framework/dylib
 做 ad-hoc 签名，打包为 `build/ios/Art3m1s-trollstore.ipa`。旧目标产物位于

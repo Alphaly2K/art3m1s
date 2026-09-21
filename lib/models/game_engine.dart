@@ -42,6 +42,7 @@ enum GameEngineKind {
       GameSettingField.cover,
       GameSettingField.vndbId,
       GameSettingField.inputGate,
+      GameSettingField.krkrEntryXp3,
     },
   };
 
@@ -65,4 +66,5 @@ enum GameSettingField {
   reportedOs,
   runtimePlatform,
   inputGate,
+  krkrEntryXp3,
 }

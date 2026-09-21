@@ -105,7 +105,7 @@ void main() {
     expect(GameImporter.detectDirectoryEngine(game.path), GameEngineKind.krkr);
   });
 
-  test('detects KRKR root with startup.tjs or exactly one XP3', () {
+  test('detects KRKR root with startup.tjs or multiple XP3 files', () {
     final root = Directory.systemTemp.createTempSync('art3m1s_krkr_markers_');
     addTearDown(() => root.deleteSync(recursive: true));
     final startup = Directory('${root.path}${Platform.pathSeparator}startup')
@@ -118,6 +118,9 @@ void main() {
     File(
       '${soleXp3.path}${Platform.pathSeparator}game.XP3',
     ).writeAsBytesSync([2]);
+    File(
+      '${soleXp3.path}${Platform.pathSeparator}patch.xp3',
+    ).writeAsBytesSync([3]);
 
     expect(
       GameImporter.detectDirectoryEngine(startup.path),
@@ -127,6 +130,7 @@ void main() {
       GameImporter.detectDirectoryEngine(soleXp3.path),
       GameEngineKind.krkr,
     );
+    expect(GameImporter.discoverUnpackedProjects(soleXp3.path), [soleXp3.path]);
   });
 
   test(

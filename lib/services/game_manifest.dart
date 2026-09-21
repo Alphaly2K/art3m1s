@@ -43,6 +43,7 @@ class GameManifest {
     this.inputGate,
     this.reportedOs,
     this.runtimePlatform,
+    this.krkrEntryXp3,
   });
 
   static const defaultRuntimePlatform = 'WINDOWS';
@@ -76,6 +77,9 @@ class GameManifest {
 
   /// system.ini 使用的启动段。它属于单个游戏，不能由宿主全局偏好覆盖。
   final String? runtimePlatform;
+
+  /// KRKR 启动 XP3 的根目录文件名，保持游戏目录作为库条目的身份。
+  final String? krkrEntryXp3;
 
   static const String fileName = 'art3m1s.json';
 
@@ -118,6 +122,7 @@ class GameManifest {
           : null,
       reportedOs: optionalString('reportedOs'),
       runtimePlatform: optionalString('runtimePlatform')?.toUpperCase(),
+      krkrEntryXp3: optionalString('krkrEntryXp3'),
     );
   }
 
@@ -165,6 +170,10 @@ class GameManifest {
           runtimePlatform != null &&
           runtimePlatform!.isNotEmpty)
         'runtimePlatform': runtimePlatform!.toUpperCase(),
+      if (_supports(kind, GameSettingField.krkrEntryXp3) &&
+          krkrEntryXp3 != null &&
+          krkrEntryXp3!.isNotEmpty)
+        'krkrEntryXp3': krkrEntryXp3,
     };
   }
 
@@ -182,6 +191,7 @@ class GameManifest {
     inputGate: entry.inputGate,
     reportedOs: entry.reportedOs.isEmpty ? null : entry.reportedOs,
     runtimePlatform: entry.runtimePlatform,
+    krkrEntryXp3: entry.krkrEntryXp3.isEmpty ? null : entry.krkrEntryXp3,
   );
 
   GameEntry applyTo(GameEntry entry, {String? manifestPath}) {
@@ -189,8 +199,7 @@ class GameManifest {
     final kind = engine ?? entry.engine;
     return entry.copyWith(
       displayName: name ?? entry.displayName,
-      translationEnabled:
-          _supports(kind, GameSettingField.translationEnabled)
+      translationEnabled: _supports(kind, GameSettingField.translationEnabled)
           ? translationEnabled ?? entry.translationEnabled
           : entry.translationEnabled,
       translationPatchPath:
@@ -219,6 +228,9 @@ class GameManifest {
       runtimePlatform: _supports(kind, GameSettingField.runtimePlatform)
           ? runtimePlatform ?? entry.runtimePlatform
           : entry.runtimePlatform,
+      krkrEntryXp3: _supports(kind, GameSettingField.krkrEntryXp3)
+          ? krkrEntryXp3 ?? entry.krkrEntryXp3
+          : entry.krkrEntryXp3,
       manifestPath: manifestPath ?? entry.manifestPath,
     );
   }

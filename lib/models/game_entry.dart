@@ -43,6 +43,9 @@ class GameEntry {
   /// system.ini 使用的启动段；这是游戏自己的配置，不是宿主全局设置。
   final String runtimePlatform;
 
+  /// KRKR 启动归档的根目录文件名；空串由引擎按默认规则选择。
+  final String krkrEntryXp3;
+
   /// 游戏配置 manifest 的直接路径。目录项目为根目录下的 art3m1s.json，
   /// PFS 项目为归档旁的 sidecar 文件。
   final String? manifestPath;
@@ -68,6 +71,7 @@ class GameEntry {
     this.fontOverrideFilePath = '',
     this.reportedOs = '',
     this.runtimePlatform = 'WINDOWS',
+    this.krkrEntryXp3 = '',
     this.manifestPath,
   }) : id = _normalizeId(id, path);
 
@@ -96,6 +100,7 @@ class GameEntry {
       'fontOverrideFilePath': fontOverrideFilePath,
     if (reportedOs.isNotEmpty) 'reportedOs': reportedOs,
     'runtimePlatform': runtimePlatform,
+    if (krkrEntryXp3.isNotEmpty) 'krkrEntryXp3': krkrEntryXp3,
     if (manifestPath != null) 'manifestPath': manifestPath,
   };
 
@@ -127,6 +132,7 @@ class GameEntry {
         json['runtimePlatform']?.toString().trim().isNotEmpty == true
         ? json['runtimePlatform'].toString().trim().toUpperCase()
         : 'WINDOWS',
+    krkrEntryXp3: json['krkrEntryXp3']?.toString() ?? '',
     manifestPath: json['manifestPath']?.toString(),
   );
 
@@ -146,6 +152,7 @@ class GameEntry {
     String? fontOverrideFilePath,
     String? reportedOs,
     String? runtimePlatform,
+    String? krkrEntryXp3,
     String? manifestPath,
   }) => GameEntry(
     id: id,
@@ -170,6 +177,7 @@ class GameEntry {
     fontOverrideFilePath: fontOverrideFilePath ?? this.fontOverrideFilePath,
     reportedOs: reportedOs ?? this.reportedOs,
     runtimePlatform: runtimePlatform ?? this.runtimePlatform,
+    krkrEntryXp3: krkrEntryXp3 ?? this.krkrEntryXp3,
     manifestPath: manifestPath ?? this.manifestPath,
   );
 

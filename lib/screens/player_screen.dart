@@ -66,6 +66,9 @@ class PlayerScreen extends ConsumerStatefulWidget {
   /// system.ini 启动段（来自该游戏的 manifest）。
   final String runtimePlatform;
 
+  /// KRKR 启动归档的根目录文件名；游戏身份仍由 projectPath 目录决定。
+  final String krkrEntryXp3;
+
   final String? manifestPath;
 
   const PlayerScreen({
@@ -90,6 +93,7 @@ class PlayerScreen extends ConsumerStatefulWidget {
     this.fontOverrideFilePath = '',
     this.reportedOs = '',
     this.runtimePlatform = 'WINDOWS',
+    this.krkrEntryXp3 = '',
     this.manifestPath,
   });
 
@@ -299,6 +303,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       fontOverrideFilePath: widget.fontOverrideFilePath,
       reportedOs: widget.reportedOs,
       runtimePlatform: widget.runtimePlatform,
+      krkrEntryXp3: widget.krkrEntryXp3,
       manifestPath: widget.manifestPath,
     );
     final config = _activeConfig = await GameManifest.loadEntrySettings(
@@ -312,8 +317,25 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
     Uint8List? iniContent;
     try {
+      var runtimeProjectPath = widget.projectPath;
+      if (widget.engine == GameEngineKind.krkr &&
+          config.krkrEntryXp3.isNotEmpty) {
+        final entry = config.krkrEntryXp3;
+        if (entry.contains('/') ||
+            entry.contains('\\') ||
+            !entry.toLowerCase().endsWith('.xp3')) {
+          throw StateError('KRKR 启动 XP3 必须是游戏根目录中的文件名');
+        }
+        final archive = File(
+          '${widget.projectPath}${Platform.pathSeparator}$entry',
+        );
+        if (!await archive.exists()) {
+          throw StateError('KRKR 启动 XP3 不存在: $entry');
+        }
+        runtimeProjectPath = archive.path;
+      }
       iniContent = await _bridge.prepareProject(
-        projectPath: widget.projectPath,
+        projectPath: runtimeProjectPath,
         isArchive: widget.source == GameSource.pfsArchive,
         environmentPatchEnabled: config.environmentPatchEnabled,
         platform: runtimePlatform,

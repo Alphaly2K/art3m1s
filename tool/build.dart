@@ -16,6 +16,9 @@ Future<void> main(List<String> arguments) async {
 
   for (final target in targets) {
     _ensureHostSupports(target);
+    if (options.krkr && target != 'macos') {
+      throw UsageException('--krkr 目前只支持 macOS 构建');
+    }
     stdout.writeln('\n=== Building $target (${options.profile}) ===');
     switch (target) {
       case 'ios':
@@ -82,18 +85,21 @@ final class BuildOptions {
     required this.profile,
     required this.deviceOnly,
     required this.signOnly,
+    required this.krkr,
   });
 
   final String target;
   final String profile;
   final bool deviceOnly;
   final bool signOnly;
+  final bool krkr;
 
   static BuildOptions parse(List<String> arguments) {
     var target = 'all';
     var profile = 'release';
     var deviceOnly = false;
     var signOnly = false;
+    var krkr = false;
     for (final argument in arguments) {
       switch (argument) {
         case '--debug':
@@ -106,6 +112,8 @@ final class BuildOptions {
           deviceOnly = true;
         case '--sign-only':
           signOnly = true;
+        case '--krkr':
+          krkr = true;
         case 'all':
         case 'ios':
         case 'ios-obsolete':
@@ -119,7 +127,7 @@ final class BuildOptions {
           stdout.writeln(
             'Usage: dart run tool/build.dart '
             '[all|ios|ios-obsolete|macos|android|windows|linux] '
-            '[--release|--profile|--debug] [--device-only] [--sign-only]',
+            '[--release|--profile|--debug] [--device-only] [--sign-only] [--krkr]',
           );
           exit(0);
         default:
@@ -131,6 +139,7 @@ final class BuildOptions {
       profile: profile,
       deviceOnly: deviceOnly,
       signOnly: signOnly,
+      krkr: krkr,
     );
   }
 }
@@ -325,20 +334,21 @@ Future<void> _buildNativeIos(
   await _signNativeIosAppForTrollStore(project, profile: options.profile);
 }
 
-Future<void> _buildIosFfmpeg(
-  Directory project,
-  BuildOptions options,
-) async {
-  final devicePrefix = Directory('${project.path}/.build/ffmpeg-ios/device/prefix');
-  if (_ffmpegIosReady(project, devicePrefix, includeSimulator: !options.deviceOnly)) {
+Future<void> _buildIosFfmpeg(Directory project, BuildOptions options) async {
+  final devicePrefix = Directory(
+    '${project.path}/.build/ffmpeg-ios/device/prefix',
+  );
+  if (_ffmpegIosReady(
+    project,
+    devicePrefix,
+    includeSimulator: !options.deviceOnly,
+  )) {
     stdout.writeln('FFmpeg build is up to date, reusing it.');
     return;
   }
-  await _run(
-    '${project.path}/scripts/build_ffmpeg_ios.sh',
-    <String>[if (options.deviceOnly) '--device-only'],
-    workingDirectory: project,
-  );
+  await _run('${project.path}/scripts/build_ffmpeg_ios.sh', <String>[
+    if (options.deviceOnly) '--device-only',
+  ], workingDirectory: project);
 }
 
 bool _ffmpegIosReady(
@@ -420,12 +430,23 @@ Future<void> _buildMacos(
   BuildSecrets secrets,
   BuildOptions options,
 ) async {
-  await _run(
-    '${project.path}/scripts/build_ffmpeg_macos.sh',
-    const <String>[],
-    workingDirectory: project,
-  );
+  final krkrSource = Platform.environment['KRKRSDL3_SOURCE_DIR'];
+  final krkrBuild = Platform.environment['KRKRSDL3_BUILD_DIR'];
+  if (options.krkr &&
+      (krkrSource == null ||
+          krkrSource.isEmpty ||
+          krkrBuild == null ||
+          krkrBuild.isEmpty)) {
+    throw StateError('--krkr 需要 KRKRSDL3_SOURCE_DIR 和 KRKRSDL3_BUILD_DIR');
+  }
   final ffmpegPrefix = Directory('${project.path}/.build/ffmpeg-macos/prefix');
+  if (!_ffmpegMacosReady(ffmpegPrefix)) {
+    await _run(
+      '${project.path}/scripts/build_ffmpeg_macos.sh',
+      const <String>[],
+      workingDirectory: project,
+    );
+  }
   await _run(
     'cargo',
     <String>[
@@ -437,7 +458,10 @@ Future<void> _buildMacos(
       '${core.path}/Cargo.toml',
     ],
     workingDirectory: core,
-    environment: <String, String>{'FFMPEG_DIR': ffmpegPrefix.path},
+    environment: <String, String>{
+      'FFMPEG_DIR': ffmpegPrefix.path,
+      if (options.krkr) 'ART3M1S_KRKR_REQUIRE_UPSTREAM': '1',
+    },
   );
   await _run('cargo', <String>[
     'build',
@@ -481,6 +505,113 @@ Future<void> _buildMacos(
     workingDirectory: project,
     environment: secrets.environment,
   );
+  if (options.krkr) {
+    await _bundleKrkrMacos(project, core, options.profile, krkrSource!);
+  }
+}
+
+bool _ffmpegMacosReady(Directory prefix) => const <String>[
+  'libavcodec.62.dylib',
+  'libavformat.62.dylib',
+  'libavutil.60.dylib',
+  'libswresample.6.dylib',
+  'libswscale.9.dylib',
+].every((name) => File('${prefix.path}/lib/$name').existsSync());
+
+Future<void> _bundleKrkrMacos(
+  Directory project,
+  Directory core,
+  String profile,
+  String upstreamSource,
+) async {
+  final suffix = profile == 'release' ? 'release' : 'debug';
+  final builds = Directory('${core.path}/target/$suffix/build');
+  final hosts =
+      builds
+          .listSync()
+          .whereType<Directory>()
+          .where(
+            (dir) => dir.path
+                .split(Platform.pathSeparator)
+                .last
+                .startsWith('art3m1s-krkr-'),
+          )
+          .map(
+            (dir) => File(
+              '${dir.path}/out/native-upstream/libart3m1s_krkr_host.dylib',
+            ),
+          )
+          .where((file) => file.existsSync())
+          .toList()
+        ..sort((a, b) => b.lastModifiedSync().compareTo(a.lastModifiedSync()));
+  if (hosts.isEmpty) {
+    throw StateError('未找到真实 KRKR native-upstream 构建产物');
+  }
+  final nativeHost = hosts.first;
+  final nativeResources = Directory('${nativeHost.parent.path}/Res');
+  if (!nativeResources.existsSync()) {
+    throw StateError('KRKR native-upstream 缺少 Res 资源目录');
+  }
+
+  final configuration = profile[0].toUpperCase() + profile.substring(1);
+  final app = Directory(
+    '${project.path}/build/macos/Build/Products/$configuration/art3m1s.app',
+  );
+  if (!app.existsSync()) throw StateError('未找到 macOS 应用包: ${app.path}');
+  final executableDir = Directory('${app.path}/Contents/MacOS');
+  final bundledCore = File('${executableDir.path}/libart3m1s_core.dylib');
+  final resourceDir = Directory('${app.path}/Contents/Resources/krkr')
+    ..createSync(recursive: true);
+  final bundledHost = nativeHost.copySync(
+    '${executableDir.path}/libart3m1s_krkr_host.dylib',
+  );
+  await _run('/usr/bin/ditto', <String>[
+    nativeResources.path,
+    '${resourceDir.path}/Res',
+  ], workingDirectory: project);
+  File(
+    '$upstreamSource/LICENSE',
+  ).copySync('${resourceDir.path}/LICENSE-KRKRSDL3.txt');
+  File(
+    '${core.path}/crates/art3m1s-krkr/THIRD_PARTY_NOTICES.md',
+  ).copySync('${resourceDir.path}/THIRD_PARTY_NOTICES.md');
+  await _run('/usr/bin/install_name_tool', <String>[
+    '-add_rpath',
+    '@loader_path/../Frameworks',
+    bundledCore.path,
+  ], workingDirectory: project);
+  await _run('/usr/bin/codesign', <String>[
+    '--force',
+    '--sign',
+    '-',
+    '--timestamp=none',
+    bundledCore.path,
+  ], workingDirectory: project);
+  await _run('/usr/bin/codesign', <String>[
+    '--force',
+    '--sign',
+    '-',
+    '--timestamp=none',
+    bundledHost.path,
+  ], workingDirectory: project);
+  await _run('/usr/bin/codesign', <String>[
+    '--force',
+    '--sign',
+    '-',
+    '--preserve-metadata=entitlements',
+    '--timestamp=none',
+    app.path,
+  ], workingDirectory: project);
+  final archive = '${app.parent.path}/art3m1s-krkr-macos-$profile.zip';
+  await _run('/usr/bin/ditto', <String>[
+    '-c',
+    '-k',
+    '--sequesterRsrc',
+    '--keepParent',
+    app.path,
+    archive,
+  ], workingDirectory: project);
+  stdout.writeln('KRKR macOS package: $archive');
 }
 
 Future<void> _buildAndroid(

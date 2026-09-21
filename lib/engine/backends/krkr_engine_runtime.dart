@@ -147,9 +147,13 @@ class KrkrEngineRuntime implements EngineRuntime {
     final api = _api;
     if (api == null) return null;
     final probe = api.probeProject(projectPath);
-    if (probe == null || !probe.isKrkr) {
+    if (probe == null) {
+      throw StateError('KRKR 入口探测失败 (status ${api.lastStatus})');
+    }
+    if (!probe.isKrkr) {
       throw StateError('目录中没有可识别的 XP3/TJS Kirikiri 入口');
     }
+    Log.info('[KrkrEngineRuntime] 启动入口: $projectPath');
     _projectPath = projectPath;
     return Uint8List(0);
   }

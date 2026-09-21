@@ -74,6 +74,7 @@ class LibraryNotifier extends StateNotifier<List<GameEntry>> {
     String? fontOverrideFilePath,
     String? reportedOs,
     String? runtimePlatform,
+    String? krkrEntryXp3,
   }) async {
     final lib = _storage.getLibrary();
     final i = lib.indexWhere((g) => g.path == path);
@@ -89,6 +90,7 @@ class LibraryNotifier extends StateNotifier<List<GameEntry>> {
       fontOverrideFilePath: fontOverrideFilePath,
       reportedOs: reportedOs,
       runtimePlatform: runtimePlatform,
+      krkrEntryXp3: krkrEntryXp3,
     );
     try {
       final manifestPath = await GameManifest.writeForProject(

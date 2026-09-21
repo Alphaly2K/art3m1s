@@ -234,6 +234,11 @@ class LibraryActions {
     );
     if (metadata == null || !context.mounted) return false;
 
+    final krkrEntryXp3 = engine == GameEngineKind.krkr
+        ? await _chooseKrkrEntryXp3(game.path, manifest?.krkrEntryXp3 ?? '')
+        : '';
+    if (krkrEntryXp3 == null || !context.mounted) return false;
+
     await ref
         .read(libraryProvider.notifier)
         .add(
@@ -258,6 +263,7 @@ class LibraryActions {
             runtimePlatform:
                 manifest?.runtimePlatform ??
                 GameManifest.defaultRuntimePlatform,
+            krkrEntryXp3: krkrEntryXp3,
           ),
         );
     Log.info('已自动添加: ${metadata.name}');
@@ -304,6 +310,10 @@ class LibraryActions {
           manifest?.runtimePlatform ?? GameManifest.defaultRuntimePlatform,
     );
     if (result == null || !context.mounted) return false;
+    final krkrEntryXp3 = engine == GameEngineKind.krkr
+        ? await _chooseKrkrEntryXp3(path, manifest?.krkrEntryXp3 ?? '')
+        : '';
+    if (krkrEntryXp3 == null || !context.mounted) return false;
     final coverPath = await AppDataPaths.importCover(result.coverPath, gameId);
     if (!context.mounted) return false;
 
@@ -331,6 +341,7 @@ class LibraryActions {
                 ? result.reportedOs
                 : manifest?.reportedOs ?? '',
             runtimePlatform: result.runtimePlatform,
+            krkrEntryXp3: krkrEntryXp3,
           ),
         );
     Log.info('已添加: ${result.name.isNotEmpty ? result.name : defaultName}');
@@ -448,6 +459,14 @@ class LibraryActions {
       initialRuntimePlatform: configured.runtimePlatform,
     );
     if (result == null || !context.mounted) return;
+    final krkrEntryXp3 = configured.engine == GameEngineKind.krkr
+        ? await _chooseKrkrEntryXp3(
+            configured.path,
+            configured.krkrEntryXp3,
+            forceChoice: true,
+          )
+        : configured.krkrEntryXp3;
+    if (krkrEntryXp3 == null || !context.mounted) return;
     final coverPath = await AppDataPaths.importCover(
       result.coverPath,
       entry.id,
@@ -468,7 +487,72 @@ class LibraryActions {
           fontOverrideFilePath: result.fontOverrideFilePath,
           reportedOs: result.reportedOs,
           runtimePlatform: result.runtimePlatform,
+          krkrEntryXp3: krkrEntryXp3,
         );
+  }
+
+  /// 只展示游戏根目录的 XP3，不把 sys 内的资源包列作启动候选。
+  Future<String?> _chooseKrkrEntryXp3(
+    String root,
+    String current, {
+    bool forceChoice = false,
+  }) async {
+    final List<String> candidates;
+    try {
+      candidates =
+          Directory(root)
+              .listSync(followLinks: false)
+              .whereType<File>()
+              .map((file) => file.path.split(Platform.pathSeparator).last)
+              .where((name) => name.toLowerCase().endsWith('.xp3'))
+              .toList()
+            ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    } on FileSystemException catch (error) {
+      Log.warn('[Library] KRKR 入口列表读取失败 ($root): $error');
+      if (context.mounted) notify(context, '无法读取 KRKR 游戏目录');
+      return null;
+    }
+    if (candidates.isEmpty) return '';
+    if (candidates.length == 1) return candidates.single;
+    if (!forceChoice && candidates.contains(current)) return current;
+    if (!context.mounted) return null;
+    return showDialog<String>(
+      context: context,
+      builder: (dialogContext) => Theme(
+        data: ThemeData(
+          colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+          useMaterial3: true,
+        ),
+        child: AlertDialog(
+          title: const Text('选择 KRKR 启动 XP3'),
+          content: SizedBox(
+            width: 460,
+            height: min(360.0, candidates.length * 56.0),
+            child: ListView.builder(
+              itemCount: candidates.length,
+              itemBuilder: (itemContext, index) {
+                final name = candidates[index];
+                return ListTile(
+                  title: Text(name),
+                  leading: Icon(
+                    name == current
+                        ? Icons.radio_button_checked
+                        : Icons.radio_button_unchecked,
+                  ),
+                  onTap: () => Navigator.of(dialogContext).pop(name),
+                );
+              },
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('取消'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   bool _isAlreadyInLibrary(String path) {
@@ -504,8 +588,21 @@ class LibraryActions {
     final ps5BigScreen = usesPs5Chrome(context);
     // Manifest 是每个游戏的权威配置源；每次创建宿主前重新读取，外部编辑
     // 或跨启动修改都能立即生效，不再依赖 GameEntry 的旧缓存。
-    final configured = await GameManifest.loadEntrySettings(entry);
+    var configured = await GameManifest.loadEntrySettings(entry);
     if (!context.mounted) return;
+    if (configured.engine == GameEngineKind.krkr) {
+      final selected = await _chooseKrkrEntryXp3(
+        configured.path,
+        configured.krkrEntryXp3,
+      );
+      if (selected == null || !context.mounted) return;
+      if (selected != configured.krkrEntryXp3) {
+        await ref
+            .read(libraryProvider.notifier)
+            .update(configured.path, krkrEntryXp3: selected);
+        configured = configured.copyWith(krkrEntryXp3: selected);
+      }
+    }
     await ref.read(libraryProvider.notifier).markPlayed(configured.path);
     if (!context.mounted) return;
     final sessionHost = Ps5GameSessionScope.maybeOf(context);
@@ -534,6 +631,7 @@ class LibraryActions {
             fontOverrideFilePath: configured.fontOverrideFilePath,
             reportedOs: configured.reportedOs,
             runtimePlatform: configured.runtimePlatform,
+            krkrEntryXp3: configured.krkrEntryXp3,
             manifestPath: configured.manifestPath,
           ),
         ),

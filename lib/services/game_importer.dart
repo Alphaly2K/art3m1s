@@ -151,7 +151,7 @@ class GameImporter {
   /// 递归查找已解包工程根目录。
   ///
   /// Artemis 工程以 system.ini 为根标记,RFVP 工程以根目录中的 `.hcb`
-  /// 为标记,KRKR 工程接受 data.xp3、startup.tjs 或唯一的根级 XP3。
+  /// 为标记,KRKR 工程接受 data.xp3、startup.tjs 或根级 XP3；多归档由宿主选择入口。
   /// 某个目录一旦命中标记,就把它当作工程根,不再继续往下找,
   /// 避免把工程内部的资源子目录误当成独立游戏。
   static List<String> discoverUnpackedProjects(String directoryPath) {
@@ -189,7 +189,7 @@ class GameImporter {
           hasHcb ||
           hasDataXp3 ||
           hasStartupTjs ||
-          rootXp3Count == 1) {
+          rootXp3Count > 0) {
         found.add(dir.path);
         return;
       }
@@ -257,7 +257,7 @@ class GameImporter {
     }
     if (hasSystemIni) return GameEngineKind.art3m1s;
     if (hasHcb) return GameEngineKind.rfvp;
-    if (hasDataXp3 || hasStartupTjs || rootXp3Count == 1) {
+    if (hasDataXp3 || hasStartupTjs || rootXp3Count > 0) {
       return GameEngineKind.krkr;
     }
     return GameEngineKind.art3m1s;

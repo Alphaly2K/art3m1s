@@ -8,6 +8,27 @@ import 'package:art3m1s/services/game_manifest.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('KRKR 启动 XP3 在资料库和游戏清单中保持一致', () {
+    final entry = GameEntry(
+      name: 'Kirikiri',
+      path: '/games/krkr',
+      source: GameSource.directory,
+      engine: GameEngineKind.krkr,
+      addedAt: DateTime(2026),
+      krkrEntryXp3: '启动游戏.xp3',
+    );
+    final restored = GameEntry.fromJson(entry.toJson());
+    final manifest = GameManifest.fromGameEntry(restored);
+    expect(restored.krkrEntryXp3, '启动游戏.xp3');
+    expect(manifest.toJson()['krkrEntryXp3'], '启动游戏.xp3');
+    expect(
+      GameManifest.fromJson(
+        manifest.toJson(),
+      ).applyTo(entry.copyWith(krkrEntryXp3: '')).krkrEntryXp3,
+      '启动游戏.xp3',
+    );
+  });
+
   group('GameManifest.parse', () {
     test('parses a full manifest', () {
       final manifest = GameManifest.parse(
