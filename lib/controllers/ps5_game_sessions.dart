@@ -1,7 +1,6 @@
 import 'package:flutter/widgets.dart';
 
 import '../engine/engine_runtime.dart';
-import '../models/game_engine.dart';
 import '../models/game_entry.dart';
 
 class Ps5GameSessionRecord {
@@ -38,7 +37,6 @@ class Ps5GameSessionRegistry {
   bool contains(String gameId) => _sessions.containsKey(gameId);
 
   bool activate(GameEntry entry) {
-    if (entry.engine == GameEngineKind.krkr) return false;
     for (final item in _sessions.entries.toList()) {
       if (item.key == entry.id) continue;
       if (item.value.state == EngineSessionState.active ||

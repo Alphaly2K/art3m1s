@@ -44,11 +44,24 @@ void main() {
     expect(registry.sessions, hasLength(2));
   });
 
-  test('Kirikiri remains outside the resident-session host', () {
+  test('Kirikiri joins the resident-session host like RFVP', () {
     final registry = Ps5GameSessionRegistry();
+    final krkr = game('krkr', GameEngineKind.krkr);
+    final artemis = game('artemis', GameEngineKind.art3m1s);
 
-    expect(registry.activate(game('krkr', GameEngineKind.krkr)), isFalse);
-    expect(registry.sessions, isEmpty);
+    expect(registry.activate(krkr), isTrue);
+    expect(registry.activeSessionId, 'krkr');
+
+    registry.freezeToHome('krkr');
     expect(registry.activeSessionId, isNull);
+    expect(stateOf(registry, 'krkr'), EngineSessionState.frozen);
+
+    expect(registry.activate(krkr), isTrue);
+    expect(registry.activeSessionId, 'krkr');
+    expect(stateOf(registry, 'krkr'), EngineSessionState.active);
+
+    expect(registry.activate(artemis), isTrue);
+    expect(registry.activeSessionId, 'artemis');
+    expect(stateOf(registry, 'krkr'), EngineSessionState.suspended);
   });
 }

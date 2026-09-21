@@ -12,7 +12,6 @@ import '../adaptive/ps5_sounds.dart';
 import '../controllers/library_actions.dart';
 import '../controllers/ps5_input.dart';
 import '../controllers/ps5_game_sessions.dart';
-import '../models/game_engine.dart';
 import '../models/game_entry.dart';
 import '../models/render_backend.dart';
 import '../models/render_output.dart';
@@ -106,7 +105,6 @@ class _Ps5SessionHostState extends State<_Ps5SessionHost> {
   final Ps5GameSessionRegistry _sessions = Ps5GameSessionRegistry();
 
   void _activate(GameEntry entry) {
-    if (entry.engine == GameEngineKind.krkr) return;
     setState(() => _sessions.activate(entry));
   }
 
@@ -168,6 +166,7 @@ class _Ps5SessionHostState extends State<_Ps5SessionHost> {
                     fontOverrideFilePath: session.entry.fontOverrideFilePath,
                     reportedOs: session.entry.reportedOs,
                     runtimePlatform: session.entry.runtimePlatform,
+                    krkrEntryXp3: session.entry.krkrEntryXp3,
                     manifestPath: session.entry.manifestPath,
                   ),
                 ),

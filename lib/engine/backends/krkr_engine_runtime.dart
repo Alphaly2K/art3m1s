@@ -47,6 +47,8 @@ class KrkrEngineRuntime implements EngineRuntime {
   int _pointerX = 0;
   int _pointerY = 0;
   bool _initialized = false;
+  EngineSessionState _sessionState = EngineSessionState.active;
+  Future<void> _sessionTransition = Future<void>.value();
   bool _exitRequested = false;
   bool _reportedMutedAudio = false;
   int? _sharedTextureId;
@@ -75,12 +77,33 @@ class KrkrEngineRuntime implements EngineRuntime {
   @override
   Set<EngineSessionState> get supportedSessionStates => const {
     EngineSessionState.active,
+    EngineSessionState.frozen,
+    EngineSessionState.suspended,
   };
   @override
-  EngineSessionState get sessionState => EngineSessionState.active;
+  EngineSessionState get sessionState => _sessionState;
   @override
-  Future<EngineSessionState> setSessionState(EngineSessionState state) async =>
-      EngineSessionState.active;
+  Future<EngineSessionState> setSessionState(EngineSessionState state) {
+    final target = supportedSessionStates.contains(state)
+        ? state
+        : EngineSessionState.suspended;
+    final transition = _sessionTransition.then((_) async {
+      if (_sessionState == target) return;
+      _sessionState = target;
+      if (target == EngineSessionState.active) {
+        await _media.setSuspended(false);
+        notifyLifecycle(2);
+        return;
+      }
+      notifyLifecycle(1);
+      await _media.setSuspended(true);
+      if (target.releasesPresentation) {
+        await SharedTextureSessionCoordinator.release(this);
+      }
+    });
+    _sessionTransition = transition.catchError((_) {});
+    return transition.then((_) => target);
+  }
 
   @override
   Future<void> initialize() async {
@@ -163,6 +186,10 @@ class KrkrEngineRuntime implements EngineRuntime {
     final api = _api;
     final projectPath = _projectPath;
     if (api == null || projectPath == null) return;
+    if (_runtime > 0) {
+      Log.info('[KrkrEngineRuntime] 复用已有 KRKR runtime，避免进程内二次初始化');
+      return;
+    }
     // The upstream shim currently rejects a non-empty save root. Keep the app
     // save directory reserved, but let KRKR use the game's own savedata path.
     if (_saveDirectory != null) {
@@ -194,6 +221,7 @@ class KrkrEngineRuntime implements EngineRuntime {
 
   @override
   Uint8List? advanceAndRender(int deltaMs) {
+    if (_sessionState != EngineSessionState.active) return null;
     if (!_tick(deltaMs)) return null;
     final api = _api;
     if (api == null || _runtime <= 0) return null;
@@ -205,6 +233,7 @@ class KrkrEngineRuntime implements EngineRuntime {
   }
 
   bool _tick(int deltaMs) {
+    if (_sessionState != EngineSessionState.active) return false;
     final api = _api;
     final runtime = _runtime;
     if (api == null || runtime <= 0) return false;
@@ -498,6 +527,7 @@ class KrkrEngineRuntime implements EngineRuntime {
             this,
             _releaseSharedTextureForSession,
             () async {
+              if (_sessionState != EngineSessionState.active) return null;
               if (!_sharedTextureHandlerAttached) {
                 _sharedTextureChannel.setMethodCallHandler(
                   _handleSharedTextureCall,
@@ -624,6 +654,7 @@ class KrkrEngineRuntime implements EngineRuntime {
 
   @override
   int advanceAndPresent(int deltaMs) {
+    if (_sessionState != EngineSessionState.active) return -1;
     if (!_sharedTextureAttached) return -1;
     if (!_tick(deltaMs)) {
       _detachSharedTexture();

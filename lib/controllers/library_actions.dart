@@ -606,7 +606,7 @@ class LibraryActions {
     await ref.read(libraryProvider.notifier).markPlayed(configured.path);
     if (!context.mounted) return;
     final sessionHost = Ps5GameSessionScope.maybeOf(context);
-    if (sessionHost != null && configured.engine != GameEngineKind.krkr) {
+    if (sessionHost != null) {
       sessionHost.activate(configured);
       return;
     }
