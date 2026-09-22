@@ -19,6 +19,9 @@ Future<void> main(List<String> arguments) async {
     if (options.krkr && target != 'macos') {
       throw UsageException('--krkr 目前只支持 macOS 构建');
     }
+    if (options.siglus && target != 'macos') {
+      throw UsageException('--siglus 目前只支持 macOS 构建');
+    }
     stdout.writeln('\n=== Building $target (${options.profile}) ===');
     switch (target) {
       case 'ios':
@@ -86,6 +89,7 @@ final class BuildOptions {
     required this.deviceOnly,
     required this.signOnly,
     required this.krkr,
+    required this.siglus,
   });
 
   final String target;
@@ -93,6 +97,7 @@ final class BuildOptions {
   final bool deviceOnly;
   final bool signOnly;
   final bool krkr;
+  final bool siglus;
 
   static BuildOptions parse(List<String> arguments) {
     var target = 'all';
@@ -100,6 +105,7 @@ final class BuildOptions {
     var deviceOnly = false;
     var signOnly = false;
     var krkr = false;
+    var siglus = false;
     for (final argument in arguments) {
       switch (argument) {
         case '--debug':
@@ -114,6 +120,8 @@ final class BuildOptions {
           signOnly = true;
         case '--krkr':
           krkr = true;
+        case '--siglus':
+          siglus = true;
         case 'all':
         case 'ios':
         case 'ios-obsolete':
@@ -127,7 +135,7 @@ final class BuildOptions {
           stdout.writeln(
             'Usage: dart run tool/build.dart '
             '[all|ios|ios-obsolete|macos|android|windows|linux] '
-            '[--release|--profile|--debug] [--device-only] [--sign-only] [--krkr]',
+            '[--release|--profile|--debug] [--device-only] [--sign-only] [--krkr] [--siglus]',
           );
           exit(0);
         default:
@@ -140,6 +148,7 @@ final class BuildOptions {
       deviceOnly: deviceOnly,
       signOnly: signOnly,
       krkr: krkr,
+      siglus: siglus,
     );
   }
 }
@@ -453,7 +462,7 @@ Future<void> _buildMacos(
       'build',
       if (options.profile == 'release') '--release',
       '--features',
-      'ffmpeg',
+      options.siglus ? 'ffmpeg,siglus-engine' : 'ffmpeg',
       '--manifest-path',
       '${core.path}/Cargo.toml',
     ],

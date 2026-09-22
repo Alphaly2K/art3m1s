@@ -74,3 +74,16 @@
 - [ ] `test/game_manifest_test.dart` 覆盖新引擎的 manifest 字段过滤。
 - [ ] iOS 扫描能识别新引擎目录;Android 全文件访问授权流程不受影响。
 - [ ] 资料库删除条目时不会删除用户原目录(托管根白名单仅针对遗留沙箱拷贝)。
+
+## Siglus 接入状态（2026-09-22）
+
+- 目录根需同时含 `Scene.pck` 与 `Gameexe.dat`（或 `Gameexe.ini`）。
+  Artemis 和 RFVP 标记优先；保存 `engine: siglus`，不允许 PFS。
+- macOS 使用 `dart run tool/build.dart macos --siglus` 将独立 Siglus ABI
+  编进 core；Flutter 运行时由 `SiglusEngineRuntime` 控制 VM、
+  `art3m1s-render`、输入和共享纹理，回读 RGBA 作为后备。
+- Siglus 原项目的 Kira 音频仍直接使用本机设备，尚未改为 Host 拉取媒体命令；
+  存档路径仍由原 VM 决定，`setSaveDir` 尚未接入；iOS/Android 未验证，
+  不能宣称跨平台可运行。
+- core 构建需要 `siglus_rs` 与 `art3m1s-core` 位于同级目录，并使用
+  含 `SiglusHost::new_external` 的 `codex/art3m1s-adapter` 分支。

@@ -305,6 +305,20 @@ void main() {
   });
 
   group('per-engine field filtering', () {
+    test('siglus manifest stores only supported settings', () {
+      final json = GameManifest(
+        name: 'Siglus Game',
+        engine: GameEngineKind.siglus,
+        translationEnabled: true,
+        environmentPatchEnabled: true,
+        inputGate: InputGatePolicy.touchOnly,
+      ).toJson();
+      expect(json['engine'], 'siglus');
+      expect(json.containsKey('inputGate'), isTrue);
+      expect(json.containsKey('translationEnabled'), isFalse);
+      expect(json.containsKey('environmentPatchEnabled'), isFalse);
+    });
+
     test('rfvp manifest omits Artemis-only keys when serialized', () {
       final manifest = GameManifest(
         name: 'FVP Game',
@@ -402,6 +416,11 @@ void main() {
       expect(krkr.contains(GameSettingField.translationEnabled), isFalse);
       expect(krkr.contains(GameSettingField.fontOverride), isFalse);
       expect(GameEngineKind.krkr.supportsPfsArchives, isFalse);
+      final siglus = GameEngineKind.siglus.supportedGameSettings;
+      expect(siglus.contains(GameSettingField.inputGate), isTrue);
+      expect(siglus.contains(GameSettingField.translationEnabled), isFalse);
+      expect(siglus.contains(GameSettingField.krkrEntryXp3), isFalse);
+      expect(GameEngineKind.siglus.supportsPfsArchives, isFalse);
     });
   });
 }

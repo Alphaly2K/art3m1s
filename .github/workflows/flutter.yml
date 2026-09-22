@@ -25,6 +25,11 @@ jobs:
         with:
           repository: Alphaly2K/rfvp
           path: rfvp
+      - name: Checkout Siglus dependency
+        uses: actions/checkout@v4
+        with:
+          repository: Alphaly2K/siglus_rs
+          path: siglus_rs
       - name: Checkout Art3m1s
         uses: actions/checkout@v4
         with:
@@ -58,6 +63,11 @@ jobs:
         with:
           repository: Alphaly2K/rfvp
           path: rfvp
+      - name: Checkout Siglus dependency
+        uses: actions/checkout@v4
+        with:
+          repository: Alphaly2K/siglus_rs
+          path: siglus_rs
       - name: Checkout Art3m1s
         uses: actions/checkout@v4
         with:
@@ -116,6 +126,11 @@ jobs:
         with:
           repository: Alphaly2K/rfvp
           path: rfvp
+      - name: Checkout Siglus dependency
+        uses: actions/checkout@v4
+        with:
+          repository: Alphaly2K/siglus_rs
+          path: siglus_rs
       - name: Checkout Art3m1s
         uses: actions/checkout@v4
         with:

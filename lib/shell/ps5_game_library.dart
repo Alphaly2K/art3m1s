@@ -16,9 +16,9 @@ import '../widgets/ps5_cover_art.dart';
 
 enum GameLibrarySort { recentlyPlayed, nameAz, nameZa }
 
-enum GameLibraryTab { collection, installed, art3m1s, fvp, kirikiri }
+enum GameLibraryTab { collection, installed, art3m1s, fvp, kirikiri, siglus }
 
-enum GameLibraryPlatformFilter { all, art3m1s, rfvp, krkr }
+enum GameLibraryPlatformFilter { all, art3m1s, rfvp, krkr, siglus }
 
 enum GameLibrarySourceFilter { all, directory, pfs }
 
@@ -70,6 +70,7 @@ class _Ps5GameLibraryPageState extends ConsumerState<Ps5GameLibraryPage> {
     GameLibraryPlatformFilter.art3m1s => 'Artemis',
     GameLibraryPlatformFilter.rfvp => 'FVP',
     GameLibraryPlatformFilter.krkr => 'Kirikiri',
+    GameLibraryPlatformFilter.siglus => 'Siglus',
   };
 
   String get _sourceLabel => switch (_source) {
@@ -91,6 +92,9 @@ class _Ps5GameLibraryPageState extends ConsumerState<Ps5GameLibraryPage> {
       GameLibraryTab.kirikiri => games.where(
         (entry) => entry.engine == GameEngineKind.krkr,
       ),
+      GameLibraryTab.siglus => games.where(
+        (entry) => entry.engine == GameEngineKind.siglus,
+      ),
     };
     games = switch (_platform) {
       GameLibraryPlatformFilter.all => games,
@@ -102,6 +106,9 @@ class _Ps5GameLibraryPageState extends ConsumerState<Ps5GameLibraryPage> {
       ),
       GameLibraryPlatformFilter.krkr => games.where(
         (entry) => entry.engine == GameEngineKind.krkr,
+      ),
+      GameLibraryPlatformFilter.siglus => games.where(
+        (entry) => entry.engine == GameEngineKind.siglus,
       ),
     };
     games = switch (_source) {
@@ -189,6 +196,10 @@ class _Ps5GameLibraryPageState extends ConsumerState<Ps5GameLibraryPage> {
                 Ps5MenuChoice(
                   value: GameLibraryPlatformFilter.krkr,
                   label: 'Kirikiri',
+                ),
+                Ps5MenuChoice(
+                  value: GameLibraryPlatformFilter.siglus,
+                  label: 'Siglus',
                 ),
               ],
             ),
@@ -336,6 +347,7 @@ class _Ps5GameLibraryPageState extends ConsumerState<Ps5GameLibraryPage> {
                       GameLibraryTab.art3m1s => 'Artemis',
                       GameLibraryTab.fvp => 'FVP',
                       GameLibraryTab.kirikiri => 'Kirikiri',
+                      GameLibraryTab.siglus => 'Siglus',
                     },
                     selected: _tab == tab,
                     onPressed: () => _selectTab(tab),

@@ -7,7 +7,9 @@ import 'package:art3m1s/engine/engine_runtime.dart';
 import 'package:art3m1s/engine/backends/art3m1s_engine_runtime.dart';
 import 'package:art3m1s/engine/backends/rfvp_engine_runtime.dart';
 import 'package:art3m1s/engine/backends/krkr_engine_runtime.dart';
+import 'package:art3m1s/engine/backends/siglus_engine_runtime.dart';
 import 'package:art3m1s/models/game_engine.dart';
+import 'package:art3m1s/services/logger.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -18,6 +20,53 @@ void main() {
     expect(GameEngineKind.fromId('RFVP'), GameEngineKind.rfvp);
     expect(GameEngineKind.fromId('krkr'), GameEngineKind.krkr);
     expect(GameEngineKind.fromId('Kirikiri'), GameEngineKind.krkr);
+    expect(GameEngineKind.fromId('Siglus'), GameEngineKind.siglus);
+  });
+
+  test('Siglus uses its isolated host runtime adapter', () {
+    final runtime = EngineRuntimeFactory.create(engine: GameEngineKind.siglus);
+    expect(runtime, isA<SiglusEngineRuntime>());
+    expect(runtime.hasActiveSharedTexture, isFalse);
+    runtime.shutdown();
+  });
+
+  test('optional Siglus native host bridge renders a real game', () async {
+    final game = Platform.environment['ART3M1S_SIGLUS_TEST_GAME'];
+    if (!Platform.isMacOS || game == null) return;
+    final runtime = EngineRuntimeFactory.create(engine: GameEngineKind.siglus);
+    try {
+      await runtime.initialize();
+      expect(
+        runtime.isInitialized,
+        isTrue,
+        reason: Log.entries.map((entry) => entry.message).join('\n'),
+      );
+      final prepared = await runtime.prepareProject(
+        projectPath: game,
+        isArchive: false,
+        environmentPatchEnabled: false,
+        platform: 'WINDOWS',
+      );
+      expect(prepared, isNotNull);
+      runtime.createRuntime(1280, 720);
+      expect(runtime.loadProjectBytes(prepared!), isTrue);
+      Uint8List? frame;
+      for (var index = 0; index < 150; index++) {
+        frame = runtime.advanceAndRender(16);
+        if (frame != null &&
+            frame.buffer.asUint32List().any(
+              (pixel) => pixel & 0x00ffffff != 0,
+            )) {
+          break;
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 16));
+      }
+      expect(frame, isNotNull);
+      expect(frame!.length, runtime.stageWidth * runtime.stageHeight * 4);
+      runtime.feedMouse(100, 100);
+    } finally {
+      runtime.shutdown();
+    }
   });
 
   test('KRKR uses its isolated host runtime adapter', () {

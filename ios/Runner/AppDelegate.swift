@@ -154,11 +154,17 @@ import UIKit
     var found: [[String: String]] = []
     for case let url as URL in enumerator {
       let name = url.lastPathComponent
-      // Artemis 工程以 system.ini 为根标记,RFVP 工程以 .hcb 为根标记;
-      // 两者都把所在目录作为工程根登记一次。
+      // Siglus 需要 Scene.pck 和 Gameexe.dat/ini 同在工程根目录。
+      let isSiglusMarker = name.caseInsensitiveCompare("scene.pck") == .orderedSame &&
+        (try? fm.contentsOfDirectory(atPath: url.deletingLastPathComponent().path))?
+          .contains(where: { $0.caseInsensitiveCompare("gameexe.dat") == .orderedSame ||
+            $0.caseInsensitiveCompare("gameexe.ini") == .orderedSame }) == true
       let isProjectMarker =
         name.caseInsensitiveCompare("system.ini") == .orderedSame ||
-        name.lowercased().hasSuffix(".hcb")
+        name.lowercased().hasSuffix(".hcb") ||
+        isSiglusMarker ||
+        name.caseInsensitiveCompare("startup.tjs") == .orderedSame ||
+        name.lowercased().hasSuffix(".xp3")
       if isProjectMarker {
         let projectDir = url.deletingLastPathComponent()
         if seen.insert(projectDir.path).inserted {

@@ -422,7 +422,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     // macOS CGL 保留原 RGBA 回读路径，旧 core/旧宿主也会自动回退。
     if (Platform.isAndroid ||
         Platform.isIOS ||
-        (Platform.isMacOS && renderBackend != 0)) {
+        (Platform.isMacOS &&
+            (renderBackend != 0 || widget.engine == GameEngineKind.siglus))) {
       _sharedTextureRequested = true;
       if (widget.sessionState.isRunning) await _syncSharedTextureExtent();
     } else {

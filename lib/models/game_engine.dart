@@ -2,7 +2,8 @@
 enum GameEngineKind {
   art3m1s('art3m1s', 'Artemis'),
   rfvp('rfvp', 'FVP'),
-  krkr('krkr', 'Kirikiri');
+  krkr('krkr', 'Kirikiri'),
+  siglus('siglus', 'Siglus');
 
   const GameEngineKind(this.id, this.label);
 
@@ -16,6 +17,7 @@ enum GameEngineKind {
     return switch (id) {
       'rfvp' || 'fvp' => GameEngineKind.rfvp,
       'krkr' || 'kirikiri' => GameEngineKind.krkr,
+      'siglus' => GameEngineKind.siglus,
       _ => GameEngineKind.art3m1s,
     };
   }
@@ -43,6 +45,12 @@ enum GameEngineKind {
       GameSettingField.vndbId,
       GameSettingField.inputGate,
       GameSettingField.krkrEntryXp3,
+    },
+    GameEngineKind.siglus => const {
+      GameSettingField.displayName,
+      GameSettingField.cover,
+      GameSettingField.vndbId,
+      GameSettingField.inputGate,
     },
   };
 

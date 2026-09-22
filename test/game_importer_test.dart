@@ -73,6 +73,32 @@ void main() {
     expect(GameImporter.detectDirectoryEngine(root.path), GameEngineKind.rfvp);
   });
 
+  test('Siglus needs both root markers and preserves Artemis priority', () {
+    final root = Directory.systemTemp.createTempSync('art3m1s_siglus_');
+    addTearDown(() => root.deleteSync(recursive: true));
+    final game = Directory('${root.path}${Platform.pathSeparator}game')
+      ..createSync();
+    File(
+      '${game.path}${Platform.pathSeparator}Scene.PCK',
+    ).writeAsBytesSync([1]);
+    expect(GameImporter.discoverUnpackedProjects(root.path), isEmpty);
+    File(
+      '${game.path}${Platform.pathSeparator}Gameexe.DAT',
+    ).writeAsBytesSync([2]);
+    expect(GameImporter.probeGameFolder(root.path).projects, [game.path]);
+    expect(
+      GameImporter.detectDirectoryEngine(game.path),
+      GameEngineKind.siglus,
+    );
+    File(
+      '${game.path}${Platform.pathSeparator}system.ini',
+    ).writeAsStringSync('[boot]');
+    expect(
+      GameImporter.detectDirectoryEngine(game.path),
+      GameEngineKind.art3m1s,
+    );
+  });
+
   test('directory detection prefers Artemis when system.ini is present', () {
     final root = Directory.systemTemp.createTempSync('art3m1s_mixed_');
     addTearDown(() => root.deleteSync(recursive: true));
