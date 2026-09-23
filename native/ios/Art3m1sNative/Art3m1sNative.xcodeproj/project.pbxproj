@@ -96,8 +96,8 @@
 		B00000000000000000000019 /* EnvironmentPatch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnvironmentPatch.swift; sourceTree = "<group>"; };
 		B0000000000000000000001A /* NativeMediaBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMediaBridge.swift; sourceTree = "<group>"; };
 		B0000000000000000000001B /* NativeTranslationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeTranslationService.swift; sourceTree = "<group>"; };
-		B0000000000000000000001C /* audio_decode_shim.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = audio_decode_shim.c; path = ../../../third_party/audio_decode/src/audio_decode_shim.c; sourceTree = SOURCE_ROOT; };
-		B0000000000000000000001D /* audio_decode_mp3.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = audio_decode_mp3.c; path = ../../../third_party/audio_decode/src/audio_decode_mp3.c; sourceTree = SOURCE_ROOT; };
+		B0000000000000000000001C /* audio_decode_shim.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = AudioDecodeVendor/audio_decode_shim.c; sourceTree = "<group>"; };
+		B0000000000000000000001D /* audio_decode_mp3.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = AudioDecodeVendor/audio_decode_mp3.c; sourceTree = "<group>"; };
 		B0000000000000000000001E /* GameInputView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameInputView.swift; sourceTree = "<group>"; };
 		B0000000000000000000001F /* MetalHostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetalHostView.swift; sourceTree = "<group>"; };
 		B00000000000000000000020 /* AudioDecodeShim.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AudioDecodeShim.h; sourceTree = "<group>"; };
@@ -453,7 +453,6 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Art3m1sNative/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-				HEADER_SEARCH_PATHS = "$(SRCROOT)/../../../third_party/audio_decode/src/third_party";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -482,7 +481,6 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Art3m1sNative/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-				HEADER_SEARCH_PATHS = "$(SRCROOT)/../../../third_party/audio_decode/src/third_party";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
