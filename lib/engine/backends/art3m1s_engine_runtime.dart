@@ -379,8 +379,6 @@ class Art3m1sEngineRuntime implements EngineRuntime {
   bool _sharedTextureHandlerAttached = false;
   int _sharedTextureWidth = 0;
   int _sharedTextureHeight = 0;
-  String? _projectPath;
-  bool _projectIsArchive = false;
   final ProjectAssetStore _projectAssets = ProjectAssetStore();
   TextTranslationService? translation;
   int _stageWidth = 1280;
@@ -893,8 +891,6 @@ class Art3m1sEngineRuntime implements EngineRuntime {
     required bool environmentPatchEnabled,
     required String platform,
   }) async {
-    _projectPath = projectPath;
-    _projectIsArchive = isArchive;
     _projectAssets.close();
     media.configureAssetReader(_readProjectAsset);
     if (!isArchive) {

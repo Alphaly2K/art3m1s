@@ -635,6 +635,7 @@ Future<void> _buildAndroid(
   final output = Directory('${project.path}/android/app/src/main/jniLibs');
   output.createSync(recursive: true);
   for (final crate in <Directory>[core, pfs]) {
+    final isCore = crate.path == core.path;
     await _run('cargo', <String>[
       'ndk',
       '-t',
@@ -643,6 +644,12 @@ Future<void> _buildAndroid(
       output.path,
       'build',
       if (options.profile == 'release') '--release',
+      // core 默认启用 krkr-engine，但其 native shim 目前只支持 Darwin。
+      if (isCore) ...<String>[
+        '--no-default-features',
+        '--features',
+        'gl-backend,metal-backend,vulkan-backend,experimental-eluna,rfvp-engine',
+      ],
       '--manifest-path',
       '${crate.path}/Cargo.toml',
     ], workingDirectory: crate);
