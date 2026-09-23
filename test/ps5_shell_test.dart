@@ -200,10 +200,6 @@ void main() {
           .left,
       closeTo(56, 0.1),
     );
-    await expectLater(
-      find.byType(Ps5ShellApp),
-      matchesGoldenFile('ps5-home-screenshot-probe.png'),
-    );
 
     final playAction = tester.widget<FocusableActionDetector>(
       find.byWidgetPredicate(

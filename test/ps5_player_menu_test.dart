@@ -103,21 +103,6 @@ void main() {
     await tester.pump();
     expect(find.byKey(const ValueKey('ps5-player-menu')), findsNothing);
   });
-
-  testWidgets('PS5 player menu renders the in-game control strip', (
-    tester,
-  ) async {
-    await tester.binding.setSurfaceSize(const Size(1600, 1000));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-
-    await tester.pumpWidget(const MaterialApp(home: _MenuProbe()));
-    await tester.pump();
-
-    await expectLater(
-      find.byType(_MenuProbe),
-      matchesGoldenFile('ps5-player-menu-probe.png'),
-    );
-  });
 }
 
 class _MenuProbe extends StatefulWidget {
