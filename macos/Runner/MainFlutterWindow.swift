@@ -1,4 +1,5 @@
 import Cocoa
+import AVFoundation
 import CoreVideo
 import FlutterMacOS
 import IOSurface
@@ -6,6 +7,7 @@ import macos_window_utils
 
 class MainFlutterWindow: NSWindow {
   private var sharedTextureHost: Art3m1sSharedTextureHost?
+  private var siglusAudioHost: Art3m1sSiglusAudioHost?
 
   override func awakeFromNib() {
     let windowFrame = self.frame
@@ -27,8 +29,136 @@ class MainFlutterWindow: NSWindow {
       forPlugin: "Art3m1sSharedTexture"
     )
     sharedTextureHost = Art3m1sSharedTextureHost(registrar: textureRegistrar)
+    let audioRegistrar = macOSWindowUtilsViewController.flutterViewController.registrar(
+      forPlugin: "Art3m1sSiglusAudio"
+    )
+    siglusAudioHost = Art3m1sSiglusAudioHost(registrar: audioRegistrar)
 
     super.awakeFromNib()
+  }
+}
+
+/// The Siglus VM mixes through Kira's device-free backend. Only this host
+/// object owns the macOS output device and its queued PCM buffers.
+private final class Art3m1sSiglusAudioHost: NSObject {
+  private let channel: FlutterMethodChannel
+  private var engine: AVAudioEngine?
+  private var player: AVAudioPlayerNode?
+  private var format: AVAudioFormat?
+  private var masterVolume: Float = 1
+  private let queueLock = NSLock()
+  private var queuedFrames = 0
+  private let maxQueuedFrames = 24_000
+
+  init(registrar: FlutterPluginRegistrar) {
+    channel = FlutterMethodChannel(
+      name: "moe.alphaly.art3m1s/siglus_audio",
+      binaryMessenger: registrar.messenger
+    )
+    super.init()
+    channel.setMethodCallHandler { [weak self] call, result in
+      guard let self else {
+        result(FlutterError(code: "HOST_RELEASED", message: "Siglus audio host released", details: nil))
+        return
+      }
+      switch call.method {
+      case "start":
+        do {
+          try self.start()
+          result(true)
+        } catch {
+          result(FlutterError(code: "AUDIO_START_FAILED", message: error.localizedDescription, details: nil))
+        }
+      case "append":
+        guard let bytes = call.arguments as? FlutterStandardTypedData else {
+          result(FlutterError(code: "INVALID_PCM", message: "Expected Float32 PCM bytes", details: nil))
+          return
+        }
+        result(self.append(bytes.data))
+      case "suspend":
+        let suspended = (call.arguments as? Bool) ?? false
+        if suspended { self.player?.pause() } else { self.player?.play() }
+        result(nil)
+      case "volume":
+        let value = (call.arguments as? NSNumber)?.floatValue ?? 1
+        self.masterVolume = min(max(value, 0), 1)
+        self.player?.volume = self.masterVolume
+        result(nil)
+      case "dispose":
+        self.dispose()
+        result(nil)
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
+  }
+
+  deinit { dispose() }
+
+  private func start() throws {
+    dispose()
+    guard let format = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 2) else {
+      throw NSError(domain: "Art3m1sSiglusAudio", code: 1, userInfo: [
+        NSLocalizedDescriptionKey: "Cannot create 48 kHz stereo format"
+      ])
+    }
+    let engine = AVAudioEngine()
+    let player = AVAudioPlayerNode()
+    engine.attach(player)
+    engine.connect(player, to: engine.mainMixerNode, format: format)
+    engine.prepare()
+    try engine.start()
+    player.volume = masterVolume
+    player.play()
+    self.engine = engine
+    self.player = player
+    self.format = format
+  }
+
+  private func append(_ bytes: Data) -> Bool {
+    guard let player, let format, !bytes.isEmpty, bytes.count % 8 == 0 else { return false }
+    let frames = bytes.count / 8
+    guard frames <= 4_800 else { return false }
+    queueLock.lock()
+    let accepted = queuedFrames + frames <= maxQueuedFrames
+    if accepted { queuedFrames += frames }
+    queueLock.unlock()
+    guard accepted else { return false }
+    guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(frames)),
+          let channels = buffer.floatChannelData else {
+      finish(frames)
+      return false
+    }
+    buffer.frameLength = AVAudioFrameCount(frames)
+    bytes.withUnsafeBytes { raw in
+      for frame in 0..<frames {
+        let left = raw.loadUnaligned(fromByteOffset: frame * 8, as: UInt32.self)
+        let right = raw.loadUnaligned(fromByteOffset: frame * 8 + 4, as: UInt32.self)
+        channels[0][frame] = Float(bitPattern: UInt32(littleEndian: left))
+        channels[1][frame] = Float(bitPattern: UInt32(littleEndian: right))
+      }
+    }
+    player.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { [weak self] _ in
+      self?.finish(frames)
+    }
+    return true
+  }
+
+  private func finish(_ frames: Int) {
+    queueLock.lock()
+    queuedFrames = max(0, queuedFrames - frames)
+    queueLock.unlock()
+  }
+
+  private func dispose() {
+    player?.stop()
+    engine?.stop()
+    player = nil
+    engine = nil
+    format = nil
+    queueLock.lock()
+    queuedFrames = 0
+    queueLock.unlock()
   }
 }
 

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:ffi';
 import 'dart:typed_data';
 
@@ -34,6 +35,178 @@ typedef _ExitNative = Int32 Function(Uint64);
 typedef _ExitDart = int Function(int);
 typedef _ErrorNative = UintPtr Function(Pointer<Uint8>, UintPtr);
 typedef _ErrorDart = int Function(Pointer<Uint8>, int);
+typedef _GetDiagnosticsNative =
+    Pointer<_SiglusDiagnosticsApiV1> Function(Pointer<UintPtr>);
+typedef _GetDiagnosticsDart =
+    Pointer<_SiglusDiagnosticsApiV1> Function(Pointer<UintPtr>);
+typedef _LogNextBytesNative = UintPtr Function();
+typedef _LogNextBytesDart = int Function();
+typedef _PollLogNative = UintPtr Function(Pointer<Uint8>, UintPtr);
+typedef _PollLogDart = int Function(Pointer<Uint8>, int);
+typedef _SetDebugNative = Int32 Function(Uint64, Int32);
+typedef _SetDebugDart = int Function(int, int);
+typedef _GetAudioNative = Pointer<_SiglusAudioApiV1> Function(Pointer<UintPtr>);
+typedef _GetAudioDart = Pointer<_SiglusAudioApiV1> Function(Pointer<UintPtr>);
+typedef _RenderPcmNative = Int32 Function(Uint64, Pointer<Float>, UintPtr);
+typedef _RenderPcmDart = int Function(int, Pointer<Float>, int);
+
+final class _SiglusAudioApiV1 extends Struct {
+  @Uint32()
+  external int structSize;
+  @Uint32()
+  external int abiVersion;
+  @Uint64()
+  external int magic;
+  @Uint32()
+  external int sampleRate;
+  @Uint32()
+  external int channels;
+  external Pointer<NativeFunction<_RenderPcmNative>> runtimeRenderPcm;
+}
+
+class CoreSiglusAudioV1 {
+  CoreSiglusAudioV1._(this._table);
+  final Pointer<_SiglusAudioApiV1> _table;
+
+  int get sampleRate => _table.ref.sampleRate;
+  int get channels => _table.ref.channels;
+
+  static CoreSiglusAudioV1? tryLoad(DynamicLibrary library) {
+    final _GetAudioDart getApi;
+    try {
+      getApi = library.lookupFunction<_GetAudioNative, _GetAudioDart>(
+        'art3m1s_siglus_get_audio_api_v1',
+      );
+    } catch (_) {
+      return null;
+    }
+    final size = calloc<UintPtr>();
+    try {
+      final table = getApi(size);
+      if (table == nullptr ||
+          size.value != sizeOf<_SiglusAudioApiV1>() ||
+          table.ref.structSize != size.value ||
+          table.ref.abiVersion != 1 ||
+          table.ref.magic != 0x315641534d334152 ||
+          table.ref.sampleRate != 48000 ||
+          table.ref.channels != 2 ||
+          table.ref.runtimeRenderPcm == nullptr) {
+        return null;
+      }
+      return CoreSiglusAudioV1._(table);
+    } finally {
+      calloc.free(size);
+    }
+  }
+
+  Uint8List? renderPcm(int runtime, int frames) {
+    if (frames <= 0 || frames > 4800) return null;
+    final buffer = calloc<Float>(frames * channels);
+    try {
+      final status = _table.ref.runtimeRenderPcm.asFunction<_RenderPcmDart>()(
+        runtime,
+        buffer,
+        frames,
+      );
+      if (status != 0) return null;
+      return Uint8List.fromList(
+        buffer.cast<Uint8>().asTypedList(frames * channels * 4),
+      );
+    } finally {
+      calloc.free(buffer);
+    }
+  }
+}
+
+final class _SiglusDiagnosticsApiV1 extends Struct {
+  @Uint32()
+  external int structSize;
+  @Uint32()
+  external int abiVersion;
+  @Uint64()
+  external int magic;
+  external Pointer<NativeFunction<_LogNextBytesNative>> logNextBytes;
+  external Pointer<NativeFunction<_PollLogNative>> pollLog;
+  external Pointer<NativeFunction<_SetDebugNative>> runtimeSetDebug;
+}
+
+class SiglusLogRecord {
+  const SiglusLogRecord(this.level, this.message);
+  final int level;
+  final String message;
+}
+
+class CoreSiglusDiagnosticsV1 {
+  CoreSiglusDiagnosticsV1._(this._table);
+  final Pointer<_SiglusDiagnosticsApiV1> _table;
+
+  static CoreSiglusDiagnosticsV1? tryLoad(DynamicLibrary library) {
+    final _GetDiagnosticsDart getApi;
+    try {
+      getApi = library
+          .lookupFunction<_GetDiagnosticsNative, _GetDiagnosticsDart>(
+            'art3m1s_siglus_get_diagnostics_api_v1',
+          );
+    } catch (_) {
+      return null;
+    }
+    final size = calloc<UintPtr>();
+    try {
+      final table = getApi(size);
+      if (table == nullptr ||
+          size.value != sizeOf<_SiglusDiagnosticsApiV1>() ||
+          table.ref.structSize != size.value ||
+          table.ref.abiVersion != 1 ||
+          table.ref.magic != 0x315647534d334152 ||
+          table.ref.logNextBytes == nullptr ||
+          table.ref.pollLog == nullptr ||
+          table.ref.runtimeSetDebug == nullptr) {
+        return null;
+      }
+      return CoreSiglusDiagnosticsV1._(table);
+    } finally {
+      calloc.free(size);
+    }
+  }
+
+  int setDebug(int runtime, bool enabled) => _table.ref.runtimeSetDebug
+      .asFunction<_SetDebugDart>()(runtime, enabled ? 1 : 0);
+
+  List<SiglusLogRecord> pollLogs() {
+    final next = _table.ref.logNextBytes.asFunction<_LogNextBytesDart>()();
+    if (next <= 0 || next > 16 * 1024 + 8) return const [];
+    final buffer = calloc<Uint8>(64 * 1024);
+    try {
+      final written = _table.ref.pollLog.asFunction<_PollLogDart>()(
+        buffer,
+        64 * 1024,
+      );
+      if (written <= 0 || written > 64 * 1024) return const [];
+      final bytes = buffer.asTypedList(written);
+      final view = ByteData.sublistView(bytes);
+      final records = <SiglusLogRecord>[];
+      var offset = 0;
+      while (offset + 8 <= written) {
+        final level = view.getUint32(offset, Endian.little);
+        final length = view.getUint32(offset + 4, Endian.little);
+        if (length > 16 * 1024 || offset + 8 + length > written) break;
+        records.add(
+          SiglusLogRecord(
+            level,
+            utf8.decode(
+              bytes.sublist(offset + 8, offset + 8 + length),
+              allowMalformed: true,
+            ),
+          ),
+        );
+        offset += 8 + length;
+      }
+      return records;
+    } finally {
+      calloc.free(buffer);
+    }
+  }
+}
 
 final class _SiglusApiV1 extends Struct {
   @Uint32()

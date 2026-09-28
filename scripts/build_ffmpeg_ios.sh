@@ -408,7 +408,7 @@ package_slice() {
     local output="$FFMPEG_OUT_DIR/lib${name}.xcframework"
     local args=(-framework "$slice/lib${name}.framework")
     if [[ "$BUILD_SIM" == "1" ]]; then
-      args+=(-framework "$FFMPEG_BUILD_DIR/simulator/lib${name}.framework")
+      args+=(-framework "$FFMPEG_BUILD_DIR/frameworks/simulator/lib${name}.framework")
     fi
     rm -rf "$output"
     xcodebuild -create-xcframework "${args[@]}" -output "$output"

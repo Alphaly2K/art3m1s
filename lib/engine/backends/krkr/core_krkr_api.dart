@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:ffi';
 import 'dart:typed_data';
 
@@ -42,78 +43,153 @@ const int art3m1sKrkrAudioFormatI32 = 5;
 
 typedef _GetApiNative = Pointer<_Art3m1sKrkrApiV1> Function(Pointer<UintPtr>);
 typedef _GetApiDart = Pointer<_Art3m1sKrkrApiV1> Function(Pointer<UintPtr>);
-typedef _ProbeProjectNative = Int32 Function(
-  Pointer<Char>,
-  Pointer<_KrkrProbeV1>,
-);
+typedef _ProbeProjectNative =
+    Int32 Function(Pointer<Char>, Pointer<_KrkrProbeV1>);
 typedef _ProbeProjectDart = int Function(Pointer<Char>, Pointer<_KrkrProbeV1>);
-typedef _RuntimeCreateNative = Int32 Function(
-  Pointer<Char>,
-  Pointer<Char>,
-  Pointer<_KrkrRuntimeConfigV1>,
-  Pointer<Uint64>,
-);
-typedef _RuntimeCreateDart = int Function(
-  Pointer<Char>,
-  Pointer<Char>,
-  Pointer<_KrkrRuntimeConfigV1>,
-  Pointer<Uint64>,
-);
+typedef _RuntimeCreateNative =
+    Int32 Function(
+      Pointer<Char>,
+      Pointer<Char>,
+      Pointer<_KrkrRuntimeConfigV1>,
+      Pointer<Uint64>,
+    );
+typedef _RuntimeCreateDart =
+    int Function(
+      Pointer<Char>,
+      Pointer<Char>,
+      Pointer<_KrkrRuntimeConfigV1>,
+      Pointer<Uint64>,
+    );
 typedef _RuntimeDestroyNative = Void Function(Uint64);
 typedef _RuntimeDestroyDart = void Function(int);
 typedef _RuntimeStageNative = Uint32 Function(Uint64);
 typedef _RuntimeStageDart = int Function(int);
-typedef _RuntimePushInputNative = Int32 Function(
-  Uint64,
-  Pointer<_KrkrInputEventV1>,
-  UintPtr,
-);
-typedef _RuntimePushInputDart = int Function(
-  int,
-  Pointer<_KrkrInputEventV1>,
-  int,
-);
+typedef _RuntimePushInputNative =
+    Int32 Function(Uint64, Pointer<_KrkrInputEventV1>, UintPtr);
+typedef _RuntimePushInputDart =
+    int Function(int, Pointer<_KrkrInputEventV1>, int);
 typedef _RuntimeTickNative = Int32 Function(Uint64);
 typedef _RuntimeTickDart = int Function(int);
-typedef _RuntimeAcquireFrameNative = Int32 Function(
-  Uint64,
-  Pointer<_KrkrFrameV1>,
-);
+typedef _RuntimeAcquireFrameNative =
+    Int32 Function(Uint64, Pointer<_KrkrFrameV1>);
 typedef _RuntimeAcquireFrameDart = int Function(int, Pointer<_KrkrFrameV1>);
 typedef _RuntimeReleaseFrameNative = Int32 Function(Uint64, Uint64);
 typedef _RuntimeReleaseFrameDart = int Function(int, int);
-typedef _RuntimePollAudioCommandNative = Int32 Function(
-  Uint64,
-  Pointer<_KrkrAudioCommandV1>,
-);
-typedef _RuntimePollAudioCommandDart = int Function(
-  int,
-  Pointer<_KrkrAudioCommandV1>,
-);
-typedef _RuntimeSubmitAudioConsumedNative = Int32 Function(
-  Uint64,
-  Pointer<_KrkrAudioConsumedV1>,
-);
-typedef _RuntimeSubmitAudioConsumedDart = int Function(
-  int,
-  Pointer<_KrkrAudioConsumedV1>,
-);
+typedef _RuntimePollAudioCommandNative =
+    Int32 Function(Uint64, Pointer<_KrkrAudioCommandV1>);
+typedef _RuntimePollAudioCommandDart =
+    int Function(int, Pointer<_KrkrAudioCommandV1>);
+typedef _RuntimeSubmitAudioConsumedNative =
+    Int32 Function(Uint64, Pointer<_KrkrAudioConsumedV1>);
+typedef _RuntimeSubmitAudioConsumedDart =
+    int Function(int, Pointer<_KrkrAudioConsumedV1>);
 typedef _RuntimeIsExitRequestedNative = Int32 Function(Uint64);
 typedef _RuntimeIsExitRequestedDart = int Function(int);
-typedef _RuntimeSetExternalSurfaceNative = Int32 Function(
-  Uint64,
-  Int32,
-  Pointer<Void>,
-  Uint32,
-  Uint32,
-);
-typedef _RuntimeSetExternalSurfaceDart = int Function(
-  int,
-  int,
-  Pointer<Void>,
-  int,
-  int,
-);
+typedef _RuntimeSetExternalSurfaceNative =
+    Int32 Function(Uint64, Int32, Pointer<Void>, Uint32, Uint32);
+typedef _RuntimeSetExternalSurfaceDart =
+    int Function(int, int, Pointer<Void>, int, int);
+typedef _GetDiagnosticsNative =
+    Pointer<_KrkrDiagnosticsApiV1> Function(Pointer<UintPtr>);
+typedef _GetDiagnosticsDart =
+    Pointer<_KrkrDiagnosticsApiV1> Function(Pointer<UintPtr>);
+typedef _LogNextBytesNative = UintPtr Function();
+typedef _LogNextBytesDart = int Function();
+typedef _PollLogNative = UintPtr Function(Pointer<Uint8>, UintPtr);
+typedef _PollLogDart = int Function(Pointer<Uint8>, int);
+typedef _RuntimeSetDebugNative = Int32 Function(Uint64, Int32);
+typedef _RuntimeSetDebugDart = int Function(int, int);
+
+final class _KrkrDiagnosticsApiV1 extends Struct {
+  @Uint32()
+  external int structSize;
+  @Uint32()
+  external int abiVersion;
+  @Uint64()
+  external int magic;
+  external Pointer<NativeFunction<_LogNextBytesNative>> logNextBytes;
+  external Pointer<NativeFunction<_PollLogNative>> pollLog;
+  external Pointer<NativeFunction<_RuntimeSetDebugNative>> runtimeSetDebug;
+}
+
+class KrkrCoreLogRecord {
+  const KrkrCoreLogRecord(this.level, this.message);
+  final int level;
+  final String message;
+}
+
+class CoreKrkrDiagnosticsV1 {
+  CoreKrkrDiagnosticsV1._(this._pointer);
+  final Pointer<_KrkrDiagnosticsApiV1> _pointer;
+
+  static CoreKrkrDiagnosticsV1? tryLoad(DynamicLibrary library) {
+    final _GetDiagnosticsDart getApi;
+    try {
+      getApi = library
+          .lookupFunction<_GetDiagnosticsNative, _GetDiagnosticsDart>(
+            'art3m1s_krkr_get_diagnostics_api_v1',
+          );
+    } catch (_) {
+      return null;
+    }
+    final size = calloc<UintPtr>();
+    try {
+      final pointer = getApi(size);
+      if (pointer == nullptr ||
+          size.value != sizeOf<_KrkrDiagnosticsApiV1>() ||
+          pointer.ref.structSize != size.value ||
+          pointer.ref.abiVersion != 1 ||
+          pointer.ref.magic != 0x315647444d334152 ||
+          pointer.ref.logNextBytes == nullptr ||
+          pointer.ref.pollLog == nullptr ||
+          pointer.ref.runtimeSetDebug == nullptr) {
+        return null;
+      }
+      return CoreKrkrDiagnosticsV1._(pointer);
+    } finally {
+      calloc.free(size);
+    }
+  }
+
+  int setDebug(int runtime, bool enabled) => _pointer.ref.runtimeSetDebug
+      .asFunction<_RuntimeSetDebugDart>()(runtime, enabled ? 1 : 0);
+
+  List<KrkrCoreLogRecord> pollLogs() {
+    final next = _pointer.ref.logNextBytes.asFunction<_LogNextBytesDart>()();
+    if (next <= 0 || next > 16 * 1024 + 8) return const [];
+    final capacity = next > 64 * 1024 ? next : 64 * 1024;
+    final buffer = calloc<Uint8>(capacity);
+    try {
+      final written = _pointer.ref.pollLog.asFunction<_PollLogDart>()(
+        buffer,
+        capacity,
+      );
+      if (written <= 0 || written > capacity) return const [];
+      final bytes = buffer.asTypedList(written);
+      final view = ByteData.sublistView(bytes);
+      final records = <KrkrCoreLogRecord>[];
+      var offset = 0;
+      while (offset + 8 <= written) {
+        final level = view.getUint32(offset, Endian.little);
+        final length = view.getUint32(offset + 4, Endian.little);
+        if (length > 16 * 1024 || offset + 8 + length > written) break;
+        records.add(
+          KrkrCoreLogRecord(
+            level,
+            utf8.decode(
+              bytes.sublist(offset + 8, offset + 8 + length),
+              allowMalformed: true,
+            ),
+          ),
+        );
+        offset += 8 + length;
+      }
+      return records;
+    } finally {
+      calloc.free(buffer);
+    }
+  }
+}
 
 final class _KrkrProbeV1 extends Struct {
   @Uint32()

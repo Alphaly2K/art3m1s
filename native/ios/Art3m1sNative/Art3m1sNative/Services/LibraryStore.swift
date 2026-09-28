@@ -134,7 +134,8 @@ final class LibraryStore: ObservableObject {
       }
 
       let manifest = GameManifest.load(for: discovered)
-      let engine = GameImporter.detectEngine(in: discovered.path)
+      let engine = manifest?.engine.map(GameEngineKind.init(id:))
+        ?? GameImporter.detectEngine(in: discovered.path)
       let resolvedName = manifest?.name?.trimmingCharacters(in: .whitespacesAndNewlines)
       let name = resolvedName?.isEmpty == false ? resolvedName! : discovered.name
       let manifestPath = GameManifest.manifestURL(for: discovered).path
@@ -156,6 +157,7 @@ final class LibraryStore: ObservableObject {
           reportedOs: manifest?.reportedOs ?? "",
           runtimePlatform: manifest?.runtimePlatform?.uppercased()
             ?? GameManifest.defaultRuntimePlatform,
+          krkrEntryXp3: manifest?.krkrEntryXp3,
           manifestPath: manifestPath
         )
       )

@@ -15,6 +15,7 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.Result
 import io.flutter.view.TextureRegistry
+import org.tvp.krkrsdl3.KRKRCall
 
 class MainActivity : FlutterActivity() {
 
@@ -46,6 +47,8 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        KRKRCall.attach(this)
+        KrkrNativeBridge.initialize(assets)
 
         nativeChannel = MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
@@ -217,6 +220,7 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
+        KRKRCall.detach(this)
         releaseSharedTexture()
         super.onDestroy()
     }

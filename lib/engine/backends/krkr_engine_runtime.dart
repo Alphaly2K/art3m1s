@@ -17,10 +17,8 @@ import 'krkr/core_krkr_api.dart';
 
 /// KRKRSDL3 adapter exposed through art3m1s-core's public KRKR ABI.
 ///
-/// The current native backend is macOS-only and publishes RGBA frames. Audio
-/// sample consumption is clocked here so KRKR can continue filling its buffers;
-/// speaker playback remains deliberately disabled until a streaming PCM host is
-/// available.
+/// The native backend publishes RGBA frames. Apple builds send PCM directly to
+/// SDL's native audio device; other platforms still use the command queue.
 class KrkrEngineRuntime implements EngineRuntime {
   KrkrEngineRuntime({this.engineCursorControlEnabled = true});
 
@@ -37,6 +35,8 @@ class KrkrEngineRuntime implements EngineRuntime {
 
   DynamicLibrary? _library;
   CoreKrkrApiV1? _api;
+  CoreKrkrDiagnosticsV1? _diagnostics;
+  bool _debugEnabled = false;
   TextTranslationService? _translation;
   InputGatePolicy _inputGate = InputGatePolicy.full;
   String? _projectPath;
@@ -107,15 +107,15 @@ class KrkrEngineRuntime implements EngineRuntime {
 
   @override
   Future<void> initialize() async {
-    if (!Platform.isMacOS) {
-      Log.error('[KrkrEngineRuntime] KRKRSDL3 upstream backend 当前仅支持 macOS');
-      return;
-    }
     try {
       _library = _openCoreLibrary();
       _api = CoreKrkrApiV1.tryLoad(_library!);
       if (_api == null) {
         throw StateError('art3m1s-core 未导出兼容的 KRKR API v1');
+      }
+      _diagnostics = CoreKrkrDiagnosticsV1.tryLoad(_library!);
+      if (_diagnostics == null) {
+        Log.warn('[KrkrEngineRuntime] KRKR 诊断接口不可用');
       }
       _initialized = true;
       Log.info('[KrkrEngineRuntime] 使用 art3m1s_krkr_get_api_v1');
@@ -147,11 +147,16 @@ class KrkrEngineRuntime implements EngineRuntime {
     }
     unawaited(SharedTextureSessionCoordinator.abandon(this));
     _runtime = 0;
-    if (api != null && runtime > 0) api.destroyRuntime(runtime);
+    if (api != null && runtime > 0) {
+      _drainNativeLogs();
+      api.destroyRuntime(runtime);
+      _drainNativeLogs();
+    }
     _audioStreams.clear();
     _initialized = false;
     _exitRequested = false;
     _api = null;
+    _diagnostics = null;
     _library = null;
     _sharedTextureId = null;
     _sharedTextureKind = null;
@@ -201,6 +206,7 @@ class KrkrEngineRuntime implements EngineRuntime {
       height: stageHeight,
       backend: backend,
     );
+    _drainNativeLogs();
     if (_runtime <= 0) {
       Log.error(
         '[KrkrEngineRuntime] runtime create failed (${api.lastStatus})',
@@ -209,6 +215,7 @@ class KrkrEngineRuntime implements EngineRuntime {
     }
     _stageWidth = api.stageWidth(_runtime);
     _stageHeight = api.stageHeight(_runtime);
+    _applyDebug();
     _exitRequested = false;
   }
 
@@ -239,6 +246,7 @@ class KrkrEngineRuntime implements EngineRuntime {
     if (api == null || runtime <= 0) return false;
     final status = api.tick(runtime);
     _drainAudio(deltaMs.clamp(0, 1000));
+    _drainNativeLogs();
     if (status != art3m1sKrkrStatusOk) {
       _exitRequested = true;
       Log.error('[KrkrEngineRuntime] runtime tick failed ($status)');
@@ -477,7 +485,41 @@ class KrkrEngineRuntime implements EngineRuntime {
   @override
   void registerFileReader() {}
   @override
-  void setDebug(bool enabled) {}
+  void setDebug(bool enabled) {
+    _debugEnabled = enabled;
+    _applyDebug();
+  }
+
+  void _applyDebug() {
+    if (_runtime <= 0 || _diagnostics == null) return;
+    final status = _diagnostics!.setDebug(_runtime, _debugEnabled);
+    if (status != art3m1sKrkrStatusOk) {
+      Log.warn('[KrkrEngineRuntime] 调试日志设置失败: $status');
+    }
+  }
+
+  void _drainNativeLogs() {
+    final diagnostics = _diagnostics;
+    if (diagnostics == null) return;
+    for (var batch = 0; batch < 8; batch++) {
+      final records = diagnostics.pollLogs();
+      if (records.isEmpty) break;
+      for (final record in records) {
+        final message = '[KRKR] ${record.message}';
+        switch (record.level) {
+          case 69: // E
+            Log.error(message);
+          case 87: // W
+            Log.warn(message);
+          case 68: // D
+            Log.debug(message);
+          default:
+            Log.info(message);
+        }
+      }
+    }
+  }
+
   @override
   void setDamageVisualization(bool enabled) {}
   @override

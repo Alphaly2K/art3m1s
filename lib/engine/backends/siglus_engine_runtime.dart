@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart';
 
 import '../../models/game_engine.dart';
 import '../../models/input_gate.dart';
@@ -17,11 +18,23 @@ import 'siglus/core_siglus_api.dart';
 class SiglusEngineRuntime extends UnsupportedEngineRuntime {
   SiglusEngineRuntime() : super(GameEngineKind.siglus);
 
+  final EngineMediaHost _media = _SiglusMediaHost();
+
+  @override
+  EngineMediaHost get media => _media;
+
   static const MethodChannel _textureChannel = MethodChannel(
     'moe.alphaly.art3m1s/shared_texture',
   );
+  static const MethodChannel _audioChannel = MethodChannel(
+    'moe.alphaly.art3m1s/siglus_audio',
+  );
 
   CoreSiglusApiV1? _api;
+  CoreSiglusAudioV1? _audio;
+  bool _audioReady = false;
+  CoreSiglusDiagnosticsV1? _diagnostics;
+  bool _debugEnabled = false;
   int _runtime = 0;
   int _width = 0;
   int _height = 0;
@@ -97,8 +110,19 @@ class SiglusEngineRuntime extends UnsupportedEngineRuntime {
           'art3m1s-core 未导出兼容的 Siglus API v1；请使用 --features siglus-engine 构建',
         );
       }
+      _audio = CoreSiglusAudioV1.tryLoad(library);
+      if (_audio == null) {
+        throw StateError('Siglus Host PCM 接口不可用；需要新版 siglus-engine 构建');
+      }
+      _diagnostics = CoreSiglusDiagnosticsV1.tryLoad(library);
+      if (_diagnostics == null) {
+        Log.warn('[SiglusEngineRuntime] Siglus 诊断接口不可用');
+      }
       Log.info('[SiglusEngineRuntime] 使用 art3m1s_siglus_get_api_v1');
     } catch (error) {
+      _api = null;
+      _audio = null;
+      _diagnostics = null;
       Log.error('[SiglusEngineRuntime] 初始化失败: $error');
     }
   }
@@ -127,11 +151,15 @@ class SiglusEngineRuntime extends UnsupportedEngineRuntime {
     if (api == null || path == null || _runtime != 0) return;
     try {
       _runtime = api.createRuntime(path, backend: backend);
+      _drainNativeLogs();
       _width = api.stageWidth(_runtime);
       _height = api.stageHeight(_runtime);
+      _applyDebug();
+      unawaited(_startAudio());
       _exitRequested = false;
       Log.info('[SiglusEngineRuntime] 舞台 ${_width}x$_height');
     } catch (error) {
+      _drainNativeLogs();
       Log.error('[SiglusEngineRuntime] 创建失败: $error');
     }
   }
@@ -220,11 +248,13 @@ class SiglusEngineRuntime extends UnsupportedEngineRuntime {
       return false;
     }
     final status = api.tick(_runtime, deltaMs, mode);
+    _drainNativeLogs();
     if (status != CoreSiglusApiV1.ok) {
       _exitRequested = true;
       Log.error('[SiglusEngineRuntime] 帧处理失败 ($status): ${api.lastError}');
       return false;
     }
+    _pumpAudio(deltaMs);
     _exitRequested = api.isExitRequested(_runtime);
     return true;
   }
@@ -241,9 +271,12 @@ class SiglusEngineRuntime extends UnsupportedEngineRuntime {
     }
     try {
       final frame = api.render(_runtime, deltaMs, _width * _height * 4);
+      _pumpAudio(deltaMs);
+      _drainNativeLogs();
       _exitRequested = api.isExitRequested(_runtime);
       return frame;
     } catch (error) {
+      _drainNativeLogs();
       _exitRequested = true;
       Log.error('[SiglusEngineRuntime] 渲染失败: $error');
       return null;
@@ -404,6 +437,15 @@ class SiglusEngineRuntime extends UnsupportedEngineRuntime {
 
   @override
   void shutdown() {
+    _audioReady = false;
+    unawaited(
+      _audioChannel
+          .invokeMethod<void>('dispose')
+          .catchError(
+            (Object error) =>
+                Log.warn('[SiglusEngineRuntime] 音频设备释放失败: $error'),
+          ),
+    );
     _detachTexture();
     if (_textureId != null) {
       unawaited(_textureChannel.invokeMethod<void>('release'));
@@ -411,9 +453,15 @@ class SiglusEngineRuntime extends UnsupportedEngineRuntime {
     if (_handlerAttached) _textureChannel.setMethodCallHandler(null);
     _handlerAttached = false;
     unawaited(SharedTextureSessionCoordinator.abandon(this));
-    if (_runtime != 0) _api?.destroyRuntime(_runtime);
+    if (_runtime != 0) {
+      _drainNativeLogs();
+      _api?.destroyRuntime(_runtime);
+      _drainNativeLogs();
+    }
     _runtime = 0;
     _api = null;
+    _audio = null;
+    _diagnostics = null;
     _textureId = null;
     _textureKind = null;
     _textureWidth = 0;
@@ -422,4 +470,120 @@ class SiglusEngineRuntime extends UnsupportedEngineRuntime {
     _height = 0;
     _exitRequested = false;
   }
+
+  Future<void> _startAudio() async {
+    try {
+      final started = await _audioChannel.invokeMethod<bool>('start');
+      _audioReady = started == true && _runtime != 0;
+      if (!_audioReady) {
+        Log.error('[SiglusEngineRuntime] 宿主音频设备未启动');
+      } else if (_state != EngineSessionState.active) {
+        await media.setSuspended(true);
+      }
+    } catch (error) {
+      _audioReady = false;
+      Log.error('[SiglusEngineRuntime] 宿主音频设备启动失败: $error');
+    }
+  }
+
+  void _pumpAudio(int deltaMs) {
+    final audio = _audio;
+    if (!_audioReady || audio == null || _runtime == 0) return;
+    final frames = deltaMs.clamp(0, 100) * audio.sampleRate ~/ 1000;
+    if (frames <= 0) return;
+    final pcm = audio.renderPcm(_runtime, frames);
+    if (pcm == null) {
+      Log.warn('[SiglusEngineRuntime] PCM 拉取失败');
+      return;
+    }
+    unawaited(
+      _audioChannel
+          .invokeMethod<bool>('append', pcm)
+          .then((accepted) {
+            if (accepted != true) {
+              Log.debug('[SiglusEngineRuntime] 宿主音频队列已满，丢弃一块 PCM');
+            }
+          })
+          .catchError((Object error) {
+            Log.warn('[SiglusEngineRuntime] PCM 提交失败: $error');
+          }),
+    );
+  }
+
+  @override
+  void setDebug(bool enabled) {
+    _debugEnabled = enabled;
+    _applyDebug();
+  }
+
+  void _applyDebug() {
+    if (_runtime == 0 || _diagnostics == null) return;
+    final status = _diagnostics!.setDebug(_runtime, _debugEnabled);
+    if (status != CoreSiglusApiV1.ok) {
+      Log.warn('[SiglusEngineRuntime] 调试日志设置失败: $status');
+    }
+  }
+
+  void _drainNativeLogs() {
+    final diagnostics = _diagnostics;
+    if (diagnostics == null) return;
+    for (var batch = 0; batch < 8; batch++) {
+      final records = diagnostics.pollLogs();
+      if (records.isEmpty) break;
+      for (final record in records) {
+        final message = '[Siglus] ${record.message}';
+        switch (record.level) {
+          case 69: // E
+            Log.error(message);
+          case 87: // W
+            Log.warn(message);
+          case 68: // D
+            Log.debug(message);
+          default:
+            Log.info(message);
+        }
+      }
+    }
+  }
+}
+
+class _SiglusMediaHost implements EngineMediaHost {
+  final ValueNotifier<EngineVideoPlayback?> _videoPlayback = ValueNotifier(
+    null,
+  );
+  final ValueNotifier<bool> _fullscreenVideoBlocking = ValueNotifier(false);
+
+  @override
+  ValueListenable<EngineVideoPlayback?> get videoPlayback => _videoPlayback;
+  @override
+  ValueListenable<bool> get fullscreenVideoBlocking => _fullscreenVideoBlocking;
+  @override
+  bool get isFullscreenVideoBlocking => false;
+
+  @override
+  void handleEngineAudioCommand(EngineAudioCommand command) {
+    if (command.kind != EngineAudioCommandKind.masterVolume) return;
+    unawaited(
+      SiglusEngineRuntime._audioChannel
+          .invokeMethod<void>('volume', command.volume.clamp(0.0, 1.0))
+          .catchError((Object error) {
+            Log.warn('[SiglusMediaHost] 主音量设置失败: $error');
+          }),
+    );
+  }
+
+  @override
+  Future<void> setSuspended(bool suspended) async {
+    try {
+      await SiglusEngineRuntime._audioChannel.invokeMethod<void>(
+        'suspend',
+        suspended,
+      );
+    } catch (error) {
+      Log.warn('[SiglusMediaHost] 暂停状态设置失败: $error');
+    }
+  }
+
+  @override
+  Future<void> skipVideo() async {}
 }

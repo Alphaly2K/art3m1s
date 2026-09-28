@@ -14,6 +14,7 @@ struct GameManifest: Decodable, Sendable {
   var fontOverride: String?
   var reportedOs: String?
   var runtimePlatform: String?
+  var krkrEntryXp3: String?
   var inputGate: InputGatePolicy?
 
   enum CodingKeys: String, CodingKey {
@@ -27,6 +28,7 @@ struct GameManifest: Decodable, Sendable {
     case fontOverride
     case reportedOs
     case runtimePlatform
+    case krkrEntryXp3
     case inputGate
   }
 
@@ -143,6 +145,9 @@ struct GameManifest: Decodable, Sendable {
     }
     if let value = manifest.runtimePlatform, !value.isEmpty {
       updated.runtimePlatform = value.uppercased()
+    }
+    if let value = manifest.krkrEntryXp3 {
+      updated.krkrEntryXp3 = value
     }
     updated.manifestPath = manifestURL(for: discovered).path
     return updated

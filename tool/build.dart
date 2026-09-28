@@ -14,11 +14,12 @@ Future<void> main(List<String> arguments) async {
       ? _hostTargets()
       : <String>[options.target];
 
+  if (options.krkr && !options.signOnly) {
+    _requireKrkrSources();
+  }
+
   for (final target in targets) {
     _ensureHostSupports(target);
-    if (options.krkr && target != 'macos') {
-      throw UsageException('--krkr 目前只支持 macOS 构建');
-    }
     if (options.siglus && target != 'macos') {
       throw UsageException('--siglus 目前只支持 macOS 构建');
     }
@@ -219,6 +220,19 @@ final class UsageException implements Exception {
   String toString() => message;
 }
 
+void _requireKrkrSources() {
+  for (final name in const <String>[
+    'KRKRSDL3_SOURCE_DIR',
+    'KRKRSDL3_BUILD_DIR',
+    'VCPKG_ROOT',
+  ]) {
+    final path = Platform.environment[name];
+    if (path == null || path.isEmpty || !Directory(path).existsSync()) {
+      throw StateError('--krkr 需要有效的 $name');
+    }
+  }
+}
+
 Directory _findCore(Directory project) {
   final configured = Platform.environment['CORE_SRC'];
   final candidates = <Directory>[
@@ -302,6 +316,7 @@ Future<void> _buildNativeIos(
   if (options.deviceOnly) {
     rustArgs.add('--device-only');
   }
+  if (options.krkr) rustArgs.add('--krkr');
   await _run(
     '${project.path}/scripts/ios_build_rust.sh',
     rustArgs,
@@ -338,6 +353,13 @@ Future<void> _buildNativeIos(
       'ARCHS=arm64',
       'build',
     ], workingDirectory: project);
+  }
+
+  if (options.krkr) {
+    _bundleKrkrIosResources(
+      project,
+      _nativeIosAppCandidates(project, options.profile),
+    );
   }
 
   await _signNativeIosAppForTrollStore(project, profile: options.profile);
@@ -408,6 +430,7 @@ Future<void> _buildIosObsolete(
   }
   final args = <String>[options.profile == 'release' ? '--release' : '--debug'];
   if (options.deviceOnly) args.add('--device-only');
+  if (options.krkr) args.add('--krkr');
   await _run(
     '${project.path}/scripts/ios_build_rust.sh',
     args,
@@ -427,7 +450,26 @@ Future<void> _buildIosObsolete(
     workingDirectory: project,
     environment: secrets.environment,
   );
+  if (options.krkr) {
+    _bundleKrkrIosResources(
+      project,
+      _iosObsoleteAppCandidates(project, options.profile),
+    );
+  }
   await _signIosObsoleteAppForTrollStore(project, profile: options.profile);
+}
+
+void _bundleKrkrIosResources(Directory project, List<Directory> apps) {
+  final source = File(
+    '${project.path}/ios/Frameworks/.ios-framework-build/krkr_host/Res/DroidSansFallback.ttf',
+  );
+  if (!source.existsSync() || apps.isEmpty) {
+    throw StateError('KRKR iOS 上游资源或应用包缺失');
+  }
+  for (final app in apps) {
+    final resources = Directory('${app.path}/Res')..createSync(recursive: true);
+    source.copySync('${resources.path}/DroidSansFallback.ttf');
+  }
 }
 
 Future<void> _buildMacos(
@@ -440,14 +482,6 @@ Future<void> _buildMacos(
   BuildOptions options,
 ) async {
   final krkrSource = Platform.environment['KRKRSDL3_SOURCE_DIR'];
-  final krkrBuild = Platform.environment['KRKRSDL3_BUILD_DIR'];
-  if (options.krkr &&
-      (krkrSource == null ||
-          krkrSource.isEmpty ||
-          krkrBuild == null ||
-          krkrBuild.isEmpty)) {
-    throw StateError('--krkr 需要 KRKRSDL3_SOURCE_DIR 和 KRKRSDL3_BUILD_DIR');
-  }
   final ffmpegPrefix = Directory('${project.path}/.build/ffmpeg-macos/prefix');
   if (!_ffmpegMacosReady(ffmpegPrefix)) {
     await _run(
@@ -636,37 +670,103 @@ Future<void> _buildAndroid(
   output.createSync(recursive: true);
   for (final crate in <Directory>[core, pfs]) {
     final isCore = crate.path == core.path;
-    await _run('cargo', <String>[
-      'ndk',
-      '-t',
-      'arm64-v8a',
-      '-o',
-      output.path,
-      'build',
-      if (options.profile == 'release') '--release',
-      // core 默认启用 krkr-engine，但其 native shim 目前只支持 Darwin。
-      if (isCore) ...<String>[
-        '--no-default-features',
-        '--features',
-        'gl-backend,metal-backend,vulkan-backend,experimental-eluna,rfvp-engine',
+    await _run(
+      'cargo',
+      <String>[
+        'ndk',
+        '-t',
+        'arm64-v8a',
+        '-o',
+        output.path,
+        'build',
+        if (options.profile == 'release') '--release',
+        // Android defaults omit KRKR; --krkr opts into the real upstream host.
+        if (isCore) ...<String>[
+          '--no-default-features',
+          '--features',
+          'gl-backend,metal-backend,vulkan-backend,experimental-eluna,rfvp-engine${options.krkr ? ',krkr-engine' : ''}',
+        ],
+        '--manifest-path',
+        '${crate.path}/Cargo.toml',
       ],
-      '--manifest-path',
-      '${crate.path}/Cargo.toml',
-    ], workingDirectory: crate);
+      workingDirectory: crate,
+      environment: <String, String>{
+        if (isCore && options.krkr) 'ART3M1S_KRKR_REQUIRE_UPSTREAM': '1',
+      },
+    );
   }
-  await _run(
-    flutter,
-    <String>[
-      'build',
-      'apk',
-      '--${options.profile}',
-      '--target-platform=android-arm64',
-      ...metadata.dartDefines,
-      ...secrets.dartDefines,
-    ],
-    workingDirectory: project,
-    environment: secrets.environment,
-  );
+  File? stagedFont;
+  String? krkrJavaDir;
+  if (options.krkr) {
+    final host = _findKrkrHost(
+      core,
+      'target/aarch64-linux-android/${options.profile == 'release' ? 'release' : 'debug'}/build',
+      'libart3m1s_krkr_host.so',
+    );
+    host.copySync('${output.path}/arm64-v8a/libart3m1s_krkr_host.so');
+    final installed = _krkrVcpkgInstalled(host);
+    final sdl = File('$installed/arm64-android/lib/libSDL3.so');
+    if (!sdl.existsSync()) {
+      throw StateError('KRKR Android 缺少 libSDL3.so: ${sdl.path}');
+    }
+    sdl.copySync('${output.path}/arm64-v8a/libSDL3.so');
+    // SDL's JNI ABI is versioned together with libSDL3.so. Never use the
+    // KRKRSDL3 checkout's copied Java sources: they can be a different SDL.
+    final upstreamJava = _krkrSdl3JavaSource(installed);
+    final stagedJava = Directory(
+      '${project.path}/.build/krkr-android-java/org/libsdl/app',
+    )..createSync(recursive: true);
+    for (final file in upstreamJava.listSync().whereType<File>()) {
+      if (!file.path.endsWith('.java')) continue;
+      final destination = File(
+        '${stagedJava.path}/${file.uri.pathSegments.last}',
+      );
+      if (file.uri.pathSegments.last == 'SDLActivity.java') {
+        destination.writeAsStringSync(
+          file
+              .readAsStringSync()
+              .replaceAll(
+                'import androidx.appcompat.app.AppCompatActivity;',
+                '',
+              )
+              .replaceAll('extends AppCompatActivity', 'extends Activity'),
+        );
+      } else {
+        file.copySync(destination.path);
+      }
+    }
+    krkrJavaDir = '${project.path}/.build/krkr-android-java';
+    final asset = File(
+      '${project.path}/android/app/src/main/assets/DroidSansFallback.ttf',
+    );
+    if (asset.existsSync()) {
+      throw StateError('KRKR asset 已存在，拒绝覆盖: ${asset.path}');
+    }
+    asset.parent.createSync(recursive: true);
+    File('${host.parent.path}/Res/DroidSansFallback.ttf').copySync(asset.path);
+    stagedFont = asset;
+  }
+  final buildEnvironment = <String, String>{...secrets.environment};
+  if (krkrJavaDir != null) {
+    buildEnvironment['ART3M1S_KRKR_ANDROID_JAVA_DIR'] = krkrJavaDir;
+  }
+  try {
+    await _run(
+      flutter,
+      <String>[
+        'build',
+        'apk',
+        '--${options.profile}',
+        '--target-platform=android-arm64',
+        ...metadata.dartDefines,
+        ...secrets.dartDefines,
+      ],
+      workingDirectory: project,
+      environment: buildEnvironment,
+    );
+  } finally {
+    stagedFont?.deleteSync();
+  }
 }
 
 Future<void> _buildWindows(
@@ -678,7 +778,7 @@ Future<void> _buildWindows(
   BuildSecrets secrets,
   BuildOptions options,
 ) async {
-  await _buildHostRust(core, pfs, options.profile);
+  await _buildHostRust(core, pfs, options.profile, krkr: options.krkr);
   await _run(
     flutter,
     <String>[
@@ -702,6 +802,9 @@ Future<void> _buildWindows(
   File(
     '${pfs.path}/target/$suffix/pfs_upk.dll',
   ).copySync('${bundle.path}/pfs_upk.dll');
+  if (options.krkr) {
+    _bundleKrkrDesktop(core, bundle, profile: options.profile, windows: true);
+  }
 }
 
 Future<void> _buildLinux(
@@ -713,7 +816,7 @@ Future<void> _buildLinux(
   BuildSecrets secrets,
   BuildOptions options,
 ) async {
-  await _buildHostRust(core, pfs, options.profile);
+  await _buildHostRust(core, pfs, options.profile, krkr: options.krkr);
   await _run(
     flutter,
     <String>[
@@ -738,21 +841,155 @@ Future<void> _buildLinux(
   File(
     '${pfs.path}/target/$suffix/libpfs_upk.so',
   ).copySync('${lib.path}/libpfs_upk.so');
+  if (options.krkr) {
+    _bundleKrkrDesktop(
+      core,
+      lib,
+      profile: options.profile,
+      windows: false,
+      resourceRoot: bundle,
+    );
+  }
 }
 
 Future<void> _buildHostRust(
   Directory core,
   Directory pfs,
-  String profile,
-) async {
+  String profile, {
+  required bool krkr,
+}) async {
   for (final crate in <Directory>[core, pfs]) {
-    await _run('cargo', <String>[
-      'build',
-      if (profile == 'release') '--release',
-      '--manifest-path',
-      '${crate.path}/Cargo.toml',
-    ], workingDirectory: crate);
+    await _run(
+      'cargo',
+      <String>[
+        'build',
+        if (profile == 'release') '--release',
+        '--manifest-path',
+        '${crate.path}/Cargo.toml',
+      ],
+      workingDirectory: crate,
+      environment: <String, String>{
+        if (krkr && crate.path == core.path)
+          'ART3M1S_KRKR_REQUIRE_UPSTREAM': '1',
+      },
+    );
   }
+}
+
+void _bundleKrkrDesktop(
+  Directory core,
+  Directory bundle, {
+  required String profile,
+  required bool windows,
+  Directory? resourceRoot,
+}) {
+  final suffix = profile == 'release' ? 'release' : 'debug';
+  final name = windows ? 'art3m1s_krkr_host.dll' : 'libart3m1s_krkr_host.so';
+  final host = _findKrkrHost(core, 'target/$suffix/build', name);
+  host.copySync('${bundle.path}/$name');
+  final resources = Directory('${host.parent.path}/Res');
+  if (!File('${resources.path}/DroidSansFallback.ttf').existsSync()) {
+    throw StateError('KRKR native-upstream 缺少 Res 资源目录');
+  }
+  final resourceOutput = Directory('${(resourceRoot ?? bundle).path}/Res')
+    ..createSync(recursive: true);
+  File(
+    '${resources.path}/DroidSansFallback.ttf',
+  ).copySync('${resourceOutput.path}/DroidSansFallback.ttf');
+  final source = Platform.environment['KRKRSDL3_SOURCE_DIR']!;
+  File(
+    '$source/LICENSE',
+  ).copySync('${(resourceRoot ?? bundle).path}/LICENSE-KRKRSDL3.txt');
+  File(
+    '${core.path}/crates/art3m1s-krkr/THIRD_PARTY_NOTICES.md',
+  ).copySync('${(resourceRoot ?? bundle).path}/THIRD_PARTY_NOTICES.md');
+  if (windows) {
+    final binaries = Directory('${_krkrVcpkgInstalled(host)}/x64-windows/bin');
+    if (!binaries.existsSync()) throw StateError('KRKR Windows vcpkg bin 缺失');
+    for (final file in binaries.listSync().whereType<File>()) {
+      final basename = file.uri.pathSegments.last;
+      if (basename.toLowerCase().endsWith('.dll')) {
+        file.copySync('${bundle.path}/$basename');
+      }
+    }
+  }
+}
+
+File _findKrkrHost(Directory core, String buildPath, String name) {
+  final builds = Directory('${core.path}/$buildPath');
+  final hosts =
+      builds
+          .listSync()
+          .whereType<Directory>()
+          .where(
+            (dir) => dir.uri.pathSegments
+                .where((segment) => segment.isNotEmpty)
+                .last
+                .startsWith('art3m1s-krkr-'),
+          )
+          .map((dir) => File('${dir.path}/out/native-upstream/$name'))
+          .where((file) => file.existsSync())
+          .toList()
+        ..sort((a, b) => b.lastModifiedSync().compareTo(a.lastModifiedSync()));
+  if (hosts.isEmpty) throw StateError('未找到真实 KRKR native-upstream 构建产物: $name');
+  return hosts.first;
+}
+
+String _krkrVcpkgInstalled(File host) {
+  final cache = File('${host.parent.path}/CMakeCache.txt');
+  if (!cache.existsSync()) throw StateError('KRKR CMakeCache.txt 缺失');
+  for (final line in cache.readAsLinesSync()) {
+    if (line.startsWith('VCPKG_INSTALLED_DIR:PATH=')) {
+      return line.substring('VCPKG_INSTALLED_DIR:PATH='.length);
+    }
+  }
+  throw StateError('KRKR vcpkg installed dir 未记录在 CMake cache');
+}
+
+Directory _krkrSdl3JavaSource(String installed) {
+  final vcpkg = Platform.environment['VCPKG_ROOT']!;
+  final packageInfo = Directory('$installed/vcpkg/info');
+  if (!packageInfo.existsSync()) {
+    throw StateError('SDL3 vcpkg 安装元数据缺失: ${packageInfo.path}');
+  }
+  final versions = packageInfo
+      .listSync()
+      .whereType<File>()
+      .map((file) => file.uri.pathSegments.last)
+      .where(
+        (name) =>
+            name.startsWith('sdl3_') && name.endsWith('_arm64-android.list'),
+      )
+      .map(
+        (name) => name.substring(
+          'sdl3_'.length,
+          name.length - '_arm64-android.list'.length,
+        ),
+      )
+      .toList();
+  if (versions.length != 1) {
+    throw StateError('无法确定已安装 SDL3 arm64-android 的唯一版本');
+  }
+  final version = versions.single;
+  final sources = Directory('$vcpkg/buildtrees/sdl3/src');
+  if (!sources.existsSync()) {
+    throw StateError('SDL3 vcpkg 源码缺失；请先安装 arm64-android 依赖');
+  }
+  final activities = sources
+      .listSync(recursive: true, followLinks: false)
+      .whereType<File>()
+      .where(
+        (file) =>
+            file.path.contains(version) &&
+            file.path.endsWith(
+              '/android-project/app/src/main/java/org/libsdl/app/SDLActivity.java',
+            ),
+      )
+      .toList();
+  if (activities.isEmpty) {
+    throw StateError('找不到与 libSDL3.so 同版本 ($version) 的 Android Java 源码');
+  }
+  return activities.first.parent;
 }
 
 Directory _findDirectory(Directory root, String basename) {

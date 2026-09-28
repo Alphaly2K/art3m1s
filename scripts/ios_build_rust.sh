@@ -27,6 +27,7 @@ PROFILE="release"
 CODE_SIGN_ID=""
 BUILD_SIM=1
 BUILD_ANGLE=1
+BUILD_KRKR=0
 export IPHONEOS_DEPLOYMENT_TARGET="${IPHONEOS_DEPLOYMENT_TARGET:-15.0}"
 
 while [[ $# -gt 0 ]]; do
@@ -35,6 +36,7 @@ while [[ $# -gt 0 ]]; do
     --release) PROFILE="release" ;;
     --device-only) BUILD_SIM=0 ;;
     --skip-angle) BUILD_ANGLE=0 ;;
+    --krkr) BUILD_KRKR=1 ;;
     --sign)
       shift
       CODE_SIGN_ID="${1:-}"
@@ -42,6 +44,13 @@ while [[ $# -gt 0 ]]; do
   esac
   shift
 done
+
+if [[ "$BUILD_KRKR" == "1" ]]; then
+  : "${KRKRSDL3_SOURCE_DIR:?--krkr requires KRKRSDL3_SOURCE_DIR}"
+  : "${KRKRSDL3_BUILD_DIR:?--krkr requires KRKRSDL3_BUILD_DIR}"
+  : "${VCPKG_ROOT:?--krkr requires VCPKG_ROOT}"
+  export ART3M1S_KRKR_REQUIRE_UPSTREAM=1
+fi
 
 CARGO_FLAGS=""
 TARGET_DIR_SUFFIX="debug"
@@ -164,9 +173,11 @@ stage_krkr_host_slice() {
     return
   fi
 
+  local backend="native-bootstrap"
+  if [[ "$BUILD_KRKR" == "1" ]]; then backend="native-upstream"; fi
   host_source="$(
     find "$CORE_SRC/target/$target/$TARGET_DIR_SUFFIX/build" \
-      -path '*/out/native-bootstrap/libart3m1s_krkr_host.dylib' \
+      -path "*/out/$backend/libart3m1s_krkr_host.dylib" \
       -print -quit 2>/dev/null || true
   )"
   if [[ -z "$host_source" || ! -f "$host_source" ]]; then
@@ -178,6 +189,15 @@ stage_krkr_host_slice() {
   mkdir -p "$(dirname "$destination")"
   cp "$host_source" "$destination"
   install_name_tool -id '@rpath/libart3m1s_krkr_host.dylib' "$destination"
+  if [[ "$BUILD_KRKR" == "1" ]]; then
+    if [[ ! -f "$(dirname "$host_source")/Res/DroidSansFallback.ttf" ]]; then
+      echo "ERROR: KRKR upstream Res directory is missing for $slice" >&2
+      exit 1
+    fi
+    mkdir -p "$OUT_DIR/.ios-framework-build/krkr_host/Res"
+    cp "$(dirname "$host_source")/Res/DroidSansFallback.ttf" \
+      "$OUT_DIR/.ios-framework-build/krkr_host/Res/DroidSansFallback.ttf"
+  fi
   echo "  -> 暂存 KRKR host ($slice)"
 }
 
@@ -238,6 +258,13 @@ make_framework() {
   fi
 
   echo "  -> $IOS_DEVICE_TARGET"
+  local device_vcpkg_installed="${VCPKG_INSTALLED_DIR_DEVICE:-${VCPKG_INSTALLED_DIR:-}}"
+  local simulator_vcpkg_installed="${VCPKG_INSTALLED_DIR_SIMULATOR:-${VCPKG_INSTALLED_DIR:-}}"
+  if [[ -n "$device_vcpkg_installed" ]]; then
+    export VCPKG_INSTALLED_DIR="$device_vcpkg_installed"
+  else
+    unset VCPKG_INSTALLED_DIR
+  fi
   if [[ -n "$device_ffmpeg_dir" ]]; then
     FFMPEG_DIR="$device_ffmpeg_dir" cargo build "${device_cargo_args[@]}"
   else
@@ -246,6 +273,11 @@ make_framework() {
 
   if [[ "$BUILD_SIM" == "1" ]]; then
     echo "  -> $IOS_SIM_ARM64_TARGET"
+    if [[ -n "$simulator_vcpkg_installed" ]]; then
+      export VCPKG_INSTALLED_DIR="$simulator_vcpkg_installed"
+    else
+      unset VCPKG_INSTALLED_DIR
+    fi
     if [[ -n "$simulator_ffmpeg_dir" ]]; then
       FFMPEG_DIR="$simulator_ffmpeg_dir" cargo build "${simulator_cargo_args[@]}"
     else

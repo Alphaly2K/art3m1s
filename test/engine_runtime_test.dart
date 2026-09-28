@@ -50,19 +50,20 @@ void main() {
       expect(prepared, isNotNull);
       runtime.createRuntime(1280, 720);
       expect(runtime.loadProjectBytes(prepared!), isTrue);
-      Uint8List? frame;
-      for (var index = 0; index < 150; index++) {
-        frame = runtime.advanceAndRender(16);
-        if (frame != null &&
-            frame.buffer.asUint32List().any(
-              (pixel) => pixel & 0x00ffffff != 0,
-            )) {
-          break;
-        }
+      // A merely non-black frame misses UCI/MARK failures: the lower strip of
+      // Rewrite's title background still renders while its portraits vanish.
+      for (var index = 0; index < 850; index++) {
+        expect(runtime.advanceWithoutRender(16), isTrue);
         await Future<void>.delayed(const Duration(milliseconds: 16));
       }
+      final frame = runtime.advanceAndRender(16);
       expect(frame, isNotNull);
       expect(frame!.length, runtime.stageWidth * runtime.stageHeight * 4);
+      final visiblePixels = frame.buffer
+          .asUint32List()
+          .where((pixel) => pixel & 0x00ffffff != 0)
+          .length;
+      expect(visiblePixels, greaterThan(frame.length ~/ 8));
       runtime.feedMouse(100, 100);
     } finally {
       runtime.shutdown();

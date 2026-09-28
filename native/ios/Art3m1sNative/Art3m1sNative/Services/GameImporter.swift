@@ -124,7 +124,7 @@ enum GameImporter {
 
     if hasSystemINI { return .art3m1s }
     if hasHCB { return .rfvp }
-    if hasDataXP3 || hasStartupTJS || rootXP3Count == 1 { return .krkr }
+    if hasDataXP3 || hasStartupTJS || rootXP3Count > 0 { return .krkr }
     return .art3m1s
   }
 
@@ -216,7 +216,7 @@ enum GameImporter {
       }
     }
 
-    if hasSystemINI || hasHCB || hasDataXP3 || hasStartupTJS || rootXP3Count == 1 {
+    if hasSystemINI || hasHCB || hasDataXP3 || hasStartupTJS || rootXP3Count > 0 {
       found.append(directory.path)
       return
     }

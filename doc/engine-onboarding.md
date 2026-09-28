@@ -54,6 +54,10 @@
 - core 侧 ABI:独立入口 `art3m1s_<engine>_get_api_v1` 版本化函数表,
   不复用 `Art3m1sApiV1` 的字段;详见 core 仓库 `doc/HOST_INTEGRATION.md`。
   反向通信一律 Host 拉取(事件/日志队列),不注册 native→Dart 回调。
+- 日志/调试能力也要接到 Host：KRKR 通过可选的独立诊断函数表
+  `art3m1s_krkr_get_diagnostics_api_v1` 拉取有界日志队列，按 `E/W/I/D`
+  写入宿主日志；`setDebug` 控制原生调试日志级别。未实现 profiler 时保持
+  不支持，不用空快照伪装已有采样数据。
 
 ## 4. 每游戏设置
 
@@ -75,15 +79,19 @@
 - [ ] iOS 扫描能识别新引擎目录;Android 全文件访问授权流程不受影响。
 - [ ] 资料库删除条目时不会删除用户原目录(托管根白名单仅针对遗留沙箱拷贝)。
 
-## Siglus 接入状态（2026-09-22）
+## Siglus 接入状态（2026-09-28）
 
 - 目录根需同时含 `Scene.pck` 与 `Gameexe.dat`（或 `Gameexe.ini`）。
   Artemis 和 RFVP 标记优先；保存 `engine: siglus`，不允许 PFS。
 - macOS 使用 `dart run tool/build.dart macos --siglus` 将独立 Siglus ABI
   编进 core；Flutter 运行时由 `SiglusEngineRuntime` 控制 VM、
   `art3m1s-render`、输入和共享纹理，回读 RGBA 作为后备。
-- Siglus 原项目的 Kira 音频仍直接使用本机设备，尚未改为 Host 拉取媒体命令；
-  存档路径仍由原 VM 决定，`setSaveDir` 尚未接入；iOS/Android 未验证，
+- `siglus-engine` 启用进程内 FFmpeg UCI/MARK 图片解码；GUI 应用无需在
+  `PATH` 中找到 `ffmpeg` 命令，包内只需已有的 FFmpeg 动态库。
+- 正式 Host 构建启用无设备 Kira 后端，Siglus 从独立音频 ABI 输出 48 kHz
+  双声道 f32 PCM，由 macOS Flutter 宿主的 AVAudioEngine 播放；日志通过独立
+  诊断 ABI 拉取，调试模式可启用 Debug 日志。
+- 存档路径仍由原 VM 决定，`setSaveDir` 尚未接入；iOS/Android 未验证，
   不能宣称跨平台可运行。
 - core 构建需要 `siglus_rs` 与 `art3m1s-core` 位于同级目录，并使用
   含 `SiglusHost::new_external` 的 `codex/art3m1s-adapter` 分支。

@@ -52,6 +52,7 @@ struct GameEntry: Identifiable, Codable, Hashable, Sendable {
   var fontOverrideFilePath: String
   var reportedOs: String
   var runtimePlatform: String
+  var krkrEntryXp3: String?
   var manifestPath: String?
 
   var displayNameOrName: String {
@@ -79,6 +80,7 @@ struct GameEntry: Identifiable, Codable, Hashable, Sendable {
     fontOverrideFilePath: String = "",
     reportedOs: String = "",
     runtimePlatform: String = "WINDOWS",
+    krkrEntryXp3: String? = nil,
     manifestPath: String? = nil
   ) {
     self.id = Self.normalizeId(id, path: path)
@@ -101,6 +103,7 @@ struct GameEntry: Identifiable, Codable, Hashable, Sendable {
     self.fontOverrideFilePath = fontOverrideFilePath
     self.reportedOs = reportedOs
     self.runtimePlatform = runtimePlatform
+    self.krkrEntryXp3 = krkrEntryXp3
     self.manifestPath = manifestPath
   }
 

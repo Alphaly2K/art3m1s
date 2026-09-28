@@ -71,6 +71,12 @@ android {
     }
 }
 
+// KRKR's SDL3 shared library registers JNI methods against these classes at
+// load time. They are staged from the exact vcpkg SDL3 source only for --krkr.
+System.getenv("ART3M1S_KRKR_ANDROID_JAVA_DIR")?.takeIf { it.isNotBlank() }?.let {
+    android.sourceSets.getByName("main").java.srcDir(it)
+}
+
 // 把 NDK 的 libc++_shared.so 拷贝到 jniLibs 目录，让 Gradle 打进 APK。
 // 关键：srcDir 必须在配置阶段注册（Gradle 在配置阶段解析输入目录），
 // 拷贝动作通过 dependsOn 保证在 mergeJniLibs 之前发生。
@@ -110,4 +116,3 @@ kotlin {
 flutter {
     source = "../.."
 }
-
