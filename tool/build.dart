@@ -684,7 +684,7 @@ Future<void> _buildAndroid(
         if (isCore) ...<String>[
           '--no-default-features',
           '--features',
-          'gl-backend,metal-backend,vulkan-backend,experimental-eluna,rfvp-engine${options.krkr ? ',krkr-engine' : ''}',
+          'gl-backend,metal-backend,vulkan-backend,rfvp-engine${options.krkr ? ',krkr-engine' : ''}',
         ],
         '--manifest-path',
         '${crate.path}/Cargo.toml',
