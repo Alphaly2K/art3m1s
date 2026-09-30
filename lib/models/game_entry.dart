@@ -20,7 +20,6 @@ class GameEntry {
   final bool translationEnabled;
   final String translationPatchPath;
   final bool environmentPatchEnabled;
-  final bool experimentalElunaEnabled;
 
   /// 输入门控策略（环境/平台特化的输入过滤与转发），默认全放行。
   /// 项目补丁可经 JSON 携带自定义规则。
@@ -64,7 +63,6 @@ class GameEntry {
     this.translationEnabled = false,
     this.translationPatchPath = '',
     this.environmentPatchEnabled = false,
-    this.experimentalElunaEnabled = false,
     this.inputGate = InputGatePolicy.full,
     this.vndbId = '',
     this.fontOverridePath = '',
@@ -91,7 +89,6 @@ class GameEntry {
     'translationEnabled': translationEnabled,
     'translationPatchPath': translationPatchPath,
     'environmentPatchEnabled': environmentPatchEnabled,
-    'experimentalElunaEnabled': experimentalElunaEnabled,
     // 全放行默认不落盘，保持旧资料库 JSON 干净；fromJson 缺字段即回默认。
     if (!inputGate.isFull) 'inputGate': inputGate.toJson(),
     if (vndbId.isNotEmpty) 'vndbId': vndbId,
@@ -120,7 +117,6 @@ class GameEntry {
     translationEnabled: json['translationEnabled'] == true,
     translationPatchPath: json['translationPatchPath']?.toString() ?? '',
     environmentPatchEnabled: json['environmentPatchEnabled'] == true,
-    experimentalElunaEnabled: json['experimentalElunaEnabled'] == true,
     inputGate: InputGatePolicy.fromJson(
       (json['inputGate'] as Map?)?.cast<String, dynamic>(),
     ),
@@ -145,7 +141,6 @@ class GameEntry {
     bool? translationEnabled,
     String? translationPatchPath,
     bool? environmentPatchEnabled,
-    bool? experimentalElunaEnabled,
     InputGatePolicy? inputGate,
     String? vndbId,
     String? fontOverridePath,
@@ -169,8 +164,6 @@ class GameEntry {
     translationPatchPath: translationPatchPath ?? this.translationPatchPath,
     environmentPatchEnabled:
         environmentPatchEnabled ?? this.environmentPatchEnabled,
-    experimentalElunaEnabled:
-        experimentalElunaEnabled ?? this.experimentalElunaEnabled,
     inputGate: inputGate ?? this.inputGate,
     vndbId: vndbId ?? this.vndbId,
     fontOverridePath: fontOverridePath ?? this.fontOverridePath,

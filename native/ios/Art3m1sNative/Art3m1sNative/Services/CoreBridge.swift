@@ -116,7 +116,6 @@ private enum CoreAPISlot: Int {
   case runtimeSubmitDialog
   case runtimeSubmitTextTranslation
   case runtimeSetReportedOS
-  case runtimeSetEmoteBackend
   case runtimeConfigureSpatialUpscale
   case runtimeSetRenderQualityPreset
   case runtimeSetProfilerEnabled
@@ -693,6 +692,7 @@ final class NativeGameRuntime: ObservableObject {
   private var metalLayer: CAMetalLayer?
   private var metalLayerSize = CGSize.zero
   private var pfsEncoding = "Shift_JIS"
+  private var vfs: ProjectVFS?
   private var projectPlatform = GameManifest.defaultRuntimePlatform
   private var timer: Timer?
   private var nextFrameDeadline = CACurrentMediaTime()
@@ -725,18 +725,23 @@ final class NativeGameRuntime: ObservableObject {
       try AppDataPaths.ensureInitialized()
       game = GameManifest.loadEntrySettings(game)
       try NativeCoreAPI.shared.load()
-      let iniContent = try readSystemINI()
+      // 混合包（散装 system.ini + root.pfs 分卷）的 system.ini 可能在归档里，
+      // 先用默认字符集建视图读它，再按检测结果重建，保证归档条目名解码正确。
+      var projectVFS = ProjectVFS(game: game, encoding: pfsEncoding)
+      let iniContent = try readSystemINI(projectVFS)
       parseStageSize(iniContent)
       projectPlatform = Self.resolvePlatform(
         in: iniContent,
         requested: runtimePlatform
       )
-      if game.source == .pfsArchive {
+      if game.source == .pfsArchive || projectVFS.hasArchives {
         pfsEncoding = ProjectCharset.detect(
           iniContent,
           platform: projectPlatform
         )
+        projectVFS = ProjectVFS(game: game, encoding: pfsEncoding)
       }
+      vfs = projectVFS
       inputGate = game.inputGate ?? .full
       try registerHostEvents()
       try mountResources()
@@ -982,35 +987,30 @@ final class NativeGameRuntime: ObservableObject {
     }
     self.resources = resources
 
-    let mounted: Int32
-    switch game.source {
-    case .directory:
-      let mount = try NativeCoreAPI.shared.function(
-        .resourcesMountDirectory,
-        as: ResourcesMountPath.self
-      )
-      mounted = game.path.withCString { mount(resources, $0) }
-    case .pfsArchive:
-      let archives = Self.pfsArchives(for: game.path)
-      guard !archives.isEmpty else {
-        throw CoreBridgeError.invalidData("找不到可挂载的 PFS 归档")
-      }
-      let mount = try NativeCoreAPI.shared.function(
-        .resourcesMountPFS,
-        as: ResourcesMountPFS.self
-      )
-      var mountedArchives = 0
-      for archive in archives {
-        let result = archive.withCString { path in
-          pfsEncoding.withCString { encoding in
-            mount(resources, path, encoding)
-          }
-        }
-        if result != 0 {
-          mountedArchives += 1
+    let mountPFS = try NativeCoreAPI.shared.function(
+      .resourcesMountPFS,
+      as: ResourcesMountPFS.self
+    )
+    let mountDirectory = try NativeCoreAPI.shared.function(
+      .resourcesMountDirectory,
+      as: ResourcesMountPath.self
+    )
+
+    // 带归档的工程优先挂 PFS：core 会把归档父目录当作 sidecar 覆盖层，优先级
+    // 与「解包目录 > 大 id 分卷 > 小 id 分卷」一致；挂载失败再退回纯目录。
+    var mounted: Int32 = 0
+    if let entry = vfs?.archiveMountEntry {
+      mounted = entry.withCString { path in
+        pfsEncoding.withCString { encoding in
+          mountPFS(resources, path, encoding)
         }
       }
-      mounted = mountedArchives > 0 ? 1 : 0
+      if mounted == 0 {
+        AppLogger.warning("[CoreBridge] PFS 挂载失败，回退目录挂载: \(entry)")
+      }
+    }
+    if mounted == 0, let root = vfs?.directoryRoot.path {
+      mounted = root.withCString { mountDirectory(resources, $0) }
     }
     guard mounted != 0 else {
       throw CoreBridgeError.operationFailed(
@@ -1231,58 +1231,14 @@ final class NativeGameRuntime: ObservableObject {
   }
 
   private func readProjectAsset(_ path: String) -> Data? {
-    let normalized = path.replacingOccurrences(of: "\\", with: "/")
-      .split(separator: "/")
-      .map(String.init)
-      .filter { !$0.isEmpty && $0 != "." }
-    guard !normalized.contains(".."), !normalized.isEmpty else { return nil }
-    let relative = normalized.joined(separator: "/")
-    switch game.source {
-    case .directory:
-      return try? Data(
-        contentsOf: URL(fileURLWithPath: game.path)
-          .appendingPathComponent(relative)
-      )
-    case .pfsArchive:
-      if let sidecar = readPFSSidecar(relative) {
-        return sidecar
-      }
-      for archive in Self.pfsArchives(for: game.path).reversed() {
-        if let data = try? PFSReader.read(
-          archivePath: archive,
-          entryPath: relative,
-          encoding: pfsEncoding
-        ) {
-          return data
-        }
-      }
-      return nil
-    }
+    vfs?.read(path)
   }
 
-  private func readSystemINI() throws -> Data {
-    switch game.source {
-    case .directory:
-      let url = URL(fileURLWithPath: game.path)
-        .appendingPathComponent("system.ini")
-      return try Data(contentsOf: url)
-    case .pfsArchive:
-      if let data = readProjectAsset("system.ini") {
-        return data
-      }
+  private func readSystemINI(_ vfs: ProjectVFS) throws -> Data {
+    guard let data = vfs.read("system.ini") else {
       throw CoreBridgeError.missingSymbol("system.ini")
     }
-  }
-
-  private func readPFSSidecar(_ relativePath: String) -> Data? {
-    let root = URL(fileURLWithPath: game.path).deletingLastPathComponent()
-    let url = root.appendingPathComponent(relativePath)
-    guard url.standardizedFileURL.path.hasPrefix(
-      root.standardizedFileURL.path + "/"
-    ) else {
-      return nil
-    }
-    return try? Data(contentsOf: url)
+    return data
   }
 
   private func parseStageSize(_ data: Data) {
@@ -1803,32 +1759,6 @@ final class NativeGameRuntime: ObservableObject {
       residentBytes: info.resident_size,
       wallTime: CACurrentMediaTime()
     )
-  }
-
-  private static func pfsArchives(for path: String) -> [String] {
-    let baseURL = URL(fileURLWithPath: path)
-    let directory = baseURL.deletingLastPathComponent()
-    guard let files = try? FileManager.default.contentsOfDirectory(
-      at: directory,
-      includingPropertiesForKeys: [.isRegularFileKey],
-      options: [.skipsHiddenFiles]
-    ) else {
-      return [path]
-    }
-    return files.filter { url in
-      guard (try? url.resourceValues(forKeys: [.isRegularFileKey])
-        .isRegularFile) == true else {
-        return false
-      }
-      let name = url.lastPathComponent.lowercased()
-      return name.hasSuffix(".pfs")
-        || name.range(
-          of: #"\.pfs\.\d{3}$"#,
-          options: .regularExpression
-        ) != nil
-    }
-    .map(\.path)
-    .sorted()
   }
 
   private func drainEvents() {

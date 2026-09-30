@@ -168,7 +168,6 @@ Future<GameEditData?> showGameEditDialog(
   bool initialTranslationEnabled = false,
   String initialTranslationPatchPath = '',
   bool initialEnvironmentPatchEnabled = false,
-  bool initialExperimentalElunaEnabled = false,
   InputGatePolicy initialInputGate = InputGatePolicy.full,
   String initialFontOverrideFilePath = '',
   String initialReportedOs = '',
@@ -184,7 +183,6 @@ Future<GameEditData?> showGameEditDialog(
       initialTranslationEnabled: initialTranslationEnabled,
       initialTranslationPatchPath: initialTranslationPatchPath,
       initialEnvironmentPatchEnabled: initialEnvironmentPatchEnabled,
-      initialExperimentalElunaEnabled: initialExperimentalElunaEnabled,
       initialInputGate: initialInputGate,
       initialFontOverrideFilePath: initialFontOverrideFilePath,
       initialReportedOs: initialReportedOs,
@@ -219,8 +217,6 @@ Future<GameEditData?> showGameEditDialog(
                   initialTranslationPatchPath: initialTranslationPatchPath,
                   initialEnvironmentPatchEnabled:
                       initialEnvironmentPatchEnabled,
-                  initialExperimentalElunaEnabled:
-                      initialExperimentalElunaEnabled,
                   initialInputGate: initialInputGate,
                   initialFontOverrideFilePath: initialFontOverrideFilePath,
                   initialReportedOs: initialReportedOs,
@@ -244,7 +240,6 @@ Future<GameEditData?> showGameEditDialog(
         initialTranslationEnabled: initialTranslationEnabled,
         initialTranslationPatchPath: initialTranslationPatchPath,
         initialEnvironmentPatchEnabled: initialEnvironmentPatchEnabled,
-        initialExperimentalElunaEnabled: initialExperimentalElunaEnabled,
         initialInputGate: initialInputGate,
         initialFontOverrideFilePath: initialFontOverrideFilePath,
         initialReportedOs: initialReportedOs,
@@ -262,7 +257,6 @@ Future<GameEditData?> showGameEditDialog(
       initialTranslationEnabled: initialTranslationEnabled,
       initialTranslationPatchPath: initialTranslationPatchPath,
       initialEnvironmentPatchEnabled: initialEnvironmentPatchEnabled,
-      initialExperimentalElunaEnabled: initialExperimentalElunaEnabled,
       initialInputGate: initialInputGate,
       initialFontOverrideFilePath: initialFontOverrideFilePath,
       initialReportedOs: initialReportedOs,
@@ -280,7 +274,6 @@ Future<GameEditData?> showGameEditDialog(
         initialTranslationEnabled: initialTranslationEnabled,
         initialTranslationPatchPath: initialTranslationPatchPath,
         initialEnvironmentPatchEnabled: initialEnvironmentPatchEnabled,
-        initialExperimentalElunaEnabled: initialExperimentalElunaEnabled,
         initialInputGate: initialInputGate,
         initialFontOverrideFilePath: initialFontOverrideFilePath,
         initialReportedOs: initialReportedOs,
@@ -298,7 +291,6 @@ Future<GameEditData?> showGameEditDialog(
       initialTranslationEnabled: initialTranslationEnabled,
       initialTranslationPatchPath: initialTranslationPatchPath,
       initialEnvironmentPatchEnabled: initialEnvironmentPatchEnabled,
-      initialExperimentalElunaEnabled: initialExperimentalElunaEnabled,
       initialInputGate: initialInputGate,
       initialFontOverrideFilePath: initialFontOverrideFilePath,
       initialReportedOs: initialReportedOs,
@@ -317,7 +309,6 @@ class _MacosEditDialog extends StatefulWidget {
   final bool initialTranslationEnabled;
   final String initialTranslationPatchPath;
   final bool initialEnvironmentPatchEnabled;
-  final bool initialExperimentalElunaEnabled;
   final InputGatePolicy initialInputGate;
   final String initialFontOverrideFilePath;
   final String initialReportedOs;
@@ -331,7 +322,6 @@ class _MacosEditDialog extends StatefulWidget {
     required this.initialTranslationEnabled,
     required this.initialTranslationPatchPath,
     required this.initialEnvironmentPatchEnabled,
-    required this.initialExperimentalElunaEnabled,
     this.initialInputGate = InputGatePolicy.full,
     this.initialFontOverrideFilePath = '',
     this.initialReportedOs = '',
@@ -351,7 +341,6 @@ class _MacosEditDialogState extends State<_MacosEditDialog> {
   late bool _translationEnabled;
   late String _translationPatchPath;
   late bool _environmentPatchEnabled;
-  late bool _experimentalElunaEnabled;
   late InputGatePolicy _inputGate;
   late String _fontOverrideFilePath;
   late String _reportedOs;
@@ -364,7 +353,6 @@ class _MacosEditDialogState extends State<_MacosEditDialog> {
     _translationEnabled = widget.initialTranslationEnabled;
     _translationPatchPath = widget.initialTranslationPatchPath;
     _environmentPatchEnabled = widget.initialEnvironmentPatchEnabled;
-    _experimentalElunaEnabled = widget.initialExperimentalElunaEnabled;
     _inputGate = widget.initialInputGate;
     _fontOverrideFilePath = widget.initialFontOverrideFilePath;
     _reportedOs = widget.initialReportedOs;
@@ -395,7 +383,6 @@ class _MacosEditDialogState extends State<_MacosEditDialog> {
       translationEnabled: _translationEnabled,
       translationPatchPath: _translationPatchPath,
       environmentPatchEnabled: _environmentPatchEnabled,
-      experimentalElunaEnabled: _experimentalElunaEnabled,
       inputGate: _inputGate,
       fontOverrideFilePath: _fontOverrideFilePath,
       reportedOs: _reportedOs,
@@ -427,9 +414,6 @@ class _MacosEditDialogState extends State<_MacosEditDialog> {
     final showInputGate = fields.contains(GameSettingField.inputGate);
     final showFontOverride = fields.contains(GameSettingField.fontOverride);
     final showReportedOs = fields.contains(GameSettingField.reportedOs);
-    final showExperimental = fields.contains(
-      GameSettingField.experimentalEluna,
-    );
     final showCompat =
         showEnvironmentPatch ||
         showRuntimePlatform ||
@@ -561,9 +545,8 @@ class _MacosEditDialogState extends State<_MacosEditDialog> {
                               PushButton(
                                 controlSize: ControlSize.small,
                                 secondary: true,
-                                onPressed: () => setState(
-                                  () => _fontOverrideFilePath = '',
-                                ),
+                                onPressed: () =>
+                                    setState(() => _fontOverrideFilePath = ''),
                                 child: const Text('清除'),
                               ),
                               const SizedBox(width: 6),
@@ -660,21 +643,6 @@ class _MacosEditDialogState extends State<_MacosEditDialog> {
                             ),
                           ),
                         ),
-                    ],
-                  ),
-                if (showExperimental)
-                  _MacosFormSection(
-                    title: '实验',
-                    children: [
-                      _MacosFormRow(
-                        label: 'Eluna E-Mote',
-                        caption: '实验性立绘后端，可能不稳定',
-                        control: MacosSwitch(
-                          value: _experimentalElunaEnabled,
-                          onChanged: (value) =>
-                              setState(() => _experimentalElunaEnabled = value),
-                        ),
-                      ),
                     ],
                   ),
               ],
@@ -842,7 +810,6 @@ class _CupertinoEditDialog extends StatefulWidget {
   final bool initialTranslationEnabled;
   final String initialTranslationPatchPath;
   final bool initialEnvironmentPatchEnabled;
-  final bool initialExperimentalElunaEnabled;
   final InputGatePolicy initialInputGate;
   final String initialFontOverrideFilePath;
   final String initialReportedOs;
@@ -856,7 +823,6 @@ class _CupertinoEditDialog extends StatefulWidget {
     required this.initialTranslationEnabled,
     required this.initialTranslationPatchPath,
     required this.initialEnvironmentPatchEnabled,
-    required this.initialExperimentalElunaEnabled,
     this.initialInputGate = InputGatePolicy.full,
     this.initialFontOverrideFilePath = '',
     this.initialReportedOs = '',
@@ -875,7 +841,6 @@ class _CupertinoEditDialogState extends State<_CupertinoEditDialog> {
   late bool _translationEnabled;
   late String _translationPatchPath;
   late bool _environmentPatchEnabled;
-  late bool _experimentalElunaEnabled;
   late InputGatePolicy _inputGate;
   late String _fontOverrideFilePath;
   late String _reportedOs;
@@ -888,7 +853,6 @@ class _CupertinoEditDialogState extends State<_CupertinoEditDialog> {
     _translationEnabled = widget.initialTranslationEnabled;
     _translationPatchPath = widget.initialTranslationPatchPath;
     _environmentPatchEnabled = widget.initialEnvironmentPatchEnabled;
-    _experimentalElunaEnabled = widget.initialExperimentalElunaEnabled;
     _inputGate = widget.initialInputGate;
     _fontOverrideFilePath = widget.initialFontOverrideFilePath;
     _reportedOs = widget.initialReportedOs;
@@ -972,9 +936,6 @@ class _CupertinoEditDialogState extends State<_CupertinoEditDialog> {
     );
     final showInputGate = fields.contains(GameSettingField.inputGate);
     final showReportedOs = fields.contains(GameSettingField.reportedOs);
-    final showExperimental = fields.contains(
-      GameSettingField.experimentalEluna,
-    );
     final showFontOverride = fields.contains(GameSettingField.fontOverride);
     return CupertinoAlertDialog(
       title: Text(widget.title),
@@ -1084,8 +1045,7 @@ class _CupertinoEditDialogState extends State<_CupertinoEditDialog> {
                   CupertinoButton(
                     sizeStyle: CupertinoButtonSize.small,
                     padding: const EdgeInsets.symmetric(horizontal: 6),
-                    onPressed: () =>
-                        setState(() => _fontOverrideFilePath = ''),
+                    onPressed: () => setState(() => _fontOverrideFilePath = ''),
                     child: const Text('清除'),
                   ),
               ],
@@ -1119,19 +1079,6 @@ class _CupertinoEditDialogState extends State<_CupertinoEditDialog> {
                     }
                   },
                   child: Text(_runtimePlatform),
-                ),
-              ],
-            ),
-          ],
-          if (showExperimental) ...[
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                const Expanded(child: Text('实验性 Eluna E-Mote')),
-                CupertinoSwitch(
-                  value: _experimentalElunaEnabled,
-                  onChanged: (value) =>
-                      setState(() => _experimentalElunaEnabled = value),
                 ),
               ],
             ),
@@ -1188,7 +1135,6 @@ class _CupertinoEditDialogState extends State<_CupertinoEditDialog> {
               translationEnabled: _translationEnabled,
               translationPatchPath: _translationPatchPath,
               environmentPatchEnabled: _environmentPatchEnabled,
-              experimentalElunaEnabled: _experimentalElunaEnabled,
               inputGate: _inputGate,
               fontOverrideFilePath: _fontOverrideFilePath,
               reportedOs: _reportedOs,
@@ -1212,7 +1158,6 @@ class _MaterialEditDialog extends StatefulWidget {
   final bool initialTranslationEnabled;
   final String initialTranslationPatchPath;
   final bool initialEnvironmentPatchEnabled;
-  final bool initialExperimentalElunaEnabled;
   final InputGatePolicy initialInputGate;
   final String initialFontOverrideFilePath;
   final String initialReportedOs;
@@ -1226,7 +1171,6 @@ class _MaterialEditDialog extends StatefulWidget {
     required this.initialTranslationEnabled,
     required this.initialTranslationPatchPath,
     required this.initialEnvironmentPatchEnabled,
-    required this.initialExperimentalElunaEnabled,
     this.initialInputGate = InputGatePolicy.full,
     this.initialFontOverrideFilePath = '',
     this.initialReportedOs = '',
@@ -1245,7 +1189,6 @@ class _MaterialEditDialogState extends State<_MaterialEditDialog> {
   late bool _translationEnabled;
   late String _translationPatchPath;
   late bool _environmentPatchEnabled;
-  late bool _experimentalElunaEnabled;
   late InputGatePolicy _inputGate;
   late String _fontOverrideFilePath;
   late String _reportedOs;
@@ -1258,7 +1201,6 @@ class _MaterialEditDialogState extends State<_MaterialEditDialog> {
     _translationEnabled = widget.initialTranslationEnabled;
     _translationPatchPath = widget.initialTranslationPatchPath;
     _environmentPatchEnabled = widget.initialEnvironmentPatchEnabled;
-    _experimentalElunaEnabled = widget.initialExperimentalElunaEnabled;
     _inputGate = widget.initialInputGate;
     _fontOverrideFilePath = widget.initialFontOverrideFilePath;
     _reportedOs = widget.initialReportedOs;
@@ -1302,9 +1244,6 @@ class _MaterialEditDialogState extends State<_MaterialEditDialog> {
     );
     final showInputGate = fields.contains(GameSettingField.inputGate);
     final showReportedOs = fields.contains(GameSettingField.reportedOs);
-    final showExperimental = fields.contains(
-      GameSettingField.experimentalEluna,
-    );
     final showFontOverride = fields.contains(GameSettingField.fontOverride);
     return AlertDialog(
       title: Text(widget.title),
@@ -1423,14 +1362,6 @@ class _MaterialEditDialogState extends State<_MaterialEditDialog> {
                   onChanged: (value) =>
                       setState(() => _environmentPatchEnabled = value),
                 ),
-              if (showExperimental)
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('实验性 Eluna E-Mote'),
-                  value: _experimentalElunaEnabled,
-                  onChanged: (value) =>
-                      setState(() => _experimentalElunaEnabled = value),
-                ),
               if (showInputGate)
                 ListTile(
                   contentPadding: EdgeInsets.zero,
@@ -1508,7 +1439,6 @@ class _MaterialEditDialogState extends State<_MaterialEditDialog> {
               translationEnabled: _translationEnabled,
               translationPatchPath: _translationPatchPath,
               environmentPatchEnabled: _environmentPatchEnabled,
-              experimentalElunaEnabled: _experimentalElunaEnabled,
               inputGate: _inputGate,
               fontOverrideFilePath: _fontOverrideFilePath,
               reportedOs: _reportedOs,
@@ -1611,7 +1541,6 @@ class _FluentEditDialog extends StatefulWidget {
   final bool initialTranslationEnabled;
   final String initialTranslationPatchPath;
   final bool initialEnvironmentPatchEnabled;
-  final bool initialExperimentalElunaEnabled;
   final InputGatePolicy initialInputGate;
   final String initialFontOverrideFilePath;
   final String initialReportedOs;
@@ -1625,7 +1554,6 @@ class _FluentEditDialog extends StatefulWidget {
     required this.initialTranslationEnabled,
     required this.initialTranslationPatchPath,
     required this.initialEnvironmentPatchEnabled,
-    required this.initialExperimentalElunaEnabled,
     this.initialInputGate = InputGatePolicy.full,
     this.initialFontOverrideFilePath = '',
     this.initialReportedOs = '',
@@ -1644,7 +1572,6 @@ class _FluentEditDialogState extends State<_FluentEditDialog> {
   late bool _translationEnabled;
   late String _translationPatchPath;
   late bool _environmentPatchEnabled;
-  late bool _experimentalElunaEnabled;
   late InputGatePolicy _inputGate;
   late String _fontOverrideFilePath;
   late String _reportedOs;
@@ -1657,7 +1584,6 @@ class _FluentEditDialogState extends State<_FluentEditDialog> {
     _translationEnabled = widget.initialTranslationEnabled;
     _translationPatchPath = widget.initialTranslationPatchPath;
     _environmentPatchEnabled = widget.initialEnvironmentPatchEnabled;
-    _experimentalElunaEnabled = widget.initialExperimentalElunaEnabled;
     _inputGate = widget.initialInputGate;
     _fontOverrideFilePath = widget.initialFontOverrideFilePath;
     _reportedOs = widget.initialReportedOs;
@@ -1701,9 +1627,6 @@ class _FluentEditDialogState extends State<_FluentEditDialog> {
     );
     final showInputGate = fields.contains(GameSettingField.inputGate);
     final showReportedOs = fields.contains(GameSettingField.reportedOs);
-    final showExperimental = fields.contains(
-      GameSettingField.experimentalEluna,
-    );
     final showFontOverride = fields.contains(GameSettingField.fontOverride);
     return fluent.ContentDialog(
       title: Text(widget.title),
@@ -1858,19 +1781,6 @@ class _FluentEditDialogState extends State<_FluentEditDialog> {
                   ],
                 ),
               ],
-              if (showExperimental) ...[
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    const Expanded(child: Text('实验性 Eluna E-Mote')),
-                    fluent.ToggleSwitch(
-                      checked: _experimentalElunaEnabled,
-                      onChanged: (value) =>
-                          setState(() => _experimentalElunaEnabled = value),
-                    ),
-                  ],
-                ),
-              ],
               if (showInputGate) ...[
                 const SizedBox(height: 8),
                 Row(
@@ -1929,7 +1839,6 @@ class _FluentEditDialogState extends State<_FluentEditDialog> {
               translationEnabled: _translationEnabled,
               translationPatchPath: _translationPatchPath,
               environmentPatchEnabled: _environmentPatchEnabled,
-              experimentalElunaEnabled: _experimentalElunaEnabled,
               inputGate: _inputGate,
               fontOverrideFilePath: _fontOverrideFilePath,
               reportedOs: _reportedOs,
@@ -1952,7 +1861,6 @@ Future<GameEditData?> showMiuixGameEditDialog(
   required bool initialTranslationEnabled,
   required String initialTranslationPatchPath,
   required bool initialEnvironmentPatchEnabled,
-  required bool initialExperimentalElunaEnabled,
   required InputGatePolicy initialInputGate,
   required String initialFontOverrideFilePath,
   required String initialReportedOs,
@@ -1974,7 +1882,6 @@ Future<GameEditData?> showMiuixGameEditDialog(
           initialTranslationEnabled: initialTranslationEnabled,
           initialTranslationPatchPath: initialTranslationPatchPath,
           initialEnvironmentPatchEnabled: initialEnvironmentPatchEnabled,
-          initialExperimentalElunaEnabled: initialExperimentalElunaEnabled,
           initialInputGate: initialInputGate,
           initialFontOverrideFilePath: initialFontOverrideFilePath,
           initialReportedOs: initialReportedOs,
@@ -1995,7 +1902,6 @@ class _MiuixEditForm extends StatefulWidget {
     required this.initialTranslationEnabled,
     required this.initialTranslationPatchPath,
     required this.initialEnvironmentPatchEnabled,
-    required this.initialExperimentalElunaEnabled,
     required this.initialInputGate,
     required this.initialFontOverrideFilePath,
     required this.initialReportedOs,
@@ -2010,7 +1916,6 @@ class _MiuixEditForm extends StatefulWidget {
   final bool initialTranslationEnabled;
   final String initialTranslationPatchPath;
   final bool initialEnvironmentPatchEnabled;
-  final bool initialExperimentalElunaEnabled;
   final InputGatePolicy initialInputGate;
   final String initialFontOverrideFilePath;
   final String initialReportedOs;
@@ -2030,7 +1935,6 @@ class _MiuixEditFormState extends State<_MiuixEditForm> {
   late bool _translationEnabled;
   late String _translationPatchPath;
   late bool _environmentPatchEnabled;
-  late bool _experimentalElunaEnabled;
   late InputGatePolicy _inputGate;
   late String _fontOverrideFilePath;
   late String _reportedOs;
@@ -2043,7 +1947,6 @@ class _MiuixEditFormState extends State<_MiuixEditForm> {
     _translationEnabled = widget.initialTranslationEnabled;
     _translationPatchPath = widget.initialTranslationPatchPath;
     _environmentPatchEnabled = widget.initialEnvironmentPatchEnabled;
-    _experimentalElunaEnabled = widget.initialExperimentalElunaEnabled;
     _inputGate = widget.initialInputGate;
     _fontOverrideFilePath = widget.initialFontOverrideFilePath;
     _reportedOs = widget.initialReportedOs;
@@ -2078,7 +1981,6 @@ class _MiuixEditFormState extends State<_MiuixEditForm> {
       translationEnabled: _translationEnabled,
       translationPatchPath: _translationPatchPath,
       environmentPatchEnabled: _environmentPatchEnabled,
-      experimentalElunaEnabled: _experimentalElunaEnabled,
       inputGate: _inputGate,
       fontOverrideFilePath: _fontOverrideFilePath,
       reportedOs: _reportedOs,
@@ -2101,9 +2003,6 @@ class _MiuixEditFormState extends State<_MiuixEditForm> {
     );
     final showInputGate = fields.contains(GameSettingField.inputGate);
     final showReportedOs = fields.contains(GameSettingField.reportedOs);
-    final showExperimental = fields.contains(
-      GameSettingField.experimentalEluna,
-    );
     final showFontOverride = fields.contains(GameSettingField.fontOverride);
     final reportedKeys = reportedOsOptions.keys.toList();
     final runtimeIndex = runtimePlatforms.contains(_runtimePlatform)
@@ -2209,10 +2108,7 @@ class _MiuixEditFormState extends State<_MiuixEditForm> {
                           ? '使用游戏脚本字体'
                           : overrideFontDisplayName(_fontOverrideFilePath),
                       endActions: [
-                        MiuixTextButton(
-                          '选择',
-                          onPressed: _pickFontOverride,
-                        ),
+                        MiuixTextButton('选择', onPressed: _pickFontOverride),
                         if (_fontOverrideFilePath.isNotEmpty)
                           MiuixTextButton(
                             '清除',
@@ -2227,13 +2123,6 @@ class _MiuixEditFormState extends State<_MiuixEditForm> {
                       value: _environmentPatchEnabled,
                       onChanged: (value) =>
                           setState(() => _environmentPatchEnabled = value),
-                    ),
-                  if (showExperimental)
-                    MiuixSwitchPreference(
-                      title: '实验性 Eluna E-Mote',
-                      value: _experimentalElunaEnabled,
-                      onChanged: (value) =>
-                          setState(() => _experimentalElunaEnabled = value),
                     ),
                   if (showInputGate)
                     MiuixOverlayDropdownPreference(

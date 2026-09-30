@@ -5,53 +5,30 @@ import 'dart:typed_data';
 import 'package:ffi/ffi.dart';
 
 import '../../../services/logger.dart';
-import 'pfs_bridge.dart';
 import 'core_api.dart';
 import 'environment_patch.dart';
+import 'project_vfs.dart';
 
-final class _PfsResource {
-  const _PfsResource(this.archive, this.entryPath, this.size);
-
-  final Pointer<Void> archive;
-
-  /// 归档内的原始条目路径（读取时用它，而不是查询串）。
-  final String entryPath;
-  final int size;
-}
-
-/// 资源索引条目：PFS 条目或目录文件，二选一。
-final class _IndexedResource {
-  const _IndexedResource({this.pfs, this.file});
-
-  final _PfsResource? pfs;
-  final File? file;
-}
-
+/// Artemis 宿主侧资源入口：解包工程与归档工程统一走 [ProjectVfs]。
+///
+/// 优先级为 解包目录 > 大 id 分卷 > 小 id 分卷，存档与运行期 override 排在最前。
+/// core 侧挂载时使用同一套优先级（挂载 PFS 会让归档父目录成为 sidecar 覆盖层），
+/// 避免宿主与引擎两套读取逻辑分叉。
 class FileProvider {
-  static final PfsBridge _pfs = PfsBridge();
-  static final List<Pointer<Void>> _archives = [];
   static CoreApiV1? _coreApi;
   static Pointer<Void>? _resources;
   static bool _ownsResources = false;
-  static String? _archivePath;
+  static ProjectVfs? _vfs;
   static String _archiveEncoding = 'Shift_JIS';
-  static String? _directory;
   static bool _environmentPatchEnabled = false;
   static final Map<String, Uint8List> _environmentPatchCache = {};
-  // 启动时一次性建立的资源索引：脚本会成批探测多种后缀/路径变体（每个候选
-  // 一次 FFI 回调），有索引后存在性与大小查询都是纯内存查表，不再产生
-  // 逐路径的系统调用。键为统一小写的 `/` 分隔相对路径（两侧的归档/文件系统
-  // 查找历史上都是大小写不敏感的）。
-  static final Map<String, _IndexedResource> _resourceIndex = {};
 
-  /// 存档读写基准目录（应用沙箱内）。core 通过回调传相对路径（如
-  /// `savedata/save0001.dat`），一律拼到此目录下落盘/读取（方案 A1 +
-  /// 存档统一放沙箱目录）。
+  /// 存档读写基准目录（应用沙箱内）。core 传相对路径（如
+  /// `savedata/save0001.dat`），一律拼到此目录下落盘/读取。
   static String? _saveDir;
 
-  /// 目录模式的活路径回退：仅当资源索引为空（建立失败）时逐路径探测。
-  static bool get _directoryFallbackActive =>
-      _directory != null && _resourceIndex.isEmpty;
+  /// 当前工程是否叠加了 PFS 层（解包目录里带分卷的混合包也算）。
+  static bool get hasArchiveLayers => _vfs?.hasArchiveLayers ?? false;
 
   static void setSaveDir(String dir) {
     _saveDir = dir;
@@ -67,28 +44,30 @@ class FileProvider {
     }
   }
 
-  /// Collect `.pfs` and standalone `.pfs.NNN` siblings beside [archivePath].
-  /// AppleDouble metadata such as `._game.pfs.001` is skipped.
-  static List<String> listArchiveCandidates(String archivePath) {
-    final dir = File(archivePath).parent;
-    final candidates = <String>[];
-    for (final entity in dir.listSync()) {
-      if (entity is! File) continue;
-      final name = _fileName(entity.path);
-      if (name.startsWith('._')) continue;
-      final lower = entity.path.toLowerCase();
-      if (lower.endsWith('.pfs') || RegExp(r'\.pfs\.\d{3}$').hasMatch(lower)) {
-        candidates.add(entity.path);
-      }
-    }
-    candidates.sort();
-    return candidates;
-  }
+  /// 归档旁的分卷候选（`game.pfs`、`game.pfs.000`…），AppleDouble 已排除。
+  static List<String> listArchiveCandidates(String archivePath) =>
+      ProjectVfs.listArchiveCandidatesIn(File(archivePath).parent.path);
 
-  static String _fileName(String path) {
-    final normalized = path.replaceAll('\\', '/');
-    final index = normalized.lastIndexOf('/');
-    return index < 0 ? normalized : normalized.substring(index + 1);
+  /// 统一打开入口：解包目录或 PFS 归档。
+  static void openProject(
+    String path, {
+    required bool isArchive,
+    String archiveEncoding = 'Shift_JIS',
+    bool environmentPatchEnabled = false,
+  }) {
+    if (isArchive) {
+      openPfs(
+        path,
+        archiveEncoding: archiveEncoding,
+        environmentPatchEnabled: environmentPatchEnabled,
+      );
+      return;
+    }
+    openDirectory(
+      path,
+      archiveEncoding: archiveEncoding,
+      environmentPatchEnabled: environmentPatchEnabled,
+    );
   }
 
   static void openPfs(
@@ -97,82 +76,33 @@ class FileProvider {
     bool environmentPatchEnabled = false,
   }) {
     close();
-    _archivePath = archivePath;
     _archiveEncoding = archiveEncoding;
     _environmentPatchEnabled = environmentPatchEnabled;
-    _pfs.initialize();
-
-    final candidates = listArchiveCandidates(archivePath);
-
-    for (final path in candidates) {
-      final h = _pfs.openWithEncoding(path, archiveEncoding);
-      if (h != nullptr) _archives.add(h);
-    }
-    _buildPfsResourceIndex();
+    _vfs = ProjectVfs.openArchive(archivePath, charset: archiveEncoding);
   }
 
+  /// 打开解包工程。工程根目录里若带 `.pfs` 分卷（Tyranor 等打包器的混合目录），
+  /// 会自动按优先级叠加成归档层，散装文件仍然优先。
   static void openDirectory(
     String root, {
+    String archiveEncoding = 'Shift_JIS',
     bool environmentPatchEnabled = false,
+    bool includeInnerArchives = true,
   }) {
     close();
-    _archivePath = null;
-    _directory = root;
+    _archiveEncoding = archiveEncoding;
     _environmentPatchEnabled = environmentPatchEnabled;
-    _buildDirectoryResourceIndex(root);
+    _vfs = ProjectVfs.openDirectory(
+      root,
+      charset: archiveEncoding,
+      includeInnerArchives: includeInnerArchives,
+    );
   }
 
-  /// PFS 模式：枚举所有已开归档的条目建索引。反向遍历 + `putIfAbsent`，
-  /// 与查询时"后开归档（补丁卷）优先、同归档内同名取先"的历史语义一致。
-  /// 条目大小优先用 O(1) 的 `entrySize` 直读；旧库未导出该符号时回退到
-  /// 按路径的 `fileSize` 查询（旧库上较慢，仅作兼容）。
-  static void _buildPfsResourceIndex() {
-    for (final archive in _archives.reversed) {
-      final count = _pfs.entryCount(archive);
-      for (var index = 0; index < count; index++) {
-        final entryPath = _pfs.entryPath(archive, index);
-        if (entryPath == null) continue;
-        final size =
-            _pfs.entrySize(archive, index) ?? _pfs.fileSize(archive, entryPath);
-        // 0 字节/读不到大小的条目按历史行为视为缺失。
-        if (size <= 0) continue;
-        final key = entryPath.replaceAll('\\', '/').toLowerCase();
-        _resourceIndex.putIfAbsent(
-          key,
-          () => _IndexedResource(pfs: _PfsResource(archive, entryPath, size)),
-        );
-      }
-    }
-  }
+  static Uint8List? readFile(String path) => _lookup(path);
 
-  /// 目录模式：递归遍历一次建索引。文件系统大小写不敏感，键统一小写。
-  static void _buildDirectoryResourceIndex(String root) {
-    final prefix = root.endsWith(Platform.pathSeparator)
-        ? root
-        : '$root${Platform.pathSeparator}';
-    try {
-      for (final entity in Directory(
-        root,
-      ).listSync(recursive: true, followLinks: false)) {
-        if (entity is! File || !entity.path.startsWith(prefix)) continue;
-        final relative = entity.path
-            .substring(prefix.length)
-            .replaceAll(Platform.pathSeparator, '/');
-        _resourceIndex[relative.toLowerCase()] = _IndexedResource(
-          file: File(entity.path),
-        );
-      }
-    } catch (e) {
-      Log.warn('[FileProvider] 目录索引建立失败，回退逐路径探测: $e');
-      _resourceIndex.clear();
-    }
-  }
-
-  /// 索引键：统一 `/` 分隔 + 小写。PFS 与目录两侧的历史查找行为都是
-  /// 大小写不敏感的（pf8/引擎归档查找、大小写不敏感文件系统）。
-  static String _indexKey(String path) {
-    return path.replaceAll('\\', '/').toLowerCase();
-  }
+  static List<String> listFiles({String? extension}) =>
+      _vfs?.listFiles(extension: extension) ?? const <String>[];
 
   static void close() {
     final api = _coreApi;
@@ -203,28 +133,12 @@ class FileProvider {
   }
 
   static void _closeHostMount() {
-    for (final h in _archives) {
-      _pfs.close(h);
-    }
-    _archives.clear();
-    _archivePath = null;
-    _directory = null;
+    _vfs?.close();
+    _vfs = null;
+    _archiveEncoding = 'Shift_JIS';
     _saveDir = null;
     _environmentPatchEnabled = false;
     _environmentPatchCache.clear();
-    _resourceIndex.clear();
-  }
-
-  static Uint8List? readFile(String path) => _lookup(path);
-
-  static List<String> listFiles({String? extension}) {
-    final suffix = extension?.toLowerCase();
-    final paths = <String, String>{};
-    for (final key in _resourceIndex.keys) {
-      if (suffix != null && !key.toLowerCase().endsWith(suffix)) continue;
-      paths[key.toLowerCase()] = key;
-    }
-    return paths.values.toList();
   }
 
   static Uint8List? _lookup(String path) {
@@ -234,58 +148,10 @@ class FileProvider {
     }
     final patched = _patchedResource(path);
     if (patched != null) return patched;
-    return _lookupResource(path);
+    return _readVfs(path);
   }
 
-  static Uint8List? _lookupResource(String path) {
-    if (_archivePath != null) {
-      final sidecar = _readArchiveSidecar(path);
-      if (sidecar != null) return sidecar;
-    }
-    final indexed = _resourceIndex[_indexKey(path)];
-    if (indexed == null) return _readDirectoryFileLive(path);
-    if (indexed.pfs case final resource?) {
-      final buf = malloc.allocate<Uint8>(resource.size);
-      try {
-        final read = _pfs.read(
-          resource.archive,
-          resource.entryPath,
-          0,
-          buf,
-          resource.size,
-        );
-        if (read > 0) return Uint8List.fromList(buf.asTypedList(read));
-      } finally {
-        malloc.free(buf);
-      }
-      return null;
-    }
-    final file = indexed.file!;
-    return file.existsSync() ? file.readAsBytesSync() : null;
-  }
-
-  /// PFS 归档旁的散装资源。部分游戏把视频等大文件放在归档同目录，且这些
-  /// 文件应覆盖归档内同名条目；路径仍限制在归档父目录内。
-  static Uint8List? _readArchiveSidecar(String path) {
-    final archivePath = _archivePath;
-    if (archivePath == null) return null;
-    final relative = _normalizeRelativePath(path);
-    if (relative == null) return null;
-    final root = File(archivePath).parent;
-    final file = File(
-      '${root.path}${Platform.pathSeparator}'
-      '${relative.replaceAll('/', Platform.pathSeparator)}',
-    );
-    return file.existsSync() ? file.readAsBytesSync() : null;
-  }
-
-  /// 索引未建成时的目录活读回退。
-  static Uint8List? _readDirectoryFileLive(String path) {
-    final root = _directory;
-    if (root == null || !_directoryFallbackActive) return null;
-    final file = File('$root${Platform.pathSeparator}$path');
-    return file.existsSync() ? file.readAsBytesSync() : null;
-  }
+  static Uint8List? _readVfs(String path) => _vfs?.readFile(path);
 
   static Uint8List? _patchedResource(String path) {
     if (!_environmentPatchEnabled) return null;
@@ -303,7 +169,7 @@ class FileProvider {
     }
     if (!EnvironmentPatch.canTransform(normalized)) return null;
 
-    final original = _lookupResource(path);
+    final original = _readVfs(path);
     if (original == null) return null;
     final transformed = EnvironmentPatch.transform(normalized, original);
     _environmentPatchCache[normalized] = transformed;
@@ -316,7 +182,7 @@ class FileProvider {
   /// 把 core 传来的脚本相对路径解析为沙箱内的存档文件。
   static File? _saveFile(String path) {
     if (_saveDir == null) return null;
-    final rel = _normalizeRelativePath(path);
+    final rel = ProjectVfs.normalizeRelativePath(path);
     if (rel == null) {
       Log.warn('[FileProvider] 非法存档路径: $path');
       return null;
@@ -327,21 +193,10 @@ class FileProvider {
     );
   }
 
-  static String? _normalizeRelativePath(String path) {
-    final parts = <String>[];
-    for (final raw in path.trim().replaceAll('\\', '/').split('/')) {
-      final part = raw.trim();
-      if (part.isEmpty || part == '.') continue;
-      if (part == '..' || part.contains(':')) return null;
-      parts.add(part);
-    }
-    return parts.isEmpty ? null : parts.join('/');
-  }
-
   static Map<String, Uint8List> _coreOverrides() {
     if (!_environmentPatchEnabled) return const {};
     final overrides = EnvironmentPatch.virtualFiles();
-    final original = _lookupResource('system/first.iet');
+    final original = _readVfs('system/first.iet');
     if (original != null) {
       final transformed = EnvironmentPatch.transform(
         'system/first.iet',
@@ -369,29 +224,7 @@ class FileProvider {
       throw StateError('core 创建资源句柄失败');
     }
     api.fsClear(resourceHandle);
-    if (_directory case final root?) {
-      final path = root.toNativeUtf8();
-      try {
-        if (api.fsMountDirectory(resourceHandle, path) == 0) {
-          throw StateError('mount directory failed: $root');
-        }
-      } finally {
-        malloc.free(path);
-      }
-    } else if (_archivePath case final archive?) {
-      final path = archive.toNativeUtf8();
-      final encoding = _archiveEncoding.toNativeUtf8();
-      try {
-        if (api.fsMountPfs(resourceHandle, path, encoding) == 0) {
-          throw StateError('mount PFS failed: $archive');
-        }
-      } finally {
-        malloc.free(path);
-        malloc.free(encoding);
-      }
-    } else {
-      throw StateError('FileProvider has no mounted resource root');
-    }
+    _mountVfs(api, resourceHandle);
     api.fsClearOverrides(resourceHandle);
     for (final entry in _coreOverrides().entries) {
       final path = entry.key.toNativeUtf8();
@@ -420,5 +253,38 @@ class FileProvider {
     _coreApi = api;
     _resources = resourceHandle;
     _ownsResources = ownsResources;
+  }
+
+  /// 挂载顺序即优先级：core 的 `resources_mount_pfs` 把归档父目录当作最高优先的
+  /// sidecar 层，并在多个归档之间让后挂载者胜出，正好对应
+  /// 解包目录 > 大 id 分卷 > 小 id 分卷。
+  static void _mountVfs(CoreApiV1 api, Pointer<Void> resources) {
+    final vfs = _vfs;
+    final archiveBase = vfs?.archiveBasePath;
+    if (archiveBase != null) {
+      final path = archiveBase.toNativeUtf8();
+      final encoding = _archiveEncoding.toNativeUtf8();
+      var mounted = false;
+      try {
+        mounted = api.fsMountPfs(resources, path, encoding) != 0;
+      } finally {
+        malloc.free(path);
+        malloc.free(encoding);
+      }
+      if (mounted) return;
+      Log.warn('[FileProvider] PFS 挂载失败，回退目录挂载: $archiveBase');
+    }
+    final root = vfs?.directoryRoot;
+    if (root == null) {
+      throw StateError('FileProvider has no mounted resource root');
+    }
+    final path = root.toNativeUtf8();
+    try {
+      if (api.fsMountDirectory(resources, path) == 0) {
+        throw StateError('mount directory failed: $root');
+      }
+    } finally {
+      malloc.free(path);
+    }
   }
 }

@@ -525,8 +525,6 @@ class KrkrEngineRuntime implements EngineRuntime {
   @override
   void setReportedOs(String? os) {}
   @override
-  bool setEmoteBackend(int backend) => false;
-  @override
   bool setFontOverride(Uint8List bytes) => false;
   @override
   void clearFontOverride() {}

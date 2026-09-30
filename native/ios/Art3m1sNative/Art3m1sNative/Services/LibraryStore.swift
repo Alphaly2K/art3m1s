@@ -150,7 +150,6 @@ final class LibraryStore: ObservableObject {
           translationEnabled: manifest?.translationEnabled ?? false,
           translationPatchPath: manifest?.translationPatchPath ?? "",
           environmentPatchEnabled: manifest?.environmentPatchEnabled ?? false,
-          experimentalElunaEnabled: manifest?.experimentalElunaEnabled ?? false,
           inputGate: manifest?.inputGate,
           vndbId: manifest?.vndbID ?? "",
           fontOverridePath: manifest?.fontOverride ?? "",

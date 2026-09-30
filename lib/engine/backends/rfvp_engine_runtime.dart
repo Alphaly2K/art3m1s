@@ -321,9 +321,6 @@ class RfvpEngineRuntime implements EngineRuntime {
   void setReportedOs(String? os) {}
 
   @override
-  bool setEmoteBackend(int backend) => false;
-
-  @override
   bool loadProjectBytes(Uint8List iniContent, {String platform = 'WINDOWS'}) =>
       _runtime > 0;
 

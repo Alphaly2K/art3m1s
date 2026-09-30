@@ -25,7 +25,6 @@ import 'logger.dart';
 ///   "translationEnabled": true,
 ///   "translationPatchPath": "patch/zh.json",
 ///   "environmentPatchEnabled": true,
-///   "experimentalElunaEnabled": false,
 ///   "fontOverride": "font/sourcehansans-regular.otf",
 ///   "inputGate": { "keyboard": false }
 /// }
@@ -38,7 +37,6 @@ class GameManifest {
     this.translationEnabled,
     this.translationPatchPath,
     this.environmentPatchEnabled,
-    this.experimentalElunaEnabled,
     this.fontOverride,
     this.inputGate,
     this.reportedOs,
@@ -60,7 +58,6 @@ class GameManifest {
   /// 默认功能开关。
   final bool? translationEnabled;
   final bool? environmentPatchEnabled;
-  final bool? experimentalElunaEnabled;
 
   /// 默认翻译对照文件（游戏内相对路径）。
   final String? translationPatchPath;
@@ -113,7 +110,6 @@ class GameManifest {
       translationEnabled: optionalBool('translationEnabled'),
       translationPatchPath: optionalString('translationPatchPath'),
       environmentPatchEnabled: optionalBool('environmentPatchEnabled'),
-      experimentalElunaEnabled: optionalBool('experimentalElunaEnabled'),
       fontOverride: optionalString('fontOverride'),
       inputGate: json['inputGate'] is Map
           ? InputGatePolicy.fromJson(
@@ -151,9 +147,6 @@ class GameManifest {
       if (_supports(kind, GameSettingField.environmentPatch) &&
           environmentPatchEnabled != null)
         'environmentPatchEnabled': environmentPatchEnabled,
-      if (_supports(kind, GameSettingField.experimentalEluna) &&
-          experimentalElunaEnabled != null)
-        'experimentalElunaEnabled': experimentalElunaEnabled,
       if (_supports(kind, GameSettingField.fontOverride) &&
           fontOverride != null &&
           fontOverride!.isNotEmpty)
@@ -184,7 +177,6 @@ class GameManifest {
     translationEnabled: entry.translationEnabled,
     translationPatchPath: entry.translationPatchPath,
     environmentPatchEnabled: entry.environmentPatchEnabled,
-    experimentalElunaEnabled: entry.experimentalElunaEnabled,
     fontOverride: entry.fontOverridePath.isEmpty
         ? null
         : entry.fontOverridePath,
@@ -210,10 +202,6 @@ class GameManifest {
           _supports(kind, GameSettingField.environmentPatch)
           ? environmentPatchEnabled ?? entry.environmentPatchEnabled
           : entry.environmentPatchEnabled,
-      experimentalElunaEnabled:
-          _supports(kind, GameSettingField.experimentalEluna)
-          ? experimentalElunaEnabled ?? entry.experimentalElunaEnabled
-          : entry.experimentalElunaEnabled,
       inputGate: _supports(kind, GameSettingField.inputGate)
           ? inputGate ?? entry.inputGate
           : entry.inputGate,

@@ -152,8 +152,6 @@ class _Ps5SessionHostState extends State<_Ps5SessionHost> {
                     translationPatchPath: session.entry.translationPatchPath,
                     environmentPatchEnabled:
                         session.entry.environmentPatchEnabled,
-                    experimentalElunaEnabled:
-                        session.entry.experimentalElunaEnabled,
                     ps5BigScreen: true,
                     sessionState: session.state,
                     onFreezeToHome: () => _freezeToHome(session.entry.id),

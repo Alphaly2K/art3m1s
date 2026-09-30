@@ -97,6 +97,51 @@ void main() {
   });
 
   test(
+    'optional Artemis native runtime boots a hybrid unpacked project',
+    () async {
+      final game = Platform.environment['ART3M1S_ARTEMIS_TEST_GAME'];
+      if (!Platform.isMacOS || game == null) return;
+      final runtime = Art3m1sEngineRuntime();
+      try {
+        await runtime.initialize();
+        expect(
+          runtime.isInitialized,
+          isTrue,
+          reason: Log.entries.map((entry) => entry.message).join('\n'),
+        );
+        // 混合包：散装 system.ini + root.pfs 分卷，BOOT 脚本只在归档里。
+        final prepared = await runtime.prepareProject(
+          projectPath: game,
+          isArchive: false,
+          environmentPatchEnabled: false,
+          platform: 'ANDROID',
+        );
+        expect(
+          prepared,
+          isNotNull,
+          reason: Log.entries.map((entry) => entry.message).join('\n'),
+        );
+        runtime.registerFileReader();
+        runtime.createRuntime(1280, 720);
+        runtime.setReportedOs('ANDROID');
+        expect(
+          runtime.loadProjectBytes(prepared!, platform: 'ANDROID'),
+          isTrue,
+          reason: Log.entries.map((entry) => entry.message).join('\n'),
+        );
+        for (var index = 0; index < 60; index++) {
+          expect(runtime.advanceWithoutRender(16), isTrue);
+        }
+        final frame = runtime.advanceAndRender(16);
+        expect(frame, isNotNull);
+        expect(frame!.length, runtime.stageWidth * runtime.stageHeight * 4);
+      } finally {
+        runtime.shutdown();
+      }
+    },
+  );
+
+  test(
     'Artemis media keeps its own asset reader for resident sessions',
     () async {
       final project = Directory.systemTemp.createTempSync('artemis-media-test');

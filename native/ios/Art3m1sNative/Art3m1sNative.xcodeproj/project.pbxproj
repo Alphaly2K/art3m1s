@@ -41,6 +41,7 @@
 		A00000000000000000000022 /* audio_decode_mp3.c in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000001D /* audio_decode_mp3.c */; };
 		A00000000000000000000023 /* GameInputView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000001E /* GameInputView.swift */; };
 		A00000000000000000000024 /* MetalHostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000001F /* MetalHostView.swift */; };
+		A00000000000000000000025 /* ProjectVFS.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000021 /* ProjectVFS.swift */; };
 		A20000000000000000000001 /* LicensesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000001 /* LicensesView.swift */; };
 		A30000000000000000000001 /* rust_third_party.json in Resources */ = {isa = PBXBuildFile; fileRef = B30000000000000000000001 /* rust_third_party.json */; };
 		A30000000000000000000002 /* Art3m1s-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = B30000000000000000000002 /* Art3m1s-LICENSE.txt */; };
@@ -101,6 +102,7 @@
 		B0000000000000000000001E /* GameInputView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameInputView.swift; sourceTree = "<group>"; };
 		B0000000000000000000001F /* MetalHostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetalHostView.swift; sourceTree = "<group>"; };
 		B00000000000000000000020 /* AudioDecodeShim.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AudioDecodeShim.h; sourceTree = "<group>"; };
+		B00000000000000000000021 /* ProjectVFS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectVFS.swift; sourceTree = "<group>"; };
 		B20000000000000000000001 /* LicensesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicensesView.swift; sourceTree = "<group>"; };
 		B30000000000000000000001 /* rust_third_party.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = rust_third_party.json; sourceTree = "<group>"; };
 		B30000000000000000000002 /* Art3m1s-LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Art3m1s-LICENSE.txt"; sourceTree = "<group>"; };
@@ -176,6 +178,7 @@
 				B00000000000000000000020 /* AudioDecodeShim.h */,
 				B0000000000000000000001E /* GameInputView.swift */,
 				B0000000000000000000001F /* MetalHostView.swift */,
+				B00000000000000000000021 /* ProjectVFS.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -354,6 +357,7 @@
 				A00000000000000000000022 /* audio_decode_mp3.c in Sources */,
 				A00000000000000000000023 /* GameInputView.swift in Sources */,
 				A00000000000000000000024 /* MetalHostView.swift in Sources */,
+				A00000000000000000000025 /* ProjectVFS.swift in Sources */,
 				A20000000000000000000001 /* LicensesView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

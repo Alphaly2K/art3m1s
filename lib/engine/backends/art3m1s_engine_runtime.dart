@@ -200,8 +200,6 @@ int? _asInt(dynamic value) {
 
 typedef RuntimeCreateNative =
     Pointer<Void> Function(Uint32 w, Uint32 h, Int32 backend);
-typedef RuntimeSetEmoteBackendNative =
-    Int32 Function(Pointer<Void> rt, Int32 backend);
 typedef RuntimeBackendCapabilitiesNative = Uint64 Function(Pointer<Void> rt);
 typedef RuntimeConfigureSpatialUpscaleNative =
     Int32 Function(Pointer<Void> rt, Float renderScale, Float sharpness);
@@ -893,36 +891,36 @@ class Art3m1sEngineRuntime implements EngineRuntime {
   }) async {
     _projectAssets.close();
     media.configureAssetReader(_readProjectAsset);
-    if (!isArchive) {
-      FileProvider.openDirectory(
-        projectPath,
-        environmentPatchEnabled: environmentPatchEnabled,
-      );
-      _projectAssets.openDirectory(projectPath);
-      final ini = File('$projectPath${Platform.pathSeparator}system.ini');
-      if (!ini.existsSync()) {
-        FileProvider.close();
-        return null;
-      }
-      return ini.readAsBytes();
-    }
-
-    FileProvider.openPfs(
+    FileProvider.openProject(
       projectPath,
+      isArchive: isArchive,
       environmentPatchEnabled: environmentPatchEnabled,
     );
+    // 归档名字按工程字符集解码，叠加了归档层时才需要按检测结果重开；纯解包目录
+    // 与字符集无关，先把媒体视图建好，system.ini 缺失时媒体也保持可用。
+    final charsetPassNeeded = isArchive || FileProvider.hasArchiveLayers;
+    if (!charsetPassNeeded) {
+      _projectAssets.openProject(projectPath, isArchive: false);
+    }
     final content = FileProvider.readFile('system.ini');
     if (content == null || content.isEmpty) {
       FileProvider.close();
       return null;
     }
     final charset = ProjectCharset.detect(content, platform);
-    FileProvider.openPfs(
-      projectPath,
-      archiveEncoding: charset,
-      environmentPatchEnabled: environmentPatchEnabled,
-    );
-    _projectAssets.openArchives(projectPath, charset: charset);
+    if (charsetPassNeeded) {
+      FileProvider.openProject(
+        projectPath,
+        isArchive: isArchive,
+        archiveEncoding: charset,
+        environmentPatchEnabled: environmentPatchEnabled,
+      );
+      _projectAssets.openProject(
+        projectPath,
+        isArchive: isArchive,
+        charset: charset,
+      );
+    }
     return content;
   }
 
@@ -1424,29 +1422,6 @@ class Art3m1sEngineRuntime implements EngineRuntime {
     }
   }
 
-  /// Selects an optional E-Mote implementation before project loading.
-  /// Older cores do not export this symbol and keep the built-in path.
-  @override
-  bool setEmoteBackend(int backend) {
-    if (_runtime == null || _lib == null) return false;
-    if (backend == 0) return true;
-    try {
-      final coreApi = _coreApi;
-      if (coreApi != null) {
-        return coreApi.setEmoteBackend(_runtime!, backend) != 0;
-      }
-      final fn = _lib!
-          .lookupFunction<
-            RuntimeSetEmoteBackendNative,
-            int Function(Pointer<Void>, int)
-          >('art3m1s_runtime_set_emote_backend');
-      return fn(_runtime!, backend) != 0;
-    } catch (error) {
-      Log.warn('[Art3m1sEngineRuntime] E-Mote 后端选择不可用: $error');
-      return false;
-    }
-  }
-
   @override
   bool setRenderQuality(EngineRenderQuality quality) {
     if (_runtime == null || _lib == null) return false;
@@ -1591,21 +1566,21 @@ class Art3m1sEngineRuntime implements EngineRuntime {
     Uint8List? iniContent;
     late String charset;
     try {
-      if (isPfsArchive) {
-        FileProvider.openPfs(projectPath, environmentPatchEnabled: true);
-        iniContent = FileProvider.readFile('system.ini');
-      } else {
-        FileProvider.openDirectory(projectPath, environmentPatchEnabled: true);
-        iniContent = FileProvider.readFile('system.ini');
-      }
+      FileProvider.openProject(
+        projectPath,
+        isArchive: isPfsArchive,
+        environmentPatchEnabled: true,
+      );
+      iniContent = FileProvider.readFile('system.ini');
       if (iniContent == null || iniContent.isEmpty) {
         FileProvider.close();
         return null;
       }
       charset = ProjectCharset.detect(iniContent, platform);
-      if (isPfsArchive) {
-        FileProvider.openPfs(
+      if (isPfsArchive || FileProvider.hasArchiveLayers) {
+        FileProvider.openProject(
           projectPath,
+          isArchive: isPfsArchive,
           archiveEncoding: charset,
           environmentPatchEnabled: true,
         );

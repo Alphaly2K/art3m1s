@@ -40,7 +40,6 @@ void main() {
             'translationEnabled': true,
             'translationPatchPath': 'patch/zh.json',
             'environmentPatchEnabled': true,
-            'experimentalElunaEnabled': false,
             'fontOverride': 'font/cjk.ttf',
             'reportedOs': 'ps4',
             'inputGate': {
@@ -56,7 +55,6 @@ void main() {
       expect(manifest.translationEnabled, isTrue);
       expect(manifest.translationPatchPath, 'patch/zh.json');
       expect(manifest.environmentPatchEnabled, isTrue);
-      expect(manifest.experimentalElunaEnabled, isFalse);
       expect(manifest.fontOverride, 'font/cjk.ttf');
       expect(manifest.reportedOs, 'ps4');
       expect(manifest.inputGate!.keyboard, isFalse);
@@ -326,7 +324,6 @@ void main() {
         engine: GameEngineKind.rfvp,
         translationEnabled: true,
         environmentPatchEnabled: true,
-        experimentalElunaEnabled: true,
         fontOverride: 'font/x.ttf',
         reportedOs: 'ps4',
         runtimePlatform: 'ANDROID',
@@ -342,7 +339,6 @@ void main() {
       expect(json.containsKey('inputGate'), isTrue);
       // Artemis 专属键不写入。
       expect(json.containsKey('environmentPatchEnabled'), isFalse);
-      expect(json.containsKey('experimentalElunaEnabled'), isFalse);
       expect(json.containsKey('reportedOs'), isFalse);
       expect(json.containsKey('runtimePlatform'), isFalse);
     });
@@ -352,7 +348,6 @@ void main() {
         name: 'Artemis Game',
         engine: GameEngineKind.art3m1s,
         environmentPatchEnabled: true,
-        experimentalElunaEnabled: true,
         fontOverride: 'font/x.ttf',
         reportedOs: 'ps4',
         runtimePlatform: 'ANDROID',
@@ -360,7 +355,6 @@ void main() {
       final json = manifest.toJson();
       expect(json['engine'], 'art3m1s');
       expect(json['environmentPatchEnabled'], isTrue);
-      expect(json['experimentalElunaEnabled'], isTrue);
       expect(json['fontOverride'], 'font/x.ttf');
       expect(json['reportedOs'], 'ps4');
       expect(json['runtimePlatform'], 'ANDROID');
@@ -372,7 +366,6 @@ void main() {
           jsonEncode({
             'engine': 'rfvp',
             'environmentPatchEnabled': true,
-            'experimentalElunaEnabled': true,
             'fontOverride': 'font/x.ttf',
             'reportedOs': 'ps4',
             'runtimePlatform': 'ANDROID',
@@ -390,7 +383,6 @@ void main() {
       final applied = manifest.applyTo(entry);
       expect(applied.translationEnabled, isTrue);
       expect(applied.environmentPatchEnabled, isFalse);
-      expect(applied.experimentalElunaEnabled, isFalse);
       // RFVP 后端支持运行时字体覆盖，清单字体照常应用。
       expect(applied.fontOverridePath, 'font/x.ttf');
       expect(applied.reportedOs, isEmpty);
@@ -406,7 +398,6 @@ void main() {
       expect(rfvp.contains(GameSettingField.displayName), isTrue);
       expect(rfvp.contains(GameSettingField.translationEnabled), isTrue);
       expect(rfvp.contains(GameSettingField.inputGate), isTrue);
-      expect(rfvp.contains(GameSettingField.experimentalEluna), isFalse);
       expect(rfvp.contains(GameSettingField.fontOverride), isTrue);
       expect(GameEngineKind.art3m1s.supportsPfsArchives, isTrue);
       expect(GameEngineKind.rfvp.supportsPfsArchives, isFalse);

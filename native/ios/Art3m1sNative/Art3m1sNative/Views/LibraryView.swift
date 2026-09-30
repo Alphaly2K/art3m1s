@@ -214,7 +214,6 @@ private struct GameDetailView: View {
       Section("项目补丁") {
         Toggle("文本翻译", isOn: $edited.translationEnabled)
         Toggle("环境补丁", isOn: $edited.environmentPatchEnabled)
-        Toggle("实验性 Eluna", isOn: $edited.experimentalElunaEnabled)
       }
     }
     .navigationTitle(edited.displayNameOrName)

@@ -24,7 +24,7 @@ enum GameEngineKind {
 
   /// 该引擎在"每游戏设置"中有意义的字段。
   ///
-  /// 不同引擎的能力交集很小:Artemis 的环境补丁、Eluna、机种上报、启动平台段
+  /// 不同引擎的能力交集很小:Artemis 的环境补丁、机种上报、启动平台段
   /// 都是 Artemis 专属概念;RFVP 侧的同名设置是空实现。设置页和 manifest 都以
   /// 此为准,不给用户展示无效开关。
   Set<GameSettingField> get supportedGameSettings => switch (this) {
@@ -69,7 +69,6 @@ enum GameSettingField {
   translationEnabled,
   translationPatchPath,
   environmentPatch,
-  experimentalEluna,
   fontOverride,
   reportedOs,
   runtimePlatform,

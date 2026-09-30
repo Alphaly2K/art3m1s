@@ -64,7 +64,6 @@ void main() {
       expect(entry.translationEnabled, isFalse);
       expect(entry.translationPatchPath, isEmpty);
       expect(entry.environmentPatchEnabled, isFalse);
-      expect(entry.experimentalElunaEnabled, isFalse);
       expect(entry.engine, GameEngineKind.art3m1s);
       expect(entry.id, startsWith('legacy_'));
     });
@@ -79,7 +78,6 @@ void main() {
         translationEnabled: true,
         translationPatchPath: '/patches/translated.jsonl',
         environmentPatchEnabled: true,
-        experimentalElunaEnabled: true,
         engine: GameEngineKind.rfvp,
         screenshotPath: '/screenshots/a1b2c3d4.png',
       );
@@ -88,7 +86,6 @@ void main() {
       expect(restored.translationEnabled, isTrue);
       expect(restored.translationPatchPath, '/patches/translated.jsonl');
       expect(restored.environmentPatchEnabled, isTrue);
-      expect(restored.experimentalElunaEnabled, isTrue);
       expect(restored.engine, GameEngineKind.rfvp);
       expect(restored.id, 'a1b2c3d4');
       expect(restored.screenshotPath, '/screenshots/a1b2c3d4.png');

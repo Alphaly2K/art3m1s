@@ -254,8 +254,6 @@ class LibraryActions {
             translationEnabled: manifest?.translationEnabled ?? false,
             translationPatchPath: manifest?.translationPatchPath ?? '',
             environmentPatchEnabled: manifest?.environmentPatchEnabled ?? false,
-            experimentalElunaEnabled:
-                manifest?.experimentalElunaEnabled ?? false,
             inputGate: manifest?.inputGate ?? InputGatePolicy.full,
             vndbId: metadata.vndbId ?? '',
             fontOverridePath: manifest?.fontOverride ?? '',
@@ -303,8 +301,6 @@ class LibraryActions {
       initialTranslationPatchPath: manifest?.translationPatchPath ?? '',
       initialEnvironmentPatchEnabled:
           manifest?.environmentPatchEnabled ?? false,
-      initialExperimentalElunaEnabled:
-          manifest?.experimentalElunaEnabled ?? false,
       initialInputGate: manifest?.inputGate ?? InputGatePolicy.full,
       initialRuntimePlatform:
           manifest?.runtimePlatform ?? GameManifest.defaultRuntimePlatform,
@@ -332,7 +328,6 @@ class LibraryActions {
             translationEnabled: result.translationEnabled,
             translationPatchPath: result.translationPatchPath,
             environmentPatchEnabled: result.environmentPatchEnabled,
-            experimentalElunaEnabled: result.experimentalElunaEnabled,
             inputGate: result.inputGate,
             vndbId: metadata.vndbId ?? '',
             fontOverridePath: manifest?.fontOverride ?? '',
@@ -452,7 +447,6 @@ class LibraryActions {
       initialTranslationEnabled: configured.translationEnabled,
       initialTranslationPatchPath: configured.translationPatchPath,
       initialEnvironmentPatchEnabled: configured.environmentPatchEnabled,
-      initialExperimentalElunaEnabled: configured.experimentalElunaEnabled,
       initialInputGate: configured.inputGate,
       initialFontOverrideFilePath: configured.fontOverrideFilePath,
       initialReportedOs: configured.reportedOs,
@@ -482,7 +476,6 @@ class LibraryActions {
           translationEnabled: result.translationEnabled,
           translationPatchPath: result.translationPatchPath,
           environmentPatchEnabled: result.environmentPatchEnabled,
-          experimentalElunaEnabled: result.experimentalElunaEnabled,
           inputGate: result.inputGate,
           fontOverrideFilePath: result.fontOverrideFilePath,
           reportedOs: result.reportedOs,
@@ -621,7 +614,6 @@ class LibraryActions {
             translationEnabled: configured.translationEnabled,
             translationPatchPath: configured.translationPatchPath,
             environmentPatchEnabled: configured.environmentPatchEnabled,
-            experimentalElunaEnabled: configured.experimentalElunaEnabled,
             ps5BigScreen: ps5BigScreen,
             addedAt: configured.addedAt,
             lastPlayedAt: configured.lastPlayedAt,

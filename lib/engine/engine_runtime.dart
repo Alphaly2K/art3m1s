@@ -170,7 +170,6 @@ abstract interface class EngineRuntime {
 
   void createRuntime(int stageWidth, int stageHeight, {int backend = 0});
   void setReportedOs(String? os);
-  bool setEmoteBackend(int backend);
   bool loadProjectBytes(Uint8List iniContent, {String platform = 'WINDOWS'});
 
   /// Mounts a project's resource tree and returns its `system.ini` bytes.
@@ -277,8 +276,6 @@ class UnsupportedEngineRuntime implements EngineRuntime {
   void createRuntime(int stageWidth, int stageHeight, {int backend = 0}) {}
   @override
   void setReportedOs(String? os) {}
-  @override
-  bool setEmoteBackend(int backend) => false;
   @override
   bool loadProjectBytes(Uint8List iniContent, {String platform = 'WINDOWS'}) =>
       false;

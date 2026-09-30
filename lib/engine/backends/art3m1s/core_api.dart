@@ -65,7 +65,6 @@ typedef _RuntimeSubmitTextTranslationNative =
     Int32 Function(Pointer<Void>, Uint64, Pointer<Utf8>);
 typedef _RuntimeSetReportedOsNative =
     Void Function(Pointer<Void>, Pointer<Utf8>);
-typedef _RuntimeSetEmoteBackendNative = Int32 Function(Pointer<Void>, Int32);
 typedef _RuntimeConfigureSpatialUpscaleNative =
     Int32 Function(Pointer<Void>, Float, Float);
 typedef _RuntimeSetRenderQualityPresetNative =
@@ -179,8 +178,6 @@ final class _CoreApiV1 extends Struct {
   runtimeSubmitTextTranslation;
   external Pointer<NativeFunction<_RuntimeSetReportedOsNative>>
   runtimeSetReportedOs;
-  external Pointer<NativeFunction<_RuntimeSetEmoteBackendNative>>
-  runtimeSetEmoteBackend;
   external Pointer<NativeFunction<_RuntimeConfigureSpatialUpscaleNative>>
   runtimeConfigureSpatialUpscale;
   external Pointer<NativeFunction<_RuntimeSetRenderQualityPresetNative>>
@@ -401,10 +398,6 @@ final class CoreApiV1 {
   late final void Function(Pointer<Void>, Pointer<Utf8>) setReportedOs =
       _pointer.ref.runtimeSetReportedOs
           .asFunction<void Function(Pointer<Void>, Pointer<Utf8>)>();
-  late final int Function(Pointer<Void>, int) setEmoteBackend = _pointer
-      .ref
-      .runtimeSetEmoteBackend
-      .asFunction<int Function(Pointer<Void>, int)>();
   late final int Function(Pointer<Void>, double, double)
   configureSpatialUpscale = _pointer.ref.runtimeConfigureSpatialUpscale
       .asFunction<int Function(Pointer<Void>, double, double)>();

@@ -45,7 +45,6 @@ struct GameEntry: Identifiable, Codable, Hashable, Sendable {
   var translationEnabled: Bool
   var translationPatchPath: String
   var environmentPatchEnabled: Bool
-  var experimentalElunaEnabled: Bool
   var inputGate: InputGatePolicy?
   var vndbId: String
   var fontOverridePath: String
@@ -73,7 +72,6 @@ struct GameEntry: Identifiable, Codable, Hashable, Sendable {
     translationEnabled: Bool = false,
     translationPatchPath: String = "",
     environmentPatchEnabled: Bool = false,
-    experimentalElunaEnabled: Bool = false,
     inputGate: InputGatePolicy? = nil,
     vndbId: String = "",
     fontOverridePath: String = "",
@@ -96,7 +94,6 @@ struct GameEntry: Identifiable, Codable, Hashable, Sendable {
     self.translationEnabled = translationEnabled
     self.translationPatchPath = translationPatchPath
     self.environmentPatchEnabled = environmentPatchEnabled
-    self.experimentalElunaEnabled = experimentalElunaEnabled
     self.inputGate = inputGate
     self.vndbId = vndbId
     self.fontOverridePath = fontOverridePath

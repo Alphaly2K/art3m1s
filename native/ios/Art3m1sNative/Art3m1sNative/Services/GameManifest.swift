@@ -10,7 +10,6 @@ struct GameManifest: Decodable, Sendable {
   var translationEnabled: Bool?
   var translationPatchPath: String?
   var environmentPatchEnabled: Bool?
-  var experimentalElunaEnabled: Bool?
   var fontOverride: String?
   var reportedOs: String?
   var runtimePlatform: String?
@@ -24,7 +23,6 @@ struct GameManifest: Decodable, Sendable {
     case translationEnabled
     case translationPatchPath
     case environmentPatchEnabled
-    case experimentalElunaEnabled
     case fontOverride
     case reportedOs
     case runtimePlatform
@@ -127,9 +125,6 @@ struct GameManifest: Decodable, Sendable {
     }
     if let value = manifest.environmentPatchEnabled {
       updated.environmentPatchEnabled = value
-    }
-    if let value = manifest.experimentalElunaEnabled {
-      updated.experimentalElunaEnabled = value
     }
     if let value = manifest.inputGate {
       updated.inputGate = value

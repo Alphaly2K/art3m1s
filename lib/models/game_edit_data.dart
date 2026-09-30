@@ -18,7 +18,6 @@ class GameEditData {
   final bool translationEnabled;
   final String translationPatchPath;
   final bool environmentPatchEnabled;
-  final bool experimentalElunaEnabled;
 
   /// 输入门控策略（环境/平台特化的输入过滤），默认全放行。
   final InputGatePolicy inputGate;
@@ -38,7 +37,6 @@ class GameEditData {
     required this.translationEnabled,
     required this.translationPatchPath,
     required this.environmentPatchEnabled,
-    required this.experimentalElunaEnabled,
     this.inputGate = InputGatePolicy.full,
     this.fontOverrideFilePath = '',
     this.reportedOs = '',

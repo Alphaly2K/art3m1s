@@ -23,7 +23,6 @@ Future<GameEditData?> showPs5GameEditDialog(
   bool initialTranslationEnabled = false,
   String initialTranslationPatchPath = '',
   bool initialEnvironmentPatchEnabled = false,
-  bool initialExperimentalElunaEnabled = false,
   InputGatePolicy initialInputGate = InputGatePolicy.full,
   String initialFontOverrideFilePath = '',
   String initialReportedOs = '',
@@ -44,7 +43,6 @@ Future<GameEditData?> showPs5GameEditDialog(
         initialTranslationEnabled: initialTranslationEnabled,
         initialTranslationPatchPath: initialTranslationPatchPath,
         initialEnvironmentPatchEnabled: initialEnvironmentPatchEnabled,
-        initialExperimentalElunaEnabled: initialExperimentalElunaEnabled,
         initialInputGate: initialInputGate,
         initialFontOverrideFilePath: initialFontOverrideFilePath,
         initialReportedOs: initialReportedOs,
@@ -85,7 +83,6 @@ class Ps5GameEditDialog extends StatefulWidget {
     required this.initialTranslationEnabled,
     required this.initialTranslationPatchPath,
     required this.initialEnvironmentPatchEnabled,
-    required this.initialExperimentalElunaEnabled,
     required this.initialInputGate,
     this.initialFontOverrideFilePath = '',
     required this.initialReportedOs,
@@ -99,7 +96,6 @@ class Ps5GameEditDialog extends StatefulWidget {
   final bool initialTranslationEnabled;
   final String initialTranslationPatchPath;
   final bool initialEnvironmentPatchEnabled;
-  final bool initialExperimentalElunaEnabled;
   final InputGatePolicy initialInputGate;
   final String initialFontOverrideFilePath;
   final String initialReportedOs;
@@ -117,7 +113,6 @@ class _Ps5GameEditDialogState extends State<Ps5GameEditDialog> {
   late bool _translationEnabled;
   late String _translationPatchPath;
   late bool _environmentPatchEnabled;
-  late bool _experimentalElunaEnabled;
   late InputGatePolicy _inputGate;
   late String _fontOverrideFilePath;
   late String _reportedOs;
@@ -130,7 +125,6 @@ class _Ps5GameEditDialogState extends State<Ps5GameEditDialog> {
     _translationEnabled = widget.initialTranslationEnabled;
     _translationPatchPath = widget.initialTranslationPatchPath;
     _environmentPatchEnabled = widget.initialEnvironmentPatchEnabled;
-    _experimentalElunaEnabled = widget.initialExperimentalElunaEnabled;
     _inputGate = widget.initialInputGate;
     _fontOverrideFilePath = widget.initialFontOverrideFilePath;
     _reportedOs = widget.initialReportedOs;
@@ -253,7 +247,6 @@ class _Ps5GameEditDialogState extends State<Ps5GameEditDialog> {
         translationEnabled: _translationEnabled,
         translationPatchPath: _translationPatchPath,
         environmentPatchEnabled: _environmentPatchEnabled,
-        experimentalElunaEnabled: _experimentalElunaEnabled,
         inputGate: _inputGate,
         fontOverrideFilePath: _fontOverrideFilePath,
         reportedOs: _reportedOs,
@@ -277,9 +270,6 @@ class _Ps5GameEditDialogState extends State<Ps5GameEditDialog> {
     final showInputGate = fields.contains(GameSettingField.inputGate);
     final showFontOverride = fields.contains(GameSettingField.fontOverride);
     final showReportedOs = fields.contains(GameSettingField.reportedOs);
-    final showExperimental = fields.contains(
-      GameSettingField.experimentalEluna,
-    );
     final size = MediaQuery.sizeOf(context);
     final width = (size.width - 72).clamp(620.0, 720.0);
     final height = (size.height - 64).clamp(560.0, 760.0);
@@ -501,8 +491,7 @@ class _Ps5GameEditDialogState extends State<Ps5GameEditDialog> {
                           if (showEnvironmentPatch ||
                               showRuntimePlatform ||
                               showInputGate ||
-                              showReportedOs ||
-                              showExperimental) ...[
+                              showReportedOs) ...[
                             const SizedBox(height: 24),
                             Ps5Section(
                               title: '兼容与运行',
@@ -551,22 +540,6 @@ class _Ps5GameEditDialogState extends State<Ps5GameEditDialog> {
                                         reportedOsOptions[_reportedOs] ??
                                         reportedOsOptions['']!,
                                     onPressed: _pickReportedOs,
-                                  ),
-                                if (showExperimental)
-                                  Ps5SettingRow(
-                                    compact: true,
-                                    label: '实验性 Eluna E-Mote',
-                                    caption: '启用 Artemis 实验运行时能力',
-                                    control: Ps5Switch(
-                                      value: _experimentalElunaEnabled,
-                                      onChanged: (value) => setState(
-                                        () => _experimentalElunaEnabled = value,
-                                      ),
-                                    ),
-                                    onPressed: () => setState(
-                                      () => _experimentalElunaEnabled =
-                                          !_experimentalElunaEnabled,
-                                    ),
                                   ),
                               ],
                             ),

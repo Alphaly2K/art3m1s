@@ -22,7 +22,6 @@
   "translationEnabled": true,
   "translationPatchPath": "patch/zh.json",
   "environmentPatchEnabled": true,
-  "experimentalElunaEnabled": false,
   "fontOverride": "font/sourcehansans-regular.otf",
   "reportedOs": "ps4",
   "inputGate": {
@@ -44,7 +43,6 @@
 | `translationEnabled` | 布尔 | 默认是否开启文本翻译。 |
 | `translationPatchPath` | 字符串 | 翻译对照文件的**游戏内相对路径**（离线译文包）。 |
 | `environmentPatchEnabled` | 布尔 | 默认是否启用环境兼容补丁（屏蔽特定渠道/平台校验脚本）。仅 Artemis。 |
-| `experimentalElunaEnabled` | 布尔 | 默认是否启用实验性 Eluna E-Mote 后端。仅 Artemis。 |
 | `fontOverride` | 字符串 | 覆盖字体（TTF/OTF）的**游戏内相对路径**。脚本自带字体缺译文字形时用它替换全部脚本字体的字形来源。仅 Artemis。 |
 | `reportedOs` | 字符串 | 上报给脚本的机种串（`var system="os"` 的返回值）。移植版游戏把存档等功能开关在机种判断上时用它伪装，见下文。仅 Artemis。 |
 | `inputGate` | 对象 | 输入门控策略（结构见下）。 |
@@ -61,7 +59,6 @@
 | `translationEnabled` / `translationPatchPath` | ✔ | ✔（RFVP 为预留接线） |
 | `inputGate` | ✔ | ✔ |
 | `environmentPatchEnabled` | ✔ | — |
-| `experimentalElunaEnabled` | ✔ | — |
 | `fontOverride` | ✔ | — |
 | `reportedOs` | ✔ | — |
 | `runtimePlatform` | ✔ | — |

@@ -6,6 +6,11 @@
 
 ### 变更
 
+- 移除实验性 Eluna E-Mote 后端：core 函数表不再提供 `runtime_set_emote_backend`，
+  每游戏设置页与 `art3m1s.json` 不再接受 `experimentalElunaEnabled`（旧资料库与
+  旧清单里的该字段会被忽略）。E-Mote 统一使用 core 内置的 `crates/art3m1s-emote`；
+  core 也不再 vendor `eluna_rs`，避免与 `siglus_rs` 的 vendor 副本在同一个
+  lockfile 里同名冲突。
 - 每游戏设置页与 `art3m1s.json` 清单按引擎分化：引擎不支持的字段不渲染、不写入、
   不应用；`GameEngineKind.supportedGameSettings` 是唯一的判定来源。新引擎接入流程见
   `doc/engine-onboarding.md`。
@@ -29,6 +34,10 @@
 
 ### 修复
 
+- Artemis 资源读取改为分层 VFS：解包目录 > 大 id 分卷 > 小 id 分卷。混合包
+  （散装 `system.ini` + `root.pfs` 分卷，例如 Tyranor 移植）不再因为只挂载
+  目录而找不到 `system/first.iet`，Flutter 前端与 iOS 原生启动器共用同一套
+  优先级。
 - CoreBridge 只接受 `art3m1s_get_api_v1` 版本化函数表；core 不再导出旧平铺 `art3m1s_*` 符号。
 - CoreBridge 为每个 runtime 创建并绑定独立的 `HostResources` 句柄，文件挂载、覆盖和存档根随 runtime 生命周期释放。
 - CoreBridge 优先使用 callback-free host events v1；新 core 下不再注册日志、media、UI、字体、窗口和文本注入的 `NativeCallable`，并移除 iOS 启动阶段的 FFI callback 自检。

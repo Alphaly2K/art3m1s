@@ -42,7 +42,6 @@ class PlayerScreen extends ConsumerStatefulWidget {
   final bool translationEnabled;
   final String translationPatchPath;
   final bool environmentPatchEnabled;
-  final bool experimentalElunaEnabled;
   final bool ps5BigScreen;
   final EngineSessionState sessionState;
   final VoidCallback? onFreezeToHome;
@@ -80,7 +79,6 @@ class PlayerScreen extends ConsumerStatefulWidget {
     required this.translationEnabled,
     required this.translationPatchPath,
     required this.environmentPatchEnabled,
-    required this.experimentalElunaEnabled,
     this.ps5BigScreen = false,
     this.sessionState = EngineSessionState.active,
     this.onFreezeToHome,
@@ -297,7 +295,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       translationEnabled: widget.translationEnabled,
       translationPatchPath: widget.translationPatchPath,
       environmentPatchEnabled: widget.environmentPatchEnabled,
-      experimentalElunaEnabled: widget.experimentalElunaEnabled,
       inputGate: widget.inputGate,
       fontOverridePath: widget.fontOverridePath,
       fontOverrideFilePath: widget.fontOverrideFilePath,
@@ -399,9 +396,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     _bridge.createRuntime(_stageW, _stageH, backend: renderBackend);
     // 机种上报覆盖（runtime 已建、项目未加载；空串=跟随平台）。
     _bridge.setReportedOs(config.reportedOs);
-    if (config.experimentalElunaEnabled && !_bridge.setEmoteBackend(1)) {
-      Log.warn('[E-Mote] 当前 Core 未包含实验性 Eluna 后端，已保留内置实现');
-    }
     _setProfilerEnabled(settings.debugMode && settings.profilerOverlay);
     if (!_bridge.loadProjectBytes(iniContent, platform: runtimePlatform)) {
       if (mounted) {
