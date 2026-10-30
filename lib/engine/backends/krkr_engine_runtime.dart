@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:ffi';
-import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
@@ -13,12 +12,12 @@ import '../../services/profiler_snapshot.dart';
 import '../../services/text_translation_service.dart';
 import '../engine_runtime.dart';
 import '../shared_texture_session.dart';
+import '../native_library.dart';
 import 'krkr/core_krkr_api.dart';
 
 /// KRKRSDL3 adapter exposed through art3m1s-core's public KRKR ABI.
 ///
-/// The native backend publishes RGBA frames. Apple builds send PCM directly to
-/// SDL's native audio device; other platforms still use the command queue.
+/// The native backend publishes RGBA frames and sends PCM to SDL's output device.
 class KrkrEngineRuntime implements EngineRuntime {
   KrkrEngineRuntime({this.engineCursorControlEnabled = true});
 
@@ -26,8 +25,12 @@ class KrkrEngineRuntime implements EngineRuntime {
   final ValueNotifier<bool> _cursorHidden = ValueNotifier(false);
   final ValueNotifier<AvoidOverlay?> _avoidOverlay = ValueNotifier(null);
   final ValueNotifier<String?> _windowTitle = ValueNotifier(null);
-  final _KrkrMutedMediaHost _media = _KrkrMutedMediaHost();
-  final Map<int, _KrkrAudioClock> _audioStreams = {};
+  late final _KrkrMediaHost _media = _KrkrMediaHost(
+    onVolume: (volume) {
+      if (_runtime != 0) _controls?.volume(_runtime, volume);
+    },
+    onSuspended: (value) => notifyLifecycle(value ? 1 : 2),
+  );
 
   static const MethodChannel _sharedTextureChannel = MethodChannel(
     'moe.alphaly.art3m1s/shared_texture',
@@ -35,6 +38,7 @@ class KrkrEngineRuntime implements EngineRuntime {
 
   DynamicLibrary? _library;
   CoreKrkrApiV1? _api;
+  CoreKrkrControlV1? _controls;
   CoreKrkrDiagnosticsV1? _diagnostics;
   bool _debugEnabled = false;
   TextTranslationService? _translation;
@@ -47,10 +51,10 @@ class KrkrEngineRuntime implements EngineRuntime {
   int _pointerX = 0;
   int _pointerY = 0;
   bool _initialized = false;
+  int _epoch = 0;
   EngineSessionState _sessionState = EngineSessionState.active;
   Future<void> _sessionTransition = Future<void>.value();
   bool _exitRequested = false;
-  bool _reportedMutedAudio = false;
   int? _sharedTextureId;
   int? _sharedTextureKind;
   bool _sharedTextureAttached = false;
@@ -92,10 +96,8 @@ class KrkrEngineRuntime implements EngineRuntime {
       _sessionState = target;
       if (target == EngineSessionState.active) {
         await _media.setSuspended(false);
-        notifyLifecycle(2);
         return;
       }
-      notifyLifecycle(1);
       await _media.setSuspended(true);
       if (target.releasesPresentation) {
         await SharedTextureSessionCoordinator.release(this);
@@ -107,12 +109,22 @@ class KrkrEngineRuntime implements EngineRuntime {
 
   @override
   Future<void> initialize() async {
+    final epoch = ++_epoch;
     try {
+      if (defaultTargetPlatform == TargetPlatform.android) {
+        final ready = await const MethodChannel(
+          'moe.alphaly.art3m1s/native_ptrs',
+        ).invokeMethod<bool>('prepareKrkrHost');
+        if (_epoch != epoch) return;
+        if (ready != true) throw StateError('KRKR Android 原生宿主未准备就绪');
+      }
       _library = _openCoreLibrary();
       _api = CoreKrkrApiV1.tryLoad(_library!);
       if (_api == null) {
         throw StateError('art3m1s-core 未导出兼容的 KRKR API v1');
       }
+      _controls = CoreKrkrControlV1.tryLoad(_library!);
+      if (_controls == null) throw StateError('KRKR 原生音频控制接口不可用；请重新构建 core');
       _diagnostics = CoreKrkrDiagnosticsV1.tryLoad(_library!);
       if (_diagnostics == null) {
         Log.warn('[KrkrEngineRuntime] KRKR 诊断接口不可用');
@@ -120,6 +132,7 @@ class KrkrEngineRuntime implements EngineRuntime {
       _initialized = true;
       Log.info('[KrkrEngineRuntime] 使用 art3m1s_krkr_get_api_v1');
     } catch (error) {
+      if (_epoch != epoch) return;
       Log.error('[KrkrEngineRuntime] KRKR 后端加载失败: $error');
       _shutdownNative();
     }
@@ -135,6 +148,7 @@ class KrkrEngineRuntime implements EngineRuntime {
   }
 
   void _shutdownNative() {
+    _epoch++;
     final api = _api;
     final runtime = _runtime;
     _detachSharedTexture();
@@ -152,7 +166,7 @@ class KrkrEngineRuntime implements EngineRuntime {
       api.destroyRuntime(runtime);
       _drainNativeLogs();
     }
-    _audioStreams.clear();
+    _controls = null;
     _initialized = false;
     _exitRequested = false;
     _api = null;
@@ -245,7 +259,7 @@ class KrkrEngineRuntime implements EngineRuntime {
     final runtime = _runtime;
     if (api == null || runtime <= 0) return false;
     final status = api.tick(runtime);
-    _drainAudio(deltaMs.clamp(0, 1000));
+
     _drainNativeLogs();
     if (status != art3m1sKrkrStatusOk) {
       _exitRequested = true;
@@ -253,58 +267,6 @@ class KrkrEngineRuntime implements EngineRuntime {
       return false;
     }
     return true;
-  }
-
-  void _drainAudio(int deltaMs) {
-    final api = _api;
-    final runtime = _runtime;
-    if (api == null || runtime <= 0) return;
-    while (true) {
-      final command = api.pollAudioCommand(runtime);
-      if (command == null) break;
-      if (!_reportedMutedAudio) {
-        _reportedMutedAudio = true;
-        Log.warn('[KrkrEngineRuntime] 已接收 KRKR PCM，真实扬声器输出尚未接入');
-      }
-      switch (command.kind) {
-        case art3m1sKrkrAudioCreateStream:
-          _audioStreams[command.streamId] = _KrkrAudioClock(
-            sampleRate: command.sampleRate,
-          );
-        case art3m1sKrkrAudioSubmitPcm:
-          _audioStreams[command.streamId]?.appendedSamples +=
-              command.sampleCount;
-        case art3m1sKrkrAudioPlay:
-          _audioStreams[command.streamId]?.playing = true;
-        case art3m1sKrkrAudioPause:
-          _audioStreams[command.streamId]?.playing = false;
-        case art3m1sKrkrAudioStop:
-          _audioStreams[command.streamId]?.reset();
-        case art3m1sKrkrAudioDestroyStream:
-          _audioStreams.remove(command.streamId);
-        case art3m1sKrkrAudioSetParams:
-        case art3m1sKrkrAudioMasterVolume:
-          break;
-      }
-    }
-    for (final entry in _audioStreams.entries) {
-      final stream = entry.value;
-      if (!stream.playing || stream.sampleRate <= 0) continue;
-      stream.fractionalSamples += deltaMs * stream.sampleRate / 1000;
-      final advance = stream.fractionalSamples.floor();
-      stream.fractionalSamples -= advance;
-      final consumed = (stream.consumedSamples + advance).clamp(
-        0,
-        stream.appendedSamples,
-      );
-      if (consumed == stream.consumedSamples) continue;
-      stream.consumedSamples = consumed;
-      api.submitAudioConsumed(
-        runtime,
-        streamId: entry.key,
-        consumedSamples: consumed,
-      );
-    }
   }
 
   void _pushInput(List<KrkrCoreInputEvent> events) {
@@ -552,6 +514,7 @@ class KrkrEngineRuntime implements EngineRuntime {
     final api = _api;
     final runtime = _runtime;
     if (api == null || runtime <= 0) return null;
+    final epoch = _epoch;
     final width = math.max(outputWidth ?? _stageWidth, _stageWidth);
     final height = math.max(outputHeight ?? _stageHeight, _stageHeight);
     if (_sharedTextureAttached &&
@@ -567,7 +530,10 @@ class KrkrEngineRuntime implements EngineRuntime {
             this,
             _releaseSharedTextureForSession,
             () async {
-              if (_sessionState != EngineSessionState.active) return null;
+              if (_epoch != epoch ||
+                  _sessionState != EngineSessionState.active) {
+                return null;
+              }
               if (!_sharedTextureHandlerAttached) {
                 _sharedTextureChannel.setMethodCallHandler(
                   _handleSharedTextureCall,
@@ -580,6 +546,12 @@ class KrkrEngineRuntime implements EngineRuntime {
                     'width': width,
                     'height': height,
                   });
+              if (_epoch != epoch ||
+                  _runtime != runtime ||
+                  _sessionState != EngineSessionState.active) {
+                await _sharedTextureChannel.invokeMethod<void>('release');
+                return null;
+              }
               if (descriptor == null ||
                   !_attachSharedTexture(
                     descriptor,
@@ -723,42 +695,13 @@ class KrkrEngineRuntime implements EngineRuntime {
   @override
   void setWindowStateBits({bool? fullscreen, bool? minimized}) {}
 
-  static DynamicLibrary _openCoreLibrary() {
-    final configured = Platform.environment['ART3M1S_CORE_LIBRARY'];
-    if (configured != null && configured.isNotEmpty) {
-      return DynamicLibrary.open(configured);
-    }
-    final name = Platform.isMacOS
-        ? 'libart3m1s_core.dylib'
-        : Platform.isWindows
-        ? 'art3m1s_core.dll'
-        : 'libart3m1s_core.so';
-    try {
-      return DynamicLibrary.open(name);
-    } catch (_) {
-      final executableDirectory = File(Platform.resolvedExecutable).parent;
-      return DynamicLibrary.open('${executableDirectory.path}/$name');
-    }
-  }
+  static DynamicLibrary _openCoreLibrary() => openEngineCoreLibrary();
 }
 
-class _KrkrAudioClock {
-  _KrkrAudioClock({required this.sampleRate});
-  final int sampleRate;
-  bool playing = false;
-  int appendedSamples = 0;
-  int consumedSamples = 0;
-  double fractionalSamples = 0;
-
-  void reset() {
-    playing = false;
-    appendedSamples = 0;
-    consumedSamples = 0;
-    fractionalSamples = 0;
-  }
-}
-
-class _KrkrMutedMediaHost implements EngineMediaHost {
+class _KrkrMediaHost implements EngineMediaHost {
+  _KrkrMediaHost({required this.onVolume, required this.onSuspended});
+  final void Function(double) onVolume;
+  final void Function(bool) onSuspended;
   final ValueNotifier<EngineVideoPlayback?> _videoPlayback = ValueNotifier(
     null,
   );
@@ -770,9 +713,14 @@ class _KrkrMutedMediaHost implements EngineMediaHost {
   @override
   bool get isFullscreenVideoBlocking => false;
   @override
-  void handleEngineAudioCommand(EngineAudioCommand command) {}
+  void handleEngineAudioCommand(EngineAudioCommand command) {
+    if (command.kind == EngineAudioCommandKind.masterVolume) {
+      onVolume(command.volume.clamp(0.0, 1.0));
+    }
+  }
+
   @override
-  Future<void> setSuspended(bool suspended) async {}
+  Future<void> setSuspended(bool suspended) async => onSuspended(suspended);
   @override
   Future<void> skipVideo() async {}
 

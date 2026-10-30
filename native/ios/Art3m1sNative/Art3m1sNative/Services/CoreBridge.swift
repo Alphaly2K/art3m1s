@@ -290,6 +290,9 @@ private typealias ResourcesClearOverrides = @convention(c) (
   UnsafeMutableRawPointer?
 ) -> Void
 private typealias RuntimeIsExitRequested = @convention(c) (UnsafeMutableRawPointer?) -> Int32
+private typealias RuntimeSubmitHTTPResult = @convention(c) (
+  UnsafeMutableRawPointer?, Int32, UnsafePointer<UInt8>?, Int32
+) -> Int32
 private typealias RuntimeSubmitDialog = @convention(c) (
   UnsafeMutableRawPointer?,
   Int32,
@@ -512,7 +515,7 @@ struct NativeRuntimeHUD: Equatable {
   var fps = 0.0
 }
 
-private final class NativeSharedSurface {
+final class NativeSharedSurface {
   let pixelBuffer: CVPixelBuffer
   let ioSurface: IOSurfaceRef
   let metalTexture: MTLTexture
@@ -685,6 +688,7 @@ final class NativeGameRuntime: ObservableObject {
   private var runtime: UnsafeMutableRawPointer?
   private var hostEvents: UnsafeMutableRawPointer?
   private var translationService: NativeTranslationService?
+  private let http = ScriptHTTPClient()
   private var inputGate = InputGatePolicy.full
   private var mouseButtonsDown: Set<UInt32> = []
   private var sharedSurface: NativeSharedSurface?
@@ -1786,7 +1790,7 @@ final class NativeGameRuntime: ObservableObject {
             &count
           )
         }
-        guard written > 0, count > 0 else { return }
+        guard written > 0, written <= buffer.count, count > 0 else { return }
         parseEventBuffer(buffer, written: written, count: Int(count))
       }
     } catch {
@@ -1845,6 +1849,18 @@ final class NativeGameRuntime: ObservableObject {
       ) { [weak self] translated in
         self?.submitTextTranslation(serial: serial, text: translated)
       }
+    case "http_request":
+      http.start(body, readFile: { [weak self] path in self?.vfs?.read(path) }) { [weak self] status, data in
+        guard let runtime = self?.runtime,
+              let submit = try? NativeCoreAPI.shared.function(
+                .runtimeSubmitHTTPResult, as: RuntimeSubmitHTTPResult.self
+              ) else { return }
+        data.withUnsafeBytes { bytes in
+          _ = submit(runtime, status, bytes.bindMemory(to: UInt8.self).baseAddress, Int32(data.count))
+        }
+      }
+    case "http_cancel":
+      http.cancel((body["serial"] as? NSNumber)?.uint64Value)
     case "avoid":
       avoidOverlay = (body["action"] as? String) == "show"
     case "caption":
@@ -1919,6 +1935,7 @@ final class NativeGameRuntime: ObservableObject {
   }
 
   private func stopRuntime() {
+    http.cancel()
     detachSharedSurface()
     releasePointerButtons()
     if let clearFont = try? NativeCoreAPI.shared.function(
@@ -2427,7 +2444,7 @@ private final class NativeRFVPAudioHost {
     }
     var samples = [Int16](repeating: 0, count: floats.count)
     for index in floats.indices {
-      let value = min(max(floats[index], -1), 1)
+      let value = floats[index].isFinite ? min(max(floats[index], -1), 1) : 0
       samples[index] = Int16(value * 32_767)
     }
     return samples.withUnsafeBytes { Data($0) }
@@ -3225,6 +3242,7 @@ private final class NativeKRKRAPI {
   private var handle: UnsafeMutableRawPointer?
   private var table: UnsafeRawPointer?
   private var diagnosticsTable: UnsafeRawPointer?
+  private var controlTable: UnsafeRawPointer?
 
   func load() throws {
     guard table == nil else { return }
@@ -3248,6 +3266,20 @@ private final class NativeKRKRAPI {
         dlclose(loaded)
         throw CoreBridgeError.missingSymbol("KRKR API V1 ABI mismatch")
       }
+      guard let controlSymbol = dlsym(loaded, "art3m1s_krkr_get_control_api_v1") else {
+        dlclose(loaded)
+        throw CoreBridgeError.missingSymbol("KRKR control API V1")
+      }
+      var controlSize = 0
+      let getControl = unsafeBitCast(controlSymbol, to: KRKRGetAPI.self)
+      guard let control = getControl(&controlSize), controlSize == 24,
+            control.load(as: UInt32.self) == UInt32(controlSize),
+            control.load(fromByteOffset: 4, as: UInt32.self) == 1,
+            control.load(fromByteOffset: 8, as: UInt64.self) == 0x3156434b4d334152 else {
+        dlclose(loaded)
+        throw CoreBridgeError.invalidData("KRKR control API V1 ABI mismatch")
+      }
+      controlTable = control
       handle = loaded
       table = pointer
       if let diagnosticsSymbol = dlsym(loaded, "art3m1s_krkr_get_diagnostics_api_v1") {
@@ -3273,6 +3305,12 @@ private final class NativeKRKRAPI {
       throw CoreBridgeError.missingSymbol("KRKR API slot \(slot.rawValue)")
     }
     return unsafeBitCast(raw, to: T.self)
+  }
+
+  func setMasterVolume(_ runtime: UInt64, value: Float) {
+    typealias SetVolume = @convention(c) (UInt64, Float) -> Int32
+    guard let pointer = controlTable?.load(fromByteOffset: 16, as: UnsafeRawPointer?.self) else { return }
+    _ = unsafeBitCast(pointer, to: SetVolume.self)(runtime, value)
   }
 
   func diagnosticsFunction<T>(_ slot: NativeKRKRDiagnosticsSlot, as type: T.Type) -> T? {
@@ -3362,16 +3400,6 @@ private final class NativeKRKRRuntime: ObservableObject {
   private var suspended = false
   private var pointer = CGPoint.zero
   private var inputGate = InputGatePolicy.full
-  private var audioStreams: [UInt32: AudioClock] = [:]
-
-  private struct AudioClock {
-    var sampleRate: UInt32
-    var appended: UInt64 = 0
-    var consumed: UInt64 = 0
-    var playing = false
-    var fractional = 0.0
-  }
-
   var effectiveInputGate: InputGatePolicy { inputGate }
   var avoidOverlay: Bool { false }
   var showStatusBar: Bool { false }
@@ -3447,7 +3475,6 @@ private final class NativeKRKRRuntime: ObservableObject {
     timer = nil
     isRunning = false
     frame = nil
-    audioStreams.removeAll()
     drainLogs()
     guard runtime != 0 else { return }
     if let destroy = try? NativeKRKRAPI.shared.function(
@@ -3514,7 +3541,8 @@ private final class NativeKRKRRuntime: ObservableObject {
   }
 
   func setMasterVolume(_ value: Double) {
-    // PCM is clocked but muted, matching the current Flutter KRKR host.
+    guard value.isFinite, runtime != 0 else { return }
+    NativeKRKRAPI.shared.setMasterVolume(runtime, value: Float(min(max(value, 0), 1)))
   }
 
   private func push(_ events: [NativeKRKRInputEvent]) {
@@ -3552,7 +3580,6 @@ private final class NativeKRKRRuntime: ObservableObject {
       if status != 0 {
         throw CoreBridgeError.operationFailed(step: "KRKR runtimeTick", code: status)
       }
-      drainAudio()
       let acquire = try NativeKRKRAPI.shared.function(
         .runtimeAcquireFrame, as: KRKRRuntimeAcquireFrame.self)
       var nativeFrame = NativeKRKRFrame()
@@ -3623,56 +3650,6 @@ private final class NativeKRKRRuntime: ObservableObject {
     }
   }
 
-  private func drainAudio() {
-    guard let poll = try? NativeKRKRAPI.shared.function(
-      .runtimePollAudioCommand, as: KRKRRuntimePollAudio.self),
-      let submit = try? NativeKRKRAPI.shared.function(
-        .runtimeSubmitAudioConsumed, as: KRKRRuntimeSubmitAudio.self)
-    else { return }
-    for _ in 0..<4096 {
-      var command = NativeKRKRAudioCommand()
-      let status = withUnsafeMutablePointer(to: &command) {
-        poll(runtime, UnsafeMutableRawPointer($0))
-      }
-      if status != 0 { break }
-      switch command.kind {
-      case 1:
-        audioStreams[command.streamID] = AudioClock(sampleRate: command.sampleRate)
-      case 2:
-        audioStreams[command.streamID]?.appended += command.sampleCount
-      case 3:
-        audioStreams[command.streamID]?.playing = true
-      case 4:
-        audioStreams[command.streamID]?.playing = false
-      case 5:
-        if var stream = audioStreams[command.streamID] {
-          stream.appended = 0
-          stream.consumed = 0
-          stream.playing = false
-          audioStreams[command.streamID] = stream
-        }
-      case 7:
-        audioStreams.removeValue(forKey: command.streamID)
-      default:
-        break
-      }
-    }
-    for (id, var stream) in audioStreams where stream.playing {
-      stream.fractional += Double(stream.sampleRate) / 60.0
-      let frames = UInt64(stream.fractional)
-      stream.fractional -= Double(frames)
-      let consumed = min(stream.consumed + frames, stream.appended)
-      if consumed > stream.consumed {
-        stream.consumed = consumed
-        var report = NativeKRKRAudioConsumed(
-          streamID: id, consumedSamples: consumed)
-        _ = withUnsafePointer(to: &report) {
-          submit(runtime, UnsafeRawPointer($0))
-        }
-      }
-      audioStreams[id] = stream
-    }
-  }
 }
 
 @MainActor
@@ -3682,6 +3659,8 @@ final class NativePlayerRuntime: ObservableObject {
   private let krkr: NativeKRKRRuntime
   private let usesRFVP: Bool
   private let usesKRKR: Bool
+  private let usesSiglus: Bool
+  private let siglus: NativeSiglusRuntime
   private var observers: [AnyCancellable] = []
 
   init(
@@ -3694,6 +3673,8 @@ final class NativePlayerRuntime: ObservableObject {
     let resolved = GameManifest.loadEntrySettings(game)
     usesRFVP = resolved.engine == .rfvp
     usesKRKR = resolved.engine == .krkr
+    usesSiglus = resolved.engine == .siglus
+    siglus = NativeSiglusRuntime(game: resolved, backend: backend, debugModeEnabled: debugModeEnabled)
     art3m1s = NativeGameRuntime(
       game: resolved,
       backend: backend,
@@ -3709,6 +3690,7 @@ final class NativePlayerRuntime: ObservableObject {
     krkr = NativeKRKRRuntime(
       game: resolved, backend: backend, debugModeEnabled: debugModeEnabled)
     observers = [
+      siglus.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() },
       art3m1s.objectWillChange.sink { [weak self] _ in
         self?.objectWillChange.send()
       },
@@ -3720,60 +3702,62 @@ final class NativePlayerRuntime: ObservableObject {
       },
     ]
     AppLogger.info(
-      "Player runtime selected: \(usesKRKR ? "KRKR" : usesRFVP ? "RFVP" : "Artemis")"
+      "Player runtime selected: \(resolved.engine.label)"
     )
   }
 
   var frame: CGImage? {
-    usesKRKR ? krkr.frame : usesRFVP ? rfvp.frame : art3m1s.frame
+    usesSiglus ? siglus.frame : usesKRKR ? krkr.frame : usesRFVP ? rfvp.frame : art3m1s.frame
   }
 
   var isRunning: Bool {
-    usesKRKR ? krkr.isRunning : usesRFVP ? rfvp.isRunning : art3m1s.isRunning
+    usesSiglus ? siglus.isRunning : usesKRKR ? krkr.isRunning : usesRFVP ? rfvp.isRunning : art3m1s.isRunning
   }
 
   var stageWidth: Int {
-    usesKRKR ? krkr.stageWidth : usesRFVP ? rfvp.stageWidth : art3m1s.stageWidth
+    usesSiglus ? siglus.stageWidth : usesKRKR ? krkr.stageWidth : usesRFVP ? rfvp.stageWidth : art3m1s.stageWidth
   }
 
   var stageHeight: Int {
-    usesKRKR ? krkr.stageHeight : usesRFVP ? rfvp.stageHeight : art3m1s.stageHeight
+    usesSiglus ? siglus.stageHeight : usesKRKR ? krkr.stageHeight : usesRFVP ? rfvp.stageHeight : art3m1s.stageHeight
   }
 
   var hud: NativeRuntimeHUD {
-    usesKRKR ? krkr.hud : usesRFVP ? rfvp.hud : art3m1s.hud
+    usesSiglus ? siglus.hud : usesKRKR ? krkr.hud : usesRFVP ? rfvp.hud : art3m1s.hud
   }
 
   var errorMessage: String? {
-    usesKRKR ? krkr.errorMessage : usesRFVP ? rfvp.errorMessage : art3m1s.errorMessage
+    usesSiglus ? siglus.errorMessage : usesKRKR ? krkr.errorMessage : usesRFVP ? rfvp.errorMessage : art3m1s.errorMessage
   }
 
   var avoidOverlay: Bool {
-    usesKRKR ? krkr.avoidOverlay : usesRFVP ? rfvp.avoidOverlay : art3m1s.avoidOverlay
+    usesSiglus ? siglus.avoidOverlay : usesKRKR ? krkr.avoidOverlay : usesRFVP ? rfvp.avoidOverlay : art3m1s.avoidOverlay
   }
 
   var showStatusBar: Bool {
-    usesKRKR ? krkr.showStatusBar : usesRFVP ? rfvp.showStatusBar : art3m1s.showStatusBar
+    usesSiglus ? siglus.showStatusBar : usesKRKR ? krkr.showStatusBar : usesRFVP ? rfvp.showStatusBar : art3m1s.showStatusBar
   }
 
   var shouldClose: Bool {
-    usesKRKR ? krkr.shouldClose : usesRFVP ? rfvp.shouldClose : art3m1s.shouldClose
+    usesSiglus ? siglus.shouldClose : usesKRKR ? krkr.shouldClose : usesRFVP ? rfvp.shouldClose : art3m1s.shouldClose
   }
 
   var dialog: NativeDialogRequest? {
-    usesRFVP || usesKRKR ? nil : art3m1s.dialog
+    usesSiglus || usesRFVP || usesKRKR ? nil : art3m1s.dialog
   }
 
   var externalSurfaceKind: Int32? {
-    usesKRKR ? krkr.externalSurfaceKind : usesRFVP ? rfvp.externalSurfaceKind : art3m1s.externalSurfaceKind
+    usesSiglus ? siglus.externalSurfaceKind : usesKRKR ? krkr.externalSurfaceKind : usesRFVP ? rfvp.externalSurfaceKind : art3m1s.externalSurfaceKind
   }
 
   var effectiveInputGate: InputGatePolicy {
-    usesKRKR ? krkr.effectiveInputGate : usesRFVP ? rfvp.effectiveInputGate : art3m1s.effectiveInputGate
+    usesSiglus ? siglus.effectiveInputGate : usesKRKR ? krkr.effectiveInputGate : usesRFVP ? rfvp.effectiveInputGate : art3m1s.effectiveInputGate
   }
 
   func start() async {
-    if usesKRKR {
+    if usesSiglus {
+      await siglus.start()
+    } else if usesKRKR {
       await krkr.start()
     } else if usesRFVP {
       await rfvp.start()
@@ -3783,7 +3767,9 @@ final class NativePlayerRuntime: ObservableObject {
   }
 
   func stop() {
-    if usesKRKR {
+    if usesSiglus {
+      siglus.stop()
+    } else if usesKRKR {
       krkr.stop()
     } else if usesRFVP {
       rfvp.stop()
@@ -3793,7 +3779,9 @@ final class NativePlayerRuntime: ObservableObject {
   }
 
   func attachMetalLayer(_ layer: CAMetalLayer, size: CGSize) {
-    if usesKRKR {
+    if usesSiglus {
+      siglus.attachMetalLayer(layer, size: size)
+    } else if usesKRKR {
       krkr.attachMetalLayer(layer, size: size)
     } else if usesRFVP {
       rfvp.attachMetalLayer(layer, size: size)
@@ -3803,7 +3791,9 @@ final class NativePlayerRuntime: ObservableObject {
   }
 
   func feedTouch(id: UInt32, phase: UInt8, point: CGPoint) {
-    if usesKRKR {
+    if usesSiglus {
+      siglus.feedTouch(id: id, phase: phase, point: point)
+    } else if usesKRKR {
       krkr.feedTouch(id: id, phase: phase, point: point)
     } else if usesRFVP {
       rfvp.feedTouch(id: id, phase: phase, point: point)
@@ -3813,7 +3803,9 @@ final class NativePlayerRuntime: ObservableObject {
   }
 
   func feedMouse(point: CGPoint) {
-    if usesKRKR {
+    if usesSiglus {
+      siglus.feedMouse(point: point)
+    } else if usesKRKR {
       krkr.feedMouse(point: point)
     } else if usesRFVP {
       rfvp.feedMouse(point: point)
@@ -3823,7 +3815,9 @@ final class NativePlayerRuntime: ObservableObject {
   }
 
   func feedMouseButton(button: UInt32, pressed: Bool) {
-    if usesKRKR {
+    if usesSiglus {
+      siglus.feedMouseButton(button: button, pressed: pressed)
+    } else if usesKRKR {
       krkr.feedMouseButton(button: button, pressed: pressed)
     } else if usesRFVP {
       rfvp.feedMouseButton(button: button, pressed: pressed)
@@ -3833,7 +3827,9 @@ final class NativePlayerRuntime: ObservableObject {
   }
 
   func feedKey(_ key: Int, pressed: Bool) {
-    if usesKRKR {
+    if usesSiglus {
+      siglus.feedKey(key, pressed: pressed)
+    } else if usesKRKR {
       krkr.feedKey(key, pressed: pressed)
     } else if usesRFVP {
       rfvp.feedKey(key, pressed: pressed)
@@ -3843,7 +3839,9 @@ final class NativePlayerRuntime: ObservableObject {
   }
 
   func feedForwardedKey(_ key: Int, pressed: Bool) {
-    if usesKRKR {
+    if usesSiglus {
+      siglus.feedForwardedKey(key, pressed: pressed)
+    } else if usesKRKR {
       krkr.feedForwardedKey(key, pressed: pressed)
     } else if usesRFVP {
       rfvp.feedForwardedKey(key, pressed: pressed)
@@ -3853,7 +3851,9 @@ final class NativePlayerRuntime: ObservableObject {
   }
 
   func feedWheel(_ key: Int) {
-    if usesKRKR {
+    if usesSiglus {
+      siglus.feedWheel(key)
+    } else if usesKRKR {
       krkr.feedWheel(key)
     } else if usesRFVP {
       switch key {
@@ -3870,13 +3870,15 @@ final class NativePlayerRuntime: ObservableObject {
   }
 
   func submitDialog(accepted: Bool, text: String) {
-    if !usesRFVP && !usesKRKR {
+    if !usesSiglus && !usesRFVP && !usesKRKR {
       art3m1s.submitDialog(accepted: accepted, text: text)
     }
   }
 
   func setSuspended(_ suspended: Bool) {
-    if usesKRKR {
+    if usesSiglus {
+      siglus.setSuspended(suspended)
+    } else if usesKRKR {
       krkr.setSuspended(suspended)
     } else if usesRFVP {
       rfvp.setSuspended(suspended)
@@ -3886,7 +3888,9 @@ final class NativePlayerRuntime: ObservableObject {
   }
 
   func setMasterVolume(_ value: Double) {
-    if usesKRKR {
+    if usesSiglus {
+      siglus.setMasterVolume(value)
+    } else if usesKRKR {
       krkr.setMasterVolume(value)
     } else if usesRFVP {
       rfvp.setMasterVolume(value)

@@ -177,13 +177,18 @@ E-Mote 后端，并覆盖上报给脚本的机种。
 
 ```bash
 dart run tool/build.dart [all|ios|ios-obsolete|macos|android|windows|linux] \
-  [--release|--profile|--debug] [--device-only] [--sign-only]
+  [--release|--profile|--debug] [--device-only] [--sign-only] [--krkr] [--siglus]
 ```
 
 `all` 表示当前宿主能够原生构建的全部目标：macOS 构建 iOS、macOS 和 Android，
 Windows 构建 Windows 和 Android，Linux 构建 Linux 和 Android；其中 iOS 指原生
 SwiftUI 客户端，已废弃的 Flutter iOS 目标为 `ios-obsolete`，且不会加入 `all`。
-macOS 若需打包可运行的 Kirikiri 引擎，使用项目固定版本的上游源码与构建仓库，
+Kirikiri 与 Siglus 可在 Windows、Linux、Android、macOS 和 iOS 宿主中启用。
+`--siglus` 构建 Siglus 引擎，需要与客户端配套更新的 core 和同级 `siglus_rs` 源码。
+两种引擎均使用游戏目录导入。非 Apple 目标默认使用 Siglus 自带的视频解码器；
+需要 H.264 UCI 视频时，设置目标平台的 `FFMPEG_DIR` 后重新构建。
+
+打包 Kirikiri 引擎时，使用项目固定版本的上游源码与构建仓库，
 并显式启用 `--krkr`（缺少上游目录时构建会失败，不会静默打包占位实现）：
 
 ```bash
@@ -193,7 +198,8 @@ KRKRSDL3_BUILD_DIR=/path/to/krkrsdl3_build \
 dart run tool/build.dart macos --release --krkr
 ```
 
-该模式会将 KRKR native host、`Res` 与许可证一同放入 macOS 应用包，并在
+可将上述 `macos` 替换为其他目标，也可同时传入 `--siglus`。
+该模式会打包 KRKR native host 及运行资源；macOS 还在
 `build/macos/Build/Products/Release/` 生成 `art3m1s-krkr-macos-release.zip`。
 iOS 默认同时生成真机与 Apple Silicon 模拟器切片；发布真机包可加 `--device-only`。
 原生 iOS 用 `Art3m1sNative.xcodeproj` 构建，再对选定构建的副本及其 framework/dylib
@@ -217,7 +223,8 @@ Flutter engine。需要旧 Flutter iOS 壳时使用 `ios-obsolete`。
 
 GitHub Actions（`.github/workflows/flutter.yml`）会先拉取
 [`art3m1s-core`](https://github.com/Alphaly2K/art3m1s-core) `master`，再跑
-`flutter analyze` / `flutter test`、Android APK，以及 macOS / iOS 发布构建。
+`flutter analyze` / `flutter test`、包含 Siglus 的 Android APK 及 macOS / iOS 发布构建。
+`engines.yml` 检查 Windows/Linux 的 KRKR 上游构建、Siglus 和公共 FFI 契约。
 
 ### macOS 开发
 

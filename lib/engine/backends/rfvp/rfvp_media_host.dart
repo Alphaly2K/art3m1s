@@ -107,7 +107,7 @@ class RfvpMediaHost implements EngineMediaHost {
       case EngineAudioCommandKind.submitI16:
         _pcm[streamId]?.append(command.payload);
       case EngineAudioCommandKind.submitF32:
-        Log.warn('[RfvpMediaHost] F32 PCM stream $streamId is unsupported');
+        _pcm[streamId]?.append(float32PcmToInt16(command.payload));
       case EngineAudioCommandKind.play:
         final pcm = _pcm[streamId];
         final encoded = _encoded[streamId];

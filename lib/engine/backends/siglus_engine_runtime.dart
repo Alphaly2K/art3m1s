@@ -11,6 +11,7 @@ import '../../models/input_gate.dart';
 import '../../services/logger.dart';
 import '../engine_runtime.dart';
 import '../shared_texture_session.dart';
+import '../native_library.dart';
 import 'siglus/core_siglus_api.dart';
 
 /// Siglus VM with the common art3m1s-render GPU backend. The VM is confined
@@ -18,7 +19,14 @@ import 'siglus/core_siglus_api.dart';
 class SiglusEngineRuntime extends UnsupportedEngineRuntime {
   SiglusEngineRuntime() : super(GameEngineKind.siglus);
 
-  final EngineMediaHost _media = _SiglusMediaHost();
+  late final EngineMediaHost _media = _SiglusMediaHost(
+    onVolume: (value) {
+      if (_runtime != 0) _output?.volume(_runtime, value);
+    },
+    onSuspended: (value) {
+      if (_runtime != 0) _output?.suspend(_runtime, value);
+    },
+  );
 
   @override
   EngineMediaHost get media => _media;
@@ -26,13 +34,8 @@ class SiglusEngineRuntime extends UnsupportedEngineRuntime {
   static const MethodChannel _textureChannel = MethodChannel(
     'moe.alphaly.art3m1s/shared_texture',
   );
-  static const MethodChannel _audioChannel = MethodChannel(
-    'moe.alphaly.art3m1s/siglus_audio',
-  );
-
   CoreSiglusApiV1? _api;
-  CoreSiglusAudioV1? _audio;
-  bool _audioReady = false;
+  CoreSiglusOutputV1? _output;
   CoreSiglusDiagnosticsV1? _diagnostics;
   bool _debugEnabled = false;
   int _runtime = 0;
@@ -40,9 +43,13 @@ class SiglusEngineRuntime extends UnsupportedEngineRuntime {
   int _height = 0;
   int _pointerX = 0;
   int _pointerY = 0;
+  final Set<int> _buttons = {};
+  final Set<int> _keys = {};
+  int? _touchId;
   String? _projectPath;
   InputGatePolicy _inputGate = InputGatePolicy.full;
   bool _exitRequested = false;
+  int _epoch = 0;
   EngineSessionState _state = EngineSessionState.active;
   Future<void> _transition = Future<void>.value();
   int? _textureId;
@@ -74,6 +81,7 @@ class SiglusEngineRuntime extends UnsupportedEngineRuntime {
         : EngineSessionState.suspended;
     final pending = _transition.then((_) async {
       if (_state == target) return;
+      if (target != EngineSessionState.active) _releaseInputs();
       _state = target;
       await media.setSuspended(target != EngineSessionState.active);
       if (target.releasesPresentation) {
@@ -86,33 +94,29 @@ class SiglusEngineRuntime extends UnsupportedEngineRuntime {
 
   @override
   Future<void> initialize() async {
-    if (!Platform.isMacOS) {
-      Log.warn('[SiglusEngineRuntime] 当前 Siglus 宿主仅在 macOS 验证');
-      return;
-    }
+    final epoch = ++_epoch;
     try {
-      final configured = Platform.environment['ART3M1S_CORE_LIBRARY'];
-      DynamicLibrary library;
-      if (configured != null && configured.isNotEmpty) {
-        library = DynamicLibrary.open(configured);
-      } else {
-        try {
-          library = DynamicLibrary.open('libart3m1s_core.dylib');
-        } catch (_) {
-          library = DynamicLibrary.open(
-            '${File(Platform.resolvedExecutable).parent.path}/libart3m1s_core.dylib',
-          );
-        }
-      }
+      final library = openEngineCoreLibrary();
       _api = CoreSiglusApiV1.tryLoad(library);
       if (_api == null) {
         throw StateError(
           'art3m1s-core 未导出兼容的 Siglus API v1；请使用 --features siglus-engine 构建',
         );
       }
-      _audio = CoreSiglusAudioV1.tryLoad(library);
-      if (_audio == null) {
-        throw StateError('Siglus Host PCM 接口不可用；需要新版 siglus-engine 构建');
+      _output = CoreSiglusOutputV1.tryLoad(library);
+      if (_output == null) {
+        throw StateError('Siglus 原生音频输出接口不可用；请重新构建 core');
+      }
+      if (Platform.isAndroid) {
+        final context = await const MethodChannel(
+          'moe.alphaly.art3m1s/native_ptrs',
+        ).invokeMapMethod<String, dynamic>('getAndroidContextPtrs');
+        if (_epoch != epoch) return;
+        final vm = (context?['vmPtr'] as num?)?.toInt() ?? 0;
+        final activity = (context?['contextPtr'] as num?)?.toInt() ?? 0;
+        if (_output!.initializeAndroid(vm, activity) != CoreSiglusApiV1.ok) {
+          throw StateError('Siglus Android 音频上下文初始化失败');
+        }
       }
       _diagnostics = CoreSiglusDiagnosticsV1.tryLoad(library);
       if (_diagnostics == null) {
@@ -120,8 +124,9 @@ class SiglusEngineRuntime extends UnsupportedEngineRuntime {
       }
       Log.info('[SiglusEngineRuntime] 使用 art3m1s_siglus_get_api_v1');
     } catch (error) {
+      if (_epoch != epoch) return;
       _api = null;
-      _audio = null;
+      _output = null;
       _diagnostics = null;
       Log.error('[SiglusEngineRuntime] 初始化失败: $error');
     }
@@ -155,11 +160,17 @@ class SiglusEngineRuntime extends UnsupportedEngineRuntime {
       _width = api.stageWidth(_runtime);
       _height = api.stageHeight(_runtime);
       _applyDebug();
-      unawaited(_startAudio());
+      final audioStatus = _output!.start(_runtime);
+      if (audioStatus != CoreSiglusApiV1.ok) {
+        throw StateError('Siglus 音频输出失败: ${api.lastError}');
+      }
+      _output!.suspend(_runtime, _state != EngineSessionState.active);
       _exitRequested = false;
       Log.info('[SiglusEngineRuntime] 舞台 ${_width}x$_height');
     } catch (error) {
       _drainNativeLogs();
+      if (_runtime != 0) api.destroyRuntime(_runtime);
+      _runtime = 0;
       Log.error('[SiglusEngineRuntime] 创建失败: $error');
     }
   }
@@ -199,7 +210,12 @@ class SiglusEngineRuntime extends UnsupportedEngineRuntime {
 
   @override
   void feedMouseButton(int button, bool pressed) {
-    if (!_inputGate.mouseButtons) return;
+    if (!_inputGate.mouseButtons || _state != EngineSessionState.active) return;
+    if (pressed) {
+      _buttons.add(button);
+    } else {
+      _buttons.remove(button);
+    }
     _input(
       CoreSiglusApiV1.inputButton,
       button,
@@ -211,7 +227,10 @@ class SiglusEngineRuntime extends UnsupportedEngineRuntime {
 
   @override
   void feedTouch(int id, int phase, int x, int y) {
-    if (!_inputGate.touch) return;
+    if (!_inputGate.touch || _state != EngineSessionState.active) return;
+    if (phase == 0 && _touchId == null) _touchId = id;
+    if (_touchId != id) return;
+    if (phase >= 2) _touchId = null;
     _pointerX = x;
     _pointerY = y;
     _input(CoreSiglusApiV1.inputTouch, phase, x, y, 0);
@@ -221,6 +240,7 @@ class SiglusEngineRuntime extends UnsupportedEngineRuntime {
   void feedKey(int keyCode, bool pressed) {
     final code = _inputGate.filterKey(keyCode);
     if (code != null) {
+      _trackKey(code, pressed);
       _input(CoreSiglusApiV1.inputKey, code, 0, 0, pressed ? 1 : 0);
     }
   }
@@ -232,14 +252,40 @@ class SiglusEngineRuntime extends UnsupportedEngineRuntime {
     if (pressed && (code == 136 || code == 137)) {
       feedWheel(0, code == 136 ? 1 : -1);
     } else {
+      _trackKey(code, pressed);
       _input(CoreSiglusApiV1.inputKey, code, 0, 0, pressed ? 1 : 0);
     }
   }
 
   @override
   void feedWheel(double deltaX, double deltaY) {
+    if (!deltaY.isFinite) return;
     final delta = deltaY.round();
     if (delta != 0) _input(CoreSiglusApiV1.inputWheel, 0, 0, 0, delta);
+  }
+
+  void _trackKey(int code, bool pressed) {
+    if (_state != EngineSessionState.active) return;
+    if (pressed) {
+      _keys.add(code);
+    } else {
+      _keys.remove(code);
+    }
+  }
+
+  void _releaseInputs() {
+    for (final button in _buttons) {
+      _input(CoreSiglusApiV1.inputButton, button, _pointerX, _pointerY, 0);
+    }
+    for (final key in _keys) {
+      _input(CoreSiglusApiV1.inputKey, key, 0, 0, 0);
+    }
+    if (_touchId != null) {
+      _input(CoreSiglusApiV1.inputTouch, 3, _pointerX, _pointerY, 0);
+    }
+    _buttons.clear();
+    _keys.clear();
+    _touchId = null;
   }
 
   bool _tick(int deltaMs, int mode) {
@@ -254,7 +300,6 @@ class SiglusEngineRuntime extends UnsupportedEngineRuntime {
       Log.error('[SiglusEngineRuntime] 帧处理失败 ($status): ${api.lastError}');
       return false;
     }
-    _pumpAudio(deltaMs);
     _exitRequested = api.isExitRequested(_runtime);
     return true;
   }
@@ -271,7 +316,6 @@ class SiglusEngineRuntime extends UnsupportedEngineRuntime {
     }
     try {
       final frame = api.render(_runtime, deltaMs, _width * _height * 4);
-      _pumpAudio(deltaMs);
       _drainNativeLogs();
       _exitRequested = api.isExitRequested(_runtime);
       return frame;
@@ -303,6 +347,7 @@ class SiglusEngineRuntime extends UnsupportedEngineRuntime {
     int? outputHeight,
   }) async {
     if (_api == null || _runtime == 0) return null;
+    final epoch = _epoch;
     final width = math.max(outputWidth ?? _width, _width);
     final height = math.max(outputHeight ?? _height, _height);
     if (_textureAttached &&
@@ -316,7 +361,9 @@ class SiglusEngineRuntime extends UnsupportedEngineRuntime {
         this,
         _releaseTexture,
         () async {
-          if (_state != EngineSessionState.active) return null;
+          if (_epoch != epoch || _state != EngineSessionState.active) {
+            return null;
+          }
           if (!_handlerAttached) {
             _textureChannel.setMethodCallHandler(_handleTextureCall);
             _handlerAttached = true;
@@ -327,6 +374,12 @@ class SiglusEngineRuntime extends UnsupportedEngineRuntime {
                 'width': width,
                 'height': height,
               });
+          if (_epoch != epoch ||
+              _state != EngineSessionState.active ||
+              _runtime == 0) {
+            await _textureChannel.invokeMethod<void>('release');
+            return null;
+          }
           if (descriptor == null ||
               !_attachTexture(descriptor, width, height)) {
             Log.warn('[SiglusEngineRuntime] 共享纹理不可用，退回 RGBA');
@@ -437,15 +490,9 @@ class SiglusEngineRuntime extends UnsupportedEngineRuntime {
 
   @override
   void shutdown() {
-    _audioReady = false;
-    unawaited(
-      _audioChannel
-          .invokeMethod<void>('dispose')
-          .catchError(
-            (Object error) =>
-                Log.warn('[SiglusEngineRuntime] 音频设备释放失败: $error'),
-          ),
-    );
+    _epoch++;
+    _releaseInputs();
+    if (_runtime != 0) _output?.stop(_runtime);
     _detachTexture();
     if (_textureId != null) {
       unawaited(_textureChannel.invokeMethod<void>('release'));
@@ -460,7 +507,7 @@ class SiglusEngineRuntime extends UnsupportedEngineRuntime {
     }
     _runtime = 0;
     _api = null;
-    _audio = null;
+    _output = null;
     _diagnostics = null;
     _textureId = null;
     _textureKind = null;
@@ -469,45 +516,6 @@ class SiglusEngineRuntime extends UnsupportedEngineRuntime {
     _width = 0;
     _height = 0;
     _exitRequested = false;
-  }
-
-  Future<void> _startAudio() async {
-    try {
-      final started = await _audioChannel.invokeMethod<bool>('start');
-      _audioReady = started == true && _runtime != 0;
-      if (!_audioReady) {
-        Log.error('[SiglusEngineRuntime] 宿主音频设备未启动');
-      } else if (_state != EngineSessionState.active) {
-        await media.setSuspended(true);
-      }
-    } catch (error) {
-      _audioReady = false;
-      Log.error('[SiglusEngineRuntime] 宿主音频设备启动失败: $error');
-    }
-  }
-
-  void _pumpAudio(int deltaMs) {
-    final audio = _audio;
-    if (!_audioReady || audio == null || _runtime == 0) return;
-    final frames = deltaMs.clamp(0, 100) * audio.sampleRate ~/ 1000;
-    if (frames <= 0) return;
-    final pcm = audio.renderPcm(_runtime, frames);
-    if (pcm == null) {
-      Log.warn('[SiglusEngineRuntime] PCM 拉取失败');
-      return;
-    }
-    unawaited(
-      _audioChannel
-          .invokeMethod<bool>('append', pcm)
-          .then((accepted) {
-            if (accepted != true) {
-              Log.debug('[SiglusEngineRuntime] 宿主音频队列已满，丢弃一块 PCM');
-            }
-          })
-          .catchError((Object error) {
-            Log.warn('[SiglusEngineRuntime] PCM 提交失败: $error');
-          }),
-    );
   }
 
   @override
@@ -548,42 +556,28 @@ class SiglusEngineRuntime extends UnsupportedEngineRuntime {
 }
 
 class _SiglusMediaHost implements EngineMediaHost {
+  _SiglusMediaHost({required this.onVolume, required this.onSuspended});
+  final void Function(double) onVolume;
+  final void Function(bool) onSuspended;
   final ValueNotifier<EngineVideoPlayback?> _videoPlayback = ValueNotifier(
     null,
   );
   final ValueNotifier<bool> _fullscreenVideoBlocking = ValueNotifier(false);
-
   @override
   ValueListenable<EngineVideoPlayback?> get videoPlayback => _videoPlayback;
   @override
   ValueListenable<bool> get fullscreenVideoBlocking => _fullscreenVideoBlocking;
   @override
   bool get isFullscreenVideoBlocking => false;
-
   @override
   void handleEngineAudioCommand(EngineAudioCommand command) {
-    if (command.kind != EngineAudioCommandKind.masterVolume) return;
-    unawaited(
-      SiglusEngineRuntime._audioChannel
-          .invokeMethod<void>('volume', command.volume.clamp(0.0, 1.0))
-          .catchError((Object error) {
-            Log.warn('[SiglusMediaHost] 主音量设置失败: $error');
-          }),
-    );
-  }
-
-  @override
-  Future<void> setSuspended(bool suspended) async {
-    try {
-      await SiglusEngineRuntime._audioChannel.invokeMethod<void>(
-        'suspend',
-        suspended,
-      );
-    } catch (error) {
-      Log.warn('[SiglusMediaHost] 暂停状态设置失败: $error');
+    if (command.kind == EngineAudioCommandKind.masterVolume) {
+      onVolume(command.volume.clamp(0.0, 1.0));
     }
   }
 
+  @override
+  Future<void> setSuspended(bool suspended) async => onSuspended(suspended);
   @override
   Future<void> skipVideo() async {}
 }

@@ -176,7 +176,9 @@ class GameEntry {
 
   static String _normalizeId(String? id, String path) {
     final cleaned = (id ?? '').replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '');
-    return cleaned.isNotEmpty ? cleaned : legacyIdForPath(path);
+    return cleaned.isNotEmpty && cleaned != '.' && cleaned != '..'
+        ? cleaned
+        : legacyIdForPath(path);
   }
 
   /// 旧前端实际使用过的存档目录名，仅用于无冲突资料库的兼容迁移。
@@ -187,7 +189,9 @@ class GameEntry {
     final segments = normalized.split('/').where((part) => part.isNotEmpty);
     final basename = segments.isEmpty ? '' : segments.last;
     final cleaned = basename.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
-    if (cleaned.isNotEmpty) return cleaned;
+    if (cleaned.isNotEmpty && cleaned != '.' && cleaned != '..') {
+      return cleaned;
+    }
     return legacyIdForPath(path);
   }
 

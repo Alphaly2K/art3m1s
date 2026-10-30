@@ -68,7 +68,7 @@ final class NativeMediaBridge: NSObject {
   func handleCommand(kind: String, payload: [String: Any]) {
     guard !disposed else { return }
     Task { [weak self] in
-      guard let self else { return }
+      guard let self, !self.disposed else { return }
       switch kind {
       case "audio_set_volume":
         await self.setVolume(payload)
@@ -156,6 +156,8 @@ final class NativeMediaBridge: NSObject {
     bgm = nil
     videoAudio = nil
     assetReader = nil
+    onSoundFinished = nil
+    onVideoFinished = nil
   }
 
   private func setVolume(_ payload: [String: Any]) async {
@@ -203,8 +205,12 @@ final class NativeMediaBridge: NSObject {
       gain: gain,
       pan: panValue(payload["pan"]),
       loop: bool(payload["loop"])
-    ), operations.isCurrent(ticket) else {
-      onSoundFinished?(nil)
+    ) else {
+      if operations.isCurrent(ticket) { onSoundFinished?(nil) }
+      return
+    }
+    guard operations.isCurrent(ticket), !disposed else {
+      handle.dispose()
       return
     }
     handle.onCompleted = { [weak self, weak handle] in
@@ -248,8 +254,12 @@ final class NativeMediaBridge: NSObject {
       gain: gain,
       pan: panValue(payload["pan"]),
       loop: bool(payload["loop"])
-    ), operations.isCurrent(ticket) else {
-      onSoundFinished?(nil)
+    ) else {
+      if operations.isCurrent(ticket) { onSoundFinished?(nil) }
+      return
+    }
+    guard operations.isCurrent(ticket), !disposed else {
+      handle.dispose()
       return
     }
 
@@ -327,8 +337,12 @@ final class NativeMediaBridge: NSObject {
       gain: gain,
       pan: panValue(payload["pan"]),
       loop: bool(payload["loop"])
-    ), operations.isCurrent(ticket) else {
-      onSoundFinished?(id)
+    ) else {
+      if operations.isCurrent(ticket) { onSoundFinished?(id) }
+      return
+    }
+    guard operations.isCurrent(ticket), !disposed else {
+      handle.dispose()
       return
     }
     handle.onCompleted = { [weak self, weak handle] in

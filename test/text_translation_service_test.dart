@@ -9,6 +9,36 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('replacement tables isolate cached translations by language', () async {
+    final directory = Directory.systemTemp.createTempSync('translation_scope_');
+    addTearDown(() => directory.deleteSync(recursive: true));
+    final cache = File('${directory.path}/cache.pb');
+    final settings = TranslationSettings(mode: TranslationMode.patch);
+    String key(String target, String text) => [
+      'v3',
+      settings.provider.name,
+      settings.endpoint,
+      settings.model,
+      settings.sourceLanguage,
+      target,
+      '',
+      text,
+    ].join('\u0000');
+    final message = TranslationCache()
+      ..entries.addAll({
+        key(settings.targetLanguage, 'current'): '当前语言',
+        key('different', 'other'): '另一种语言',
+      });
+    await cache.writeAsBytes(message.writeToBuffer());
+    final service = await TextTranslationService.create(
+      settings: settings,
+      patchPath: '',
+      cacheFile: cache,
+    );
+    expect(service.hostReplacementTable, {'current': '当前语言'});
+    await service.dispose();
+  });
+
   group('translation provider protocols', () {
     test('OpenAI Responses carries auth and ruby context', () async {
       final mock = await _MockApi.start({

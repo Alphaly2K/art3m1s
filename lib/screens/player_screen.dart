@@ -267,7 +267,22 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   }
 
   Future<void> _init() async {
+    try {
+      await _initializePlayer();
+    } catch (error, stackTrace) {
+      Log.error('[Player] 初始化失败: $error\n$stackTrace');
+      _bridge.shutdown();
+      if (mounted && !_closing) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('游戏启动失败: $error')));
+      }
+    }
+  }
+
+  Future<void> _initializePlayer() async {
     await ref.read(settingsProvider.notifier).ready;
+    if (!mounted || _closing) return;
     await _bridge.initialize();
     if (!mounted || _closing) {
       _bridge.shutdown();
@@ -282,6 +297,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       return;
     }
     final appliedState = await _bridge.setSessionState(widget.sessionState);
+    if (!mounted || _closing) return;
     _sessionReadyToRun = appliedState.isRunning;
 
     final settings = ref.read(settingsProvider);
@@ -306,6 +322,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     final config = _activeConfig = await GameManifest.loadEntrySettings(
       baseConfig,
     );
+    if (!mounted || _closing) return;
     _bridge.setDebug(settings.debugMode);
     _bridge.setDamageVisualization(
       settings.debugMode && settings.damageVisualization,
@@ -346,7 +363,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       }
       return;
     }
-    if (iniContent == null) return;
+    if (!mounted || _closing || iniContent == null) return;
 
     _parseStageSize(iniContent);
 
@@ -365,11 +382,13 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     // 否则不同游戏会共用存档与翻译缓存。
     final gameId = widget.gameId;
     final saves = await AppDataPaths.savesDirectory();
+    if (!mounted || _closing) return;
     final saveDir = '${saves.path}${Platform.pathSeparator}$gameId';
     _bridge.setSaveDir(saveDir);
 
     if (config.translationEnabled) {
       final translations = await AppDataPaths.translationsDirectory();
+      if (!mounted || _closing) return;
       final translation = await TextTranslationService.create(
         settings: ref.read(settingsProvider).translation,
         patchPath: config.translationPatchPath,
@@ -387,6 +406,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     // 覆盖字体按局显式安装或清除：Artemis 是进程级全局设置，不能残留到下一局；
     // RFVP 是 per-runtime，后端会在 createRuntime 后自行推送。
     if (widget.sessionState.isRunning) await _applyFontOverride();
+    if (!mounted || _closing) return;
 
     // 输入门控：项目补丁/资料库条目的环境特化过滤，在 bridge 出口统一生效。
     _bridge.configureInputGate(config.inputGate);
@@ -436,6 +456,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   /// 进程级全局设置，不能残留到下一局）。
   Future<void> _applyFontOverride() async {
     final resolved = await _resolveFontOverrideBytes();
+    if (!mounted || _closing || !widget.sessionState.isRunning) return;
     if (resolved == null) {
       _bridge.clearFontOverride();
       return;
@@ -865,6 +886,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         '$safeGameId-${DateTime.now().millisecondsSinceEpoch}.png',
       );
       await file.writeAsBytes(bytes, flush: true);
+      if (!mounted || _closing) return;
       await ref
           .read(libraryProvider.notifier)
           .setScreenshot(widget.gameId, file.path);

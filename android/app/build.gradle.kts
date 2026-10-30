@@ -8,23 +8,6 @@ plugins {
 // art3m1s-core 通过 build.rs 链接 c++_shared（FFmpeg 需要 C++ ABI 符号）。
 // 必须把 NDK 自带的 libc++_shared.so 打进 APK，否则运行时会报
 // "cannot locate symbol __cxa_pure_virtual"。
-fun ndkHostTag(): String {
-    val os = System.getProperty("os.name").lowercase()
-    val arch = System.getProperty("os.arch").lowercase()
-    val hostOs = when {
-        os.contains("mac") || os.contains("darwin") -> "darwin"
-        os.contains("linux") -> "linux"
-        os.contains("win") -> "windows"
-        else -> error("Unsupported host OS: $os")
-    }
-    val hostArch = when {
-        arch.contains("x86_64") || arch.contains("amd64") -> "x86_64"
-        arch.contains("aarch64") || arch.contains("arm64") -> "arm64"
-        else -> error("Unsupported host arch: $arch")
-    }
-    return "$hostOs-$hostArch"
-}
-
 fun abiToNdkTriple(abi: String): String = when (abi) {
     "arm64-v8a" -> "aarch64-linux-android"
     "armeabi-v7a" -> "arm-linux-androideabi"
@@ -60,6 +43,7 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        ndk { abiFilters += "arm64-v8a" }
     }
 
     buildTypes {
@@ -85,26 +69,26 @@ android.applicationVariants.all {
     val jniLibsBase = layout.buildDirectory.dir("intermediates/art3m1s-jni/${variant.name}").get().asFile
     // 配置阶段注册 srcDir —— Gradle 此时解析 mergeJniLibs 的输入目录
     android.sourceSets.getByName(variant.name).jniLibs.srcDir(jniLibsBase)
-    val mergeJniLibs = tasks.findByName("merge${variant.name.replaceFirstChar { it.uppercase() }}JniLibs")
     val copyCppShared = tasks.register("copyCppShared${variant.name.replaceFirstChar { it.uppercase() }}") {
         doLast {
             val ndkDir = android.ndkDirectory
-            val hostTag = ndkHostTag()
-            val abiFilters = android.defaultConfig.ndk.abiFilters ?: setOf("arm64-v8a")
+            val toolchains = ndkDir.resolve("toolchains/llvm/prebuilt").listFiles()
+                ?.filter { it.isDirectory }.orEmpty()
+            val abiFilters = android.defaultConfig.ndk.abiFilters
             abiFilters.forEach { abi ->
                 val triple = abiToNdkTriple(abi)
-                val src = ndkDir.resolve("toolchains/llvm/prebuilt/$hostTag/$triple/lib/libc++_shared.so")
+                val src = toolchains.map {
+                    it.resolve("sysroot/usr/lib/$triple/libc++_shared.so")
+                }.firstOrNull { it.isFile }
+                    ?: error("NDK libc++_shared.so is missing for $abi")
                 val dst = jniLibsBase.resolve("$abi/libc++_shared.so")
-                if (src.exists()) {
-                    dst.parentFile.mkdirs()
-                    src.copyTo(dst, overwrite = true)
-                } else {
-                    logger.warn("libc++_shared.so not found at: $src")
-                }
+                dst.parentFile.mkdirs()
+                src.copyTo(dst, overwrite = true)
             }
         }
     }
-    mergeJniLibs?.dependsOn(copyCppShared)
+    tasks.matching { it.name == "merge${variant.name.replaceFirstChar { it.uppercase() }}JniLibs" }
+        .configureEach { dependsOn(copyCppShared) }
 }
 
 kotlin {

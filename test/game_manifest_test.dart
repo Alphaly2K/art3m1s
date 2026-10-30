@@ -111,10 +111,10 @@ void main() {
       );
     });
 
-    test('picks the first match and tolerates windows separators', () {
+    test('prefers root manifests and tolerates windows separators', () {
       expect(
         GameManifest.selectManifestPath(['sub/art3m1s.json', 'art3m1s.json']),
-        'sub/art3m1s.json',
+        'art3m1s.json',
       );
       expect(
         GameManifest.selectManifestPath([r'patch\art3m1s.json']),
@@ -205,6 +205,31 @@ void main() {
         await dir.delete(recursive: true);
       }
     });
+
+    test(
+      'rejects symbolic links escaping the game directory',
+      () async {
+        final temporary = Directory.systemTemp.createTempSync(
+          'manifest_links_',
+        );
+        addTearDown(() => temporary.deleteSync(recursive: true));
+        final game = Directory('${temporary.path}/game')..createSync();
+        final outside = File('${temporary.path}/outside.ttf')
+          ..writeAsBytesSync([7]);
+        Link('${game.path}/font.ttf').createSync(outside.path);
+        expect(
+          await GameManifest.readGameFile(
+            game.path,
+            GameSource.directory,
+            'font.ttf',
+          ),
+          isNull,
+        );
+      },
+      skip: Platform.isWindows
+          ? 'Symbolic links require developer mode'
+          : false,
+    );
 
     test('returns null for missing files', () async {
       final dir = await Directory.systemTemp.createTemp('manifest_test');

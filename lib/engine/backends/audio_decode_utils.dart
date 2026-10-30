@@ -48,6 +48,23 @@ Future<void> decodeAudioToPcmWavFile(Uint8List bytes, String outputPath) {
   });
 }
 
+/// Converts little-endian floating-point PCM to 16-bit PCM, silencing invalid samples.
+Uint8List float32PcmToInt16(Uint8List bytes) {
+  if (bytes.length % 4 != 0) {
+    throw const FormatException('Incomplete float32 PCM sample');
+  }
+  final input = ByteData.sublistView(bytes);
+  final output = ByteData(bytes.length ~/ 2);
+  for (var offset = 0; offset < bytes.length; offset += 4) {
+    final value = input.getFloat32(offset, Endian.little);
+    final sample = value.isFinite
+        ? (value.clamp(-1.0, 1.0) * 32767).toInt()
+        : 0;
+    output.setInt16(offset ~/ 2, sample, Endian.little);
+  }
+  return output.buffer.asUint8List();
+}
+
 Uint8List _pcmWavHeader({
   required int dataBytes,
   required int sampleRate,

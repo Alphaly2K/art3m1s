@@ -83,13 +83,18 @@ class GameManifest {
   /// 从条目相对路径集合里挑清单文件：深度至多两级、文件名不区分大小写。
   /// 纯函数，目录遍历与 PFS 条目列表共用这一判定。
   static String? selectManifestPath(Iterable<String> entryPaths) {
-    for (final raw in entryPaths) {
-      final normalized = raw.replaceAll('\\', '/');
-      final segments = normalized.split('/');
-      if (segments.length > 2) continue;
-      if (segments.last.toLowerCase() != fileName) continue;
-      return normalized;
-    }
+    final candidates =
+        entryPaths.map((raw) => raw.replaceAll('\\', '/')).where((path) {
+          final segments = path.split('/');
+          return segments.length <= 2 &&
+              !segments.contains('..') &&
+              !path.startsWith('/') &&
+              segments.last.toLowerCase() == fileName;
+        }).toList()..sort((a, b) {
+          final depth = a.split('/').length.compareTo(b.split('/').length);
+          return depth != 0 ? depth : a.compareTo(b);
+        });
+    if (candidates.isNotEmpty) return candidates.first;
     return null;
   }
 
@@ -360,7 +365,11 @@ class GameManifest {
   }) async {
     final normalized = relativePath.replaceAll('\\', '/');
     // 拒绝目录穿越：清单是游戏侧数据，不能借此读游戏目录外的文件。
-    if (normalized.split('/').contains('..')) {
+    if (normalized.isEmpty ||
+        normalized.startsWith('/') ||
+        normalized.contains(':') ||
+        normalized.contains('\u0000') ||
+        normalized.split('/').contains('..')) {
       Log.warn('[Manifest] 拒绝越界路径: $relativePath');
       return null;
     }
@@ -388,7 +397,13 @@ class GameManifest {
   ) async {
     final file = File('$root/$relativePath');
     if (!await file.exists()) return null;
-    return file.readAsBytes();
+    final resolvedRoot = await Directory(root).resolveSymbolicLinks();
+    final resolvedFile = await file.resolveSymbolicLinks();
+    final prefix = resolvedRoot.endsWith(Platform.pathSeparator)
+        ? resolvedRoot
+        : '$resolvedRoot${Platform.pathSeparator}';
+    if (!resolvedFile.startsWith(prefix)) return null;
+    return File(resolvedFile).readAsBytes();
   }
 
   static Future<Uint8List?> _readPfsFileByName(

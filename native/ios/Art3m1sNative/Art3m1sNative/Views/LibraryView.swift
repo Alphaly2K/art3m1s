@@ -4,6 +4,8 @@ import UniformTypeIdentifiers
 
 struct LibraryView: View {
   @EnvironmentObject private var library: LibraryStore
+  @EnvironmentObject private var settings: SettingsStore
+  @State private var playingGame: GameEntry?
   @State private var isImporting = false
   @State private var selectedGame: GameEntry?
 
@@ -45,6 +47,7 @@ struct LibraryView: View {
             .contextMenu {
               Button("开始游戏", systemImage: "play.fill") {
                 library.markPlayed(game)
+                playingGame = game
               }
               Button("编辑", systemImage: "pencil") {
                 selectedGame = game
@@ -92,6 +95,15 @@ struct LibraryView: View {
       case .failure(let error):
         library.message = "选择目录失败：\(error.localizedDescription)"
       }
+    }
+    .fullScreenCover(item: $playingGame) { game in
+      NativePlayerView(
+        game: game,
+        backend: settings.backend,
+        translationSettings: settings.translation,
+        renderUpscalingEnabled: settings.renderUpscalingEnabled,
+        debugModeEnabled: settings.debugModeEnabled
+      )
     }
     .sheet(item: $selectedGame) { game in
       NavigationStack {
@@ -180,6 +192,7 @@ private struct GameDetailView: View {
   @EnvironmentObject private var settings: SettingsStore
   @State private var edited: GameEntry
   @State private var showingPlayer = false
+  @State private var saveError: String?
   @State private var dialogText = ""
 
   init(game: GameEntry) {
@@ -189,7 +202,10 @@ private struct GameDetailView: View {
   var body: some View {
     Form {
       Section("游戏") {
-        TextField("显示名称", text: $edited.name)
+        TextField("显示名称", text: Binding(
+          get: { edited.displayName ?? edited.name },
+          set: { edited.displayName = $0 }
+        ))
         LabeledContent(
           "路径",
           value: AppDataPaths.displayPath(for: edited.path)
@@ -211,9 +227,11 @@ private struct GameDetailView: View {
         Text("使用 art3m1s-core 原生运行时启动。")
       }
 
-      Section("项目补丁") {
-        Toggle("文本翻译", isOn: $edited.translationEnabled)
-        Toggle("环境补丁", isOn: $edited.environmentPatchEnabled)
+      if edited.engine == .art3m1s {
+        Section("项目补丁") {
+          Toggle("文本翻译", isOn: $edited.translationEnabled)
+          Toggle("环境补丁", isOn: $edited.environmentPatchEnabled)
+        }
       }
     }
     .navigationTitle(edited.displayNameOrName)
@@ -226,10 +244,21 @@ private struct GameDetailView: View {
       }
       ToolbarItem(placement: .confirmationAction) {
         Button("保存") {
-          library.update(edited)
-          dismiss()
+          if library.update(edited) {
+            dismiss()
+          } else {
+            saveError = library.message ?? "项目已从资料库移除"
+            library.message = nil
+          }
         }
       }
+    }
+    .alert("保存失败", isPresented: Binding(
+      get: { saveError != nil }, set: { if !$0 { saveError = nil } }
+    )) {
+      Button("好", role: .cancel) { saveError = nil }
+    } message: {
+      Text(saveError ?? "")
     }
     .fullScreenCover(isPresented: $showingPlayer) {
       NativePlayerView(

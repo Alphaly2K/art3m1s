@@ -20,9 +20,6 @@ Future<void> main(List<String> arguments) async {
 
   for (final target in targets) {
     _ensureHostSupports(target);
-    if (options.siglus && target != 'macos') {
-      throw UsageException('--siglus 目前只支持 macOS 构建');
-    }
     stdout.writeln('\n=== Building $target (${options.profile}) ===');
     switch (target) {
       case 'ios':
@@ -81,6 +78,24 @@ Future<void> main(List<String> arguments) async {
         throw UsageException('Unknown target: $target');
     }
   }
+}
+
+List<String> coreFeaturesForTarget(
+  String target, {
+  required bool krkr,
+  required bool siglus,
+  bool ffmpeg = false,
+}) {
+  final darwin =
+      target == 'macos' || target == 'ios' || target == 'ios-obsolete';
+  return [
+    'gl-backend',
+    darwin ? 'metal-backend' : 'vulkan-backend',
+    'rfvp-engine',
+    if (darwin || ffmpeg) 'ffmpeg',
+    if (krkr) 'krkr-engine',
+    if (siglus) 'siglus-engine',
+  ];
 }
 
 final class BuildOptions {
@@ -317,6 +332,7 @@ Future<void> _buildNativeIos(
     rustArgs.add('--device-only');
   }
   if (options.krkr) rustArgs.add('--krkr');
+  if (options.siglus) rustArgs.add('--siglus');
   await _run(
     '${project.path}/scripts/ios_build_rust.sh',
     rustArgs,
@@ -359,6 +375,8 @@ Future<void> _buildNativeIos(
     _bundleKrkrIosResources(
       project,
       _nativeIosAppCandidates(project, options.profile),
+      core: core,
+      profile: options.profile,
     );
   }
 
@@ -431,6 +449,7 @@ Future<void> _buildIosObsolete(
   final args = <String>[options.profile == 'release' ? '--release' : '--debug'];
   if (options.deviceOnly) args.add('--device-only');
   if (options.krkr) args.add('--krkr');
+  if (options.siglus) args.add('--siglus');
   await _run(
     '${project.path}/scripts/ios_build_rust.sh',
     args,
@@ -454,12 +473,19 @@ Future<void> _buildIosObsolete(
     _bundleKrkrIosResources(
       project,
       _iosObsoleteAppCandidates(project, options.profile),
+      core: core,
+      profile: options.profile,
     );
   }
   await _signIosObsoleteAppForTrollStore(project, profile: options.profile);
 }
 
-void _bundleKrkrIosResources(Directory project, List<Directory> apps) {
+void _bundleKrkrIosResources(
+  Directory project,
+  List<Directory> apps, {
+  required Directory core,
+  required String profile,
+}) {
   final source = File(
     '${project.path}/ios/Frameworks/.ios-framework-build/krkr_host/Res/DroidSansFallback.ttf',
   );
@@ -469,6 +495,19 @@ void _bundleKrkrIosResources(Directory project, List<Directory> apps) {
   for (final app in apps) {
     final resources = Directory('${app.path}/Res')..createSync(recursive: true);
     source.copySync('${resources.path}/DroidSansFallback.ttf');
+    final target = app.path.contains('iphonesimulator')
+        ? 'aarch64-apple-ios-sim'
+        : 'aarch64-apple-ios';
+    final suffix = profile == 'release' ? 'release' : 'debug';
+    _bundleKrkrLicenses(
+      core,
+      _findKrkrHost(
+        core,
+        'target/$target/$suffix/build',
+        'libart3m1s_krkr_host.dylib',
+      ),
+      Directory('${app.path}/Licenses/KRKR'),
+    );
   }
 }
 
@@ -496,7 +535,11 @@ Future<void> _buildMacos(
       'build',
       if (options.profile == 'release') '--release',
       '--features',
-      options.siglus ? 'ffmpeg,siglus-engine' : 'ffmpeg',
+      coreFeaturesForTarget(
+        'macos',
+        krkr: options.krkr,
+        siglus: options.siglus,
+      ).join(','),
       '--manifest-path',
       '${core.path}/Cargo.toml',
     ],
@@ -618,6 +661,11 @@ Future<void> _bundleKrkrMacos(
   File(
     '${core.path}/crates/art3m1s-krkr/THIRD_PARTY_NOTICES.md',
   ).copySync('${resourceDir.path}/THIRD_PARTY_NOTICES.md');
+  _bundleKrkrLicenses(
+    core,
+    nativeHost,
+    Directory('${resourceDir.path}/Licenses'),
+  );
   await _run('/usr/bin/install_name_tool', <String>[
     '-add_rpath',
     '@loader_path/../Frameworks',
@@ -684,7 +732,12 @@ Future<void> _buildAndroid(
         if (isCore) ...<String>[
           '--no-default-features',
           '--features',
-          'gl-backend,metal-backend,vulkan-backend,rfvp-engine${options.krkr ? ',krkr-engine' : ''}',
+          coreFeaturesForTarget(
+            'android',
+            krkr: options.krkr,
+            siglus: options.siglus,
+            ffmpeg: Platform.environment['FFMPEG_DIR']?.isNotEmpty ?? false,
+          ).join(','),
         ],
         '--manifest-path',
         '${crate.path}/Cargo.toml',
@@ -697,60 +750,76 @@ Future<void> _buildAndroid(
   }
   File? stagedFont;
   String? krkrJavaDir;
-  if (options.krkr) {
-    final host = _findKrkrHost(
-      core,
-      'target/aarch64-linux-android/${options.profile == 'release' ? 'release' : 'debug'}/build',
-      'libart3m1s_krkr_host.so',
-    );
-    host.copySync('${output.path}/arm64-v8a/libart3m1s_krkr_host.so');
-    final installed = _krkrVcpkgInstalled(host);
-    final sdl = File('$installed/arm64-android/lib/libSDL3.so');
-    if (!sdl.existsSync()) {
-      throw StateError('KRKR Android 缺少 libSDL3.so: ${sdl.path}');
-    }
-    sdl.copySync('${output.path}/arm64-v8a/libSDL3.so');
-    // SDL's JNI ABI is versioned together with libSDL3.so. Never use the
-    // KRKRSDL3 checkout's copied Java sources: they can be a different SDL.
-    final upstreamJava = _krkrSdl3JavaSource(installed);
-    final stagedJava = Directory(
-      '${project.path}/.build/krkr-android-java/org/libsdl/app',
-    )..createSync(recursive: true);
-    for (final file in upstreamJava.listSync().whereType<File>()) {
-      if (!file.path.endsWith('.java')) continue;
-      final destination = File(
-        '${stagedJava.path}/${file.uri.pathSegments.last}',
-      );
-      if (file.uri.pathSegments.last == 'SDLActivity.java') {
-        destination.writeAsStringSync(
-          file
-              .readAsStringSync()
-              .replaceAll(
-                'import androidx.appcompat.app.AppCompatActivity;',
-                '',
-              )
-              .replaceAll('extends AppCompatActivity', 'extends Activity'),
-        );
-      } else {
-        file.copySync(destination.path);
-      }
-    }
-    krkrJavaDir = '${project.path}/.build/krkr-android-java';
-    final asset = File(
-      '${project.path}/android/app/src/main/assets/DroidSansFallback.ttf',
-    );
-    if (asset.existsSync()) {
-      throw StateError('KRKR asset 已存在，拒绝覆盖: ${asset.path}');
-    }
-    asset.parent.createSync(recursive: true);
-    File('${host.parent.path}/Res/DroidSansFallback.ttf').copySync(asset.path);
-    stagedFont = asset;
-  }
-  final buildEnvironment = <String, String>{...secrets.environment};
-  if (krkrJavaDir != null) {
-    buildEnvironment['ART3M1S_KRKR_ANDROID_JAVA_DIR'] = krkrJavaDir;
-  }
+  Directory? stagedLicenses;
   try {
+    _bundleConfiguredFfmpeg(Directory('${output.path}/arm64-v8a'));
+    if (options.krkr) {
+      final host = _findKrkrHost(
+        core,
+        'target/aarch64-linux-android/${options.profile == 'release' ? 'release' : 'debug'}/build',
+        'libart3m1s_krkr_host.so',
+      );
+      host.copySync('${output.path}/arm64-v8a/libart3m1s_krkr_host.so');
+      final installed = _krkrVcpkgInstalled(host);
+      final sdl = File('$installed/arm64-android/lib/libSDL3.so');
+      if (!sdl.existsSync()) {
+        throw StateError('KRKR Android 缺少 libSDL3.so: ${sdl.path}');
+      }
+      sdl.copySync('${output.path}/arm64-v8a/libSDL3.so');
+      _copySharedLibraries(
+        Directory('$installed/arm64-android/lib'),
+        Directory('${output.path}/arm64-v8a'),
+      );
+      // SDL's JNI ABI is versioned together with libSDL3.so. Never use the
+      // KRKRSDL3 checkout's copied Java sources: they can be a different SDL.
+      final upstreamJava = _krkrSdl3JavaSource(installed);
+      final stagedJava = Directory(
+        '${project.path}/.build/krkr-android-java/org/libsdl/app',
+      );
+      if (stagedJava.existsSync()) stagedJava.deleteSync(recursive: true);
+      stagedJava.createSync(recursive: true);
+      for (final file in upstreamJava.listSync().whereType<File>()) {
+        if (!file.path.endsWith('.java')) continue;
+        final destination = File(
+          '${stagedJava.path}/${file.uri.pathSegments.last}',
+        );
+        if (file.uri.pathSegments.last == 'SDLActivity.java') {
+          destination.writeAsStringSync(
+            file
+                .readAsStringSync()
+                .replaceAll(
+                  'import androidx.appcompat.app.AppCompatActivity;',
+                  '',
+                )
+                .replaceAll('extends AppCompatActivity', 'extends Activity'),
+          );
+        } else {
+          file.copySync(destination.path);
+        }
+      }
+      krkrJavaDir = '${project.path}/.build/krkr-android-java';
+      final asset = File(
+        '${project.path}/android/app/src/main/assets/DroidSansFallback.ttf',
+      );
+      if (asset.existsSync()) {
+        throw StateError('KRKR asset 已存在，拒绝覆盖: ${asset.path}');
+      }
+      asset.parent.createSync(recursive: true);
+      File(
+        '${host.parent.path}/Res/DroidSansFallback.ttf',
+      ).copySync(asset.path);
+      stagedFont = asset;
+      final licenses = Directory(
+        '${project.path}/android/app/src/main/assets/krkr_licenses',
+      );
+      if (licenses.existsSync()) throw StateError('KRKR 许可证资源已存在，拒绝覆盖');
+      stagedLicenses = licenses;
+      _bundleKrkrLicenses(core, host, licenses);
+    }
+    final buildEnvironment = <String, String>{...secrets.environment};
+    if (krkrJavaDir != null) {
+      buildEnvironment['ART3M1S_KRKR_ANDROID_JAVA_DIR'] = krkrJavaDir;
+    }
     await _run(
       flutter,
       <String>[
@@ -766,6 +835,9 @@ Future<void> _buildAndroid(
     );
   } finally {
     stagedFont?.deleteSync();
+    if (stagedLicenses?.existsSync() == true) {
+      stagedLicenses!.deleteSync(recursive: true);
+    }
   }
 }
 
@@ -778,7 +850,13 @@ Future<void> _buildWindows(
   BuildSecrets secrets,
   BuildOptions options,
 ) async {
-  await _buildHostRust(core, pfs, options.profile, krkr: options.krkr);
+  await _buildHostRust(
+    core,
+    pfs,
+    options.profile,
+    krkr: options.krkr,
+    siglus: options.siglus,
+  );
   await _run(
     flutter,
     <String>[
@@ -805,6 +883,7 @@ Future<void> _buildWindows(
   if (options.krkr) {
     _bundleKrkrDesktop(core, bundle, profile: options.profile, windows: true);
   }
+  _bundleConfiguredFfmpeg(bundle, windows: true);
 }
 
 Future<void> _buildLinux(
@@ -816,7 +895,13 @@ Future<void> _buildLinux(
   BuildSecrets secrets,
   BuildOptions options,
 ) async {
-  await _buildHostRust(core, pfs, options.profile, krkr: options.krkr);
+  await _buildHostRust(
+    core,
+    pfs,
+    options.profile,
+    krkr: options.krkr,
+    siglus: options.siglus,
+  );
   await _run(
     flutter,
     <String>[
@@ -850,6 +935,7 @@ Future<void> _buildLinux(
       resourceRoot: bundle,
     );
   }
+  _bundleConfiguredFfmpeg(lib);
 }
 
 Future<void> _buildHostRust(
@@ -857,6 +943,7 @@ Future<void> _buildHostRust(
   Directory pfs,
   String profile, {
   required bool krkr,
+  required bool siglus,
 }) async {
   for (final crate in <Directory>[core, pfs]) {
     await _run(
@@ -864,6 +951,16 @@ Future<void> _buildHostRust(
       <String>[
         'build',
         if (profile == 'release') '--release',
+        if (crate.path == core.path) ...[
+          '--no-default-features',
+          '--features',
+          coreFeaturesForTarget(
+            Platform.operatingSystem,
+            krkr: krkr,
+            siglus: siglus,
+            ffmpeg: Platform.environment['FFMPEG_DIR']?.isNotEmpty ?? false,
+          ).join(','),
+        ],
         '--manifest-path',
         '${crate.path}/Cargo.toml',
       ],
@@ -903,6 +1000,11 @@ void _bundleKrkrDesktop(
   File(
     '${core.path}/crates/art3m1s-krkr/THIRD_PARTY_NOTICES.md',
   ).copySync('${(resourceRoot ?? bundle).path}/THIRD_PARTY_NOTICES.md');
+  _bundleKrkrLicenses(
+    core,
+    host,
+    Directory('${(resourceRoot ?? bundle).path}/Licenses/KRKR'),
+  );
   if (windows) {
     final binaries = Directory('${_krkrVcpkgInstalled(host)}/x64-windows/bin');
     if (!binaries.existsSync()) throw StateError('KRKR Windows vcpkg bin 缺失');
@@ -911,6 +1013,66 @@ void _bundleKrkrDesktop(
       if (basename.toLowerCase().endsWith('.dll')) {
         file.copySync('${bundle.path}/$basename');
       }
+    }
+  } else {
+    _copySharedLibraries(
+      Directory('${_krkrVcpkgInstalled(host)}/x64-linux/lib'),
+      bundle,
+    );
+  }
+}
+
+void _bundleConfiguredFfmpeg(Directory destination, {bool windows = false}) {
+  final prefix = Platform.environment['FFMPEG_DIR'];
+  if (prefix == null || prefix.isEmpty) return;
+  final bin = Directory('$prefix/bin');
+  _copySharedLibraries(
+    windows && bin.existsSync() ? bin : Directory('$prefix/lib'),
+    destination,
+    windows: windows,
+  );
+}
+
+void _bundleKrkrLicenses(Directory core, File host, Directory destination) {
+  final cache = File('${host.parent.path}/CMakeCache.txt').readAsStringSync();
+  final triplet = RegExp(
+    r'^VCPKG_TARGET_TRIPLET:[^=]+=(.+)$',
+    multiLine: true,
+  ).firstMatch(cache)?.group(1)?.trim();
+  if (triplet == null) throw StateError('KRKR CMake cache 缺少目标 triplet');
+  final share = Directory('${_krkrVcpkgInstalled(host)}/$triplet/share');
+  if (!share.existsSync()) throw StateError('KRKR 原生依赖许可证目录缺失');
+  destination.createSync(recursive: true);
+  File(
+    '${Platform.environment['KRKRSDL3_SOURCE_DIR']!}/LICENSE',
+  ).copySync('${destination.path}/KRKRSDL3.txt');
+  File(
+    '${core.path}/crates/art3m1s-krkr/THIRD_PARTY_NOTICES.md',
+  ).copySync('${destination.path}/THIRD_PARTY_NOTICES.md');
+  for (final package in share.listSync().whereType<Directory>()) {
+    final copyright = File('${package.path}/copyright');
+    if (copyright.existsSync()) {
+      copyright.copySync(
+        '${destination.path}/${package.uri.pathSegments.where((s) => s.isNotEmpty).last}.txt',
+      );
+    }
+  }
+}
+
+void _copySharedLibraries(
+  Directory source,
+  Directory destination, {
+  bool windows = false,
+}) {
+  if (!source.existsSync()) throw StateError('缺少原生依赖目录: ${source.path}');
+  destination.createSync(recursive: true);
+  final pattern = windows
+      ? RegExp(r'\.dll$', caseSensitive: false)
+      : RegExp(r'\.so(?:\.[0-9.]+)?$');
+  for (final entity in source.listSync()) {
+    final name = entity.uri.pathSegments.last;
+    if (pattern.hasMatch(name) && File(entity.path).existsSync()) {
+      File(entity.path).copySync('${destination.path}/$name');
     }
   }
 }

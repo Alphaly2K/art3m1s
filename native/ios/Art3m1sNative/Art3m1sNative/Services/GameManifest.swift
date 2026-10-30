@@ -1,6 +1,6 @@
 import Foundation
 
-struct GameManifest: Decodable, Sendable {
+struct GameManifest: Codable, Sendable {
   static let fileName = "art3m1s.json"
   static let defaultRuntimePlatform = "WINDOWS"
 
@@ -34,10 +34,24 @@ struct GameManifest: Decodable, Sendable {
     switch discovered.source {
     case .directory:
       let root = URL(fileURLWithPath: discovered.path)
-      let candidates = [
-        root.appendingPathComponent(fileName),
-        root.appendingPathComponent(fileName.lowercased()),
-      ]
+      let manager = FileManager.default
+      let children = (try? manager.contentsOfDirectory(
+        at: root, includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
+        options: [.skipsHiddenFiles]
+      )) ?? []
+      var paths = children.filter { $0.lastPathComponent.lowercased() == fileName }
+      for child in children {
+        guard let values = try? child.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]),
+              values.isDirectory == true, values.isSymbolicLink != true else { continue }
+        paths += ((try? manager.contentsOfDirectory(
+          at: child, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
+        )) ?? []).filter { $0.lastPathComponent.lowercased() == fileName }
+      }
+      let candidates = paths.sorted {
+        let lhs = $0.pathComponents.count
+        let rhs = $1.pathComponents.count
+        return lhs == rhs ? $0.path < $1.path : lhs < rhs
+      }
       for candidate in candidates {
         guard let data = try? Data(contentsOf: candidate) else { continue }
         if let manifest = try? JSONDecoder().decode(
@@ -80,16 +94,18 @@ struct GameManifest: Decodable, Sendable {
   }
 
   static func selectManifestPath(_ entries: [String]) -> String? {
-    for raw in entries {
-      let normalized = raw.replacingOccurrences(of: "\\", with: "/")
-      let parts = normalized.split(separator: "/")
-      guard parts.count <= 2,
-            parts.last?.lowercased() == fileName.lowercased()
-      else {
-        continue
+    let candidates = entries.map { $0.replacingOccurrences(of: "\\", with: "/") }
+      .filter {
+        let parts = $0.split(separator: "/")
+        return !parts.isEmpty && parts.count <= 2 && !parts.contains("..")
+          && !$0.hasPrefix("/") && parts.last?.lowercased() == fileName
       }
-      return normalized
-    }
+      .sorted {
+        let lhs = $0.split(separator: "/").count
+        let rhs = $1.split(separator: "/").count
+        return lhs == rhs ? $0 < $1 : lhs < rhs
+      }
+    if let first = candidates.first { return first }
     return nil
   }
 
@@ -101,6 +117,29 @@ struct GameManifest: Decodable, Sendable {
     case .pfsArchive:
       URL(fileURLWithPath: "\(discovered.path).\(fileName)")
     }
+  }
+
+  @discardableResult
+  static func save(_ entry: GameEntry) throws -> URL {
+    let discovered = DiscoveredGame(name: entry.name, path: entry.path, source: entry.source)
+    let url = manifestURL(for: discovered)
+    let manifest = GameManifest(
+      name: entry.displayNameOrName,
+      vndbID: entry.vndbId,
+      engine: entry.engine.rawValue,
+      translationEnabled: entry.translationEnabled,
+      translationPatchPath: entry.translationPatchPath,
+      environmentPatchEnabled: entry.environmentPatchEnabled,
+      fontOverride: entry.fontOverridePath,
+      reportedOs: entry.reportedOs,
+      runtimePlatform: entry.runtimePlatform,
+      krkrEntryXp3: entry.krkrEntryXp3,
+      inputGate: entry.inputGate
+    )
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+    try encoder.encode(manifest).write(to: url, options: .atomic)
+    return url
   }
 
   static func loadEntrySettings(_ entry: GameEntry) -> GameEntry {

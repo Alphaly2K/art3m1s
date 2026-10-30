@@ -101,6 +101,8 @@ enum GameImporter {
 
     var hasSystemINI = false
     var hasHCB = false
+    var hasScenePCK = false
+    var hasGameexe = false
     var hasDataXP3 = false
     var hasStartupTJS = false
     var rootXP3Count = 0
@@ -111,6 +113,10 @@ enum GameImporter {
         hasSystemINI = true
       case let name where name.hasSuffix(".hcb"):
         hasHCB = true
+      case "scene.pck":
+        hasScenePCK = true
+      case "gameexe.dat", "gameexe.ini":
+        hasGameexe = true
       case "data.xp3":
         hasDataXP3 = true
       case "startup.tjs":
@@ -124,6 +130,7 @@ enum GameImporter {
 
     if hasSystemINI { return .art3m1s }
     if hasHCB { return .rfvp }
+    if hasScenePCK && hasGameexe { return .siglus }
     if hasDataXP3 || hasStartupTJS || rootXP3Count > 0 { return .krkr }
     return .art3m1s
   }
@@ -144,7 +151,10 @@ enum GameImporter {
     normalizePath(lhs) == normalizePath(rhs)
   }
 
-  static func copyIntoGamesDirectory(_ source: URL) throws -> URL {
+  static func copyIntoGamesDirectory(
+    _ source: URL,
+    gamesDirectory: URL = AppDataPaths.games
+  ) throws -> URL {
     let accessing = source.startAccessingSecurityScopedResource()
     defer {
       if accessing {
@@ -153,7 +163,7 @@ enum GameImporter {
     }
 
     let sourceURL = source.standardizedFileURL.resolvingSymlinksInPath()
-    let gamesURL = AppDataPaths.games.standardizedFileURL.resolvingSymlinksInPath()
+    let gamesURL = gamesDirectory.standardizedFileURL.resolvingSymlinksInPath()
 
     if sourceURL.path == gamesURL.path
       || isDescendant(gamesURL, of: sourceURL) {
@@ -163,15 +173,22 @@ enum GameImporter {
       throw ImportError.sourceInsideGames
     }
 
-    let destination = AppDataPaths.games.appendingPathComponent(
-      source.lastPathComponent,
-      isDirectory: true
-    )
-    if FileManager.default.fileExists(atPath: destination.path) {
-      return destination
+    let manager = FileManager.default
+    guard (try sourceURL.resourceValues(forKeys: [.isDirectoryKey])).isDirectory == true else {
+      throw CocoaError(.fileReadUnsupportedScheme)
     }
-
-    try FileManager.default.copyItem(at: source, to: destination)
+    var destination = gamesURL.appendingPathComponent(source.lastPathComponent, isDirectory: true)
+    var suffix = 2
+    while manager.fileExists(atPath: destination.path) {
+      destination = gamesURL.appendingPathComponent(
+        "\(source.lastPathComponent) (\(suffix))", isDirectory: true
+      )
+      suffix += 1
+    }
+    let staging = gamesURL.appendingPathComponent(".import-\(UUID().uuidString)")
+    defer { try? manager.removeItem(at: staging) }
+    try manager.copyItem(at: sourceURL, to: staging)
+    try manager.moveItem(at: staging, to: destination)
     return destination
   }
 
@@ -190,11 +207,16 @@ enum GameImporter {
     var subdirectories: [URL] = []
     var hasSystemINI = false
     var hasHCB = false
+    var hasScenePCK = false
+    var hasGameexe = false
     var hasDataXP3 = false
     var hasStartupTJS = false
     var rootXP3Count = 0
 
     for url in urls {
+      guard (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) != true else {
+        continue
+      }
       if isDirectory(url) {
         subdirectories.append(url)
         continue
@@ -205,6 +227,10 @@ enum GameImporter {
         hasSystemINI = true
       case let name where name.hasSuffix(".hcb"):
         hasHCB = true
+      case "scene.pck":
+        hasScenePCK = true
+      case "gameexe.dat", "gameexe.ini":
+        hasGameexe = true
       case "data.xp3":
         hasDataXP3 = true
       case "startup.tjs":
@@ -216,7 +242,7 @@ enum GameImporter {
       }
     }
 
-    if hasSystemINI || hasHCB || hasDataXP3 || hasStartupTJS || rootXP3Count > 0 {
+    if hasSystemINI || hasHCB || (hasScenePCK && hasGameexe) || hasDataXP3 || hasStartupTJS || rootXP3Count > 0 {
       found.append(directory.path)
       return
     }

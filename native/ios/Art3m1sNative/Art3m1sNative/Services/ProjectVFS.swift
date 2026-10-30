@@ -68,9 +68,10 @@ struct ProjectVFS {
   }
 
   private static func readFile(at root: URL, relative: String) -> Data? {
-    let url = root.appendingPathComponent(relative).standardizedFileURL
-    let rootPath = root.standardizedFileURL.path
-    guard url.path.hasPrefix(rootPath + "/") else { return nil }
+    let url = root.appendingPathComponent(relative).standardizedFileURL.resolvingSymlinksInPath()
+    let rootPath = root.standardizedFileURL.resolvingSymlinksInPath().path
+    let prefix = rootPath == "/" ? rootPath : rootPath + "/"
+    guard url.path.hasPrefix(prefix) else { return nil }
     return try? Data(contentsOf: url)
   }
 

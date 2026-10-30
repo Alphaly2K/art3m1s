@@ -29,6 +29,7 @@ class TextTranslationService {
   Timer? _queuePumpTimer;
   Timer? _cacheWriteTimer;
   bool _disposed = false;
+  Future<void> _cacheWrite = Future<void>.value();
 
   bool get hostTranslationEnabled =>
       !_disposed && settings.mode != TranslationMode.off;
@@ -38,7 +39,12 @@ class TextTranslationService {
 
   Map<String, String> get hostReplacementTable {
     final replacements = <String, String>{};
+    final prefix =
+        '${_cacheKey('').split('\u0000').take(6).join('\u0000')}\u0000';
     for (final entry in _cache.entries) {
+      if (entry.key.contains('\u0000') && !entry.key.startsWith(prefix)) {
+        continue;
+      }
       final separator = entry.key.lastIndexOf('\u0000');
       final source = separator < 0
           ? entry.key
@@ -89,7 +95,7 @@ class TextTranslationService {
   }
 
   Future<String?> translate(String source, {String? ruby}) async {
-    if (_disposed) return null;
+    if (_disposed || settings.mode == TranslationMode.off) return null;
     final known =
         _patch[source] ??
         _cache[_cacheKey(source, ruby: ruby)] ??
@@ -124,7 +130,7 @@ class TextTranslationService {
     String? ruby,
     required void Function(String? translation) onComplete,
   }) {
-    if (_disposed) {
+    if (_disposed || settings.mode == TranslationMode.off) {
       scheduleMicrotask(() => onComplete(null));
       return;
     }
@@ -241,18 +247,26 @@ class TextTranslationService {
     });
   }
 
-  Future<void> _writeCache() async {
-    if (_disposed && _cache.isEmpty) return;
-    try {
-      await cacheFile.parent.create(recursive: true);
+  Future<void> _writeCache() {
+    _cacheWrite = _cacheWrite.then((_) async {
+      if (_disposed && _cache.isEmpty) return;
       final temporary = File('${cacheFile.path}.tmp');
-      final message = TranslationCache()..entries.addAll(_cache);
-      await temporary.writeAsBytes(message.writeToBuffer(), flush: true);
-      if (await cacheFile.exists()) await cacheFile.delete();
-      await temporary.rename(cacheFile.path);
-    } catch (error) {
-      Log.warn('[Translation] 写入缓存失败: $error');
-    }
+      try {
+        await cacheFile.parent.create(recursive: true);
+        final message = TranslationCache()..entries.addAll(_cache);
+        await temporary.writeAsBytes(message.writeToBuffer(), flush: true);
+        await temporary.rename(cacheFile.path);
+      } catch (error) {
+        Log.warn('[Translation] 写入缓存失败: $error');
+      } finally {
+        try {
+          if (await temporary.exists()) await temporary.delete();
+        } on FileSystemException catch (error) {
+          Log.warn('[Translation] 清理临时缓存失败: $error');
+        }
+      }
+    });
+    return _cacheWrite;
   }
 
   Future<void> dispose() async {
@@ -262,8 +276,8 @@ class TextTranslationService {
     _queuePumpTimer?.cancel();
     _queue.clear();
     _jobs.clear();
-    await _writeCache();
     _client.close(force: true);
+    await _writeCache();
   }
 
   static int _writeUtf8(String value, Pointer<Uint8> output, int capacity) {
@@ -844,8 +858,18 @@ class _TranslationApiClient {
   }
 
   Future<dynamic> _readResponse(HttpClientRequest request, Uri endpoint) async {
-    final response = await request.close().timeout(const Duration(seconds: 60));
-    final body = await utf8.decoder.bind(response).join();
+    late HttpClientResponse response;
+    late String body;
+    try {
+      response = await request.close().timeout(const Duration(seconds: 60));
+      body = await utf8.decoder
+          .bind(response)
+          .join()
+          .timeout(const Duration(seconds: 60));
+    } catch (error, stackTrace) {
+      request.abort(error, stackTrace);
+      rethrow;
+    }
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw _TranslationHttpException(
         response.statusCode,

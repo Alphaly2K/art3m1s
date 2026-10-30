@@ -109,6 +109,7 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
   Future<void> _load() async {
     try {
       final prefs = await SharedPreferences.getInstance();
+      if (!mounted) return;
       final debugMode = prefs.getBool('debug_mode') ?? false;
       Log.setDebugEnabled(debugMode);
       final modeName = prefs.getString('translation_mode');
@@ -202,6 +203,8 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
       TelemetryService.instance.setEnabled(
         prefs.getBool('crash_reporting_enabled') ?? false,
       );
+    } catch (error) {
+      Log.error('[Settings] 设置读取失败，使用默认值: $error');
     } finally {
       if (!_ready.isCompleted) _ready.complete();
     }

@@ -39,6 +39,7 @@ class MainActivity : FlutterActivity() {
         private external fun nativeReleaseSurfaceWindow(window: Long)
     }
 
+    private var krkrHostReady = false
     private var pendingPickResult: Result? = null
     private lateinit var nativeChannel: MethodChannel
     private var sharedTextureProducer: TextureRegistry.SurfaceProducer? = null
@@ -48,7 +49,7 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         KRKRCall.attach(this)
-        KrkrNativeBridge.initialize(assets)
+        krkrHostReady = KrkrNativeBridge.initialize(this)
 
         nativeChannel = MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
@@ -61,6 +62,7 @@ class MainActivity : FlutterActivity() {
                     val ctxPtr = nativeRegisterContext(applicationContext)
                     result.success(mapOf("vmPtr" to vmPtr, "contextPtr" to ctxPtr))
                 }
+                "prepareKrkrHost" -> result.success(krkrHostReady)
                 "hasAllFilesAccess" -> {
                     result.success(hasStorageAccess())
                 }
@@ -221,6 +223,7 @@ class MainActivity : FlutterActivity() {
 
     override fun onDestroy() {
         KRKRCall.detach(this)
+        KrkrNativeBridge.detach(this)
         releaseSharedTexture()
         super.onDestroy()
     }

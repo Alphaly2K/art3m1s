@@ -10,12 +10,14 @@ enum GameEngineKind: String, Codable, CaseIterable, Sendable {
   case art3m1s
   case rfvp
   case krkr
+  case siglus
 
   var label: String {
     switch self {
     case .art3m1s: "Artemis"
     case .rfvp: "FVP"
     case .krkr: "Kirikiri"
+    case .siglus: "Siglus"
     }
   }
 
@@ -25,6 +27,8 @@ enum GameEngineKind: String, Codable, CaseIterable, Sendable {
       self = .rfvp
     case "krkr", "kirikiri":
       self = .krkr
+    case "siglus":
+      self = .siglus
     default:
       self = .art3m1s
     }
@@ -104,23 +108,56 @@ struct GameEntry: Identifiable, Codable, Hashable, Sendable {
     self.manifestPath = manifestPath
   }
 
+  enum CodingKeys: String, CodingKey {
+    case id, name, path, source, engine, addedAt, lastPlayedAt, displayName, coverPath, screenshotPath, translationEnabled, translationPatchPath, environmentPatchEnabled, inputGate, vndbId, fontOverridePath, fontOverrideFilePath, reportedOs, runtimePlatform, krkrEntryXp3, manifestPath
+  }
+
+  init(from decoder: Decoder) throws {
+    let values = try decoder.container(keyedBy: CodingKeys.self)
+    let path = try values.decode(String.self, forKey: .path)
+    let name = try values.decode(String.self, forKey: .name)
+    self.init(
+      id: try values.decodeIfPresent(String.self, forKey: .id),
+      name: name,
+      path: path,
+      source: try values.decode(GameSource.self, forKey: .source),
+      engine: GameEngineKind(id: try values.decodeIfPresent(String.self, forKey: .engine)),
+      addedAt: try values.decodeIfPresent(Date.self, forKey: .addedAt) ?? Date(timeIntervalSince1970: 0),
+      lastPlayedAt: try values.decodeIfPresent(Date.self, forKey: .lastPlayedAt),
+      displayName: try values.decodeIfPresent(String.self, forKey: .displayName),
+      coverPath: try values.decodeIfPresent(String.self, forKey: .coverPath),
+      screenshotPath: try values.decodeIfPresent(String.self, forKey: .screenshotPath),
+      translationEnabled: try values.decodeIfPresent(Bool.self, forKey: .translationEnabled) ?? false,
+      translationPatchPath: try values.decodeIfPresent(String.self, forKey: .translationPatchPath) ?? "",
+      environmentPatchEnabled: try values.decodeIfPresent(Bool.self, forKey: .environmentPatchEnabled) ?? false,
+      inputGate: try values.decodeIfPresent(InputGatePolicy.self, forKey: .inputGate),
+      vndbId: try values.decodeIfPresent(String.self, forKey: .vndbId) ?? "",
+      fontOverridePath: try values.decodeIfPresent(String.self, forKey: .fontOverridePath) ?? "",
+      fontOverrideFilePath: try values.decodeIfPresent(String.self, forKey: .fontOverrideFilePath) ?? "",
+      reportedOs: try values.decodeIfPresent(String.self, forKey: .reportedOs) ?? "",
+      runtimePlatform: try values.decodeIfPresent(String.self, forKey: .runtimePlatform) ?? "WINDOWS",
+      krkrEntryXp3: try values.decodeIfPresent(String.self, forKey: .krkrEntryXp3),
+      manifestPath: try values.decodeIfPresent(String.self, forKey: .manifestPath)
+    )
+  }
+
   static func normalizeId(_ id: String?, path: String) -> String {
-    let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
+    let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-")
     let cleaned = (id ?? "").unicodeScalars
       .filter { allowed.contains($0) }
       .map(String.init)
       .joined()
-    return cleaned.isEmpty ? legacyId(for: path) : cleaned
+    return cleaned.isEmpty || cleaned == "." || cleaned == ".." ? legacyId(for: path) : cleaned
   }
 
   static func legacySaveId(for path: String) -> String {
     let normalized = path.replacingOccurrences(of: "\\", with: "/")
     let basename = normalized.split(separator: "/").last.map(String.init) ?? ""
-    let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
+    let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-")
     let cleaned = basename.unicodeScalars
       .map { allowed.contains($0) ? String($0) : "_" }
       .joined()
-    return cleaned.isEmpty ? legacyId(for: path) : cleaned
+    return cleaned.isEmpty || cleaned == "." || cleaned == ".." ? legacyId(for: path) : cleaned
   }
 
   static func legacyId(for path: String) -> String {

@@ -10,11 +10,6 @@ final class SettingsStore: ObservableObject {
       defaults.set(mobileTouchpadEnabled, forKey: "mobile_touchpad_enabled")
     }
   }
-  @Published var crashReportingEnabled: Bool {
-    didSet {
-      defaults.set(crashReportingEnabled, forKey: "crash_reporting_enabled")
-    }
-  }
   @Published var runtimeHUDEnabled: Bool {
     didSet {
       defaults.set(runtimeHUDEnabled, forKey: "runtime_hud_enabled")
@@ -47,7 +42,6 @@ final class SettingsStore: ObservableObject {
   init(defaults: UserDefaults = .standard) {
     self.defaults = defaults
     mobileTouchpadEnabled = defaults.bool(forKey: "mobile_touchpad_enabled")
-    crashReportingEnabled = defaults.bool(forKey: "crash_reporting_enabled")
     runtimeHUDEnabled = defaults.object(forKey: "runtime_hud_enabled") as? Bool
       ?? true
     backend = defaults.object(forKey: "gfx_backend") as? Int ?? 3

@@ -58,12 +58,16 @@ class StorageService {
             (entry['id'] == null || entry['id'].toString().trim().isEmpty),
       );
       if (!needsMigration) return;
-      final entries = decoded
-          .map(
-            (entry) =>
-                Map<String, dynamic>.from(entry as Map<dynamic, dynamic>),
-          )
-          .toList();
+      final entries = <Map<String, dynamic>>[];
+      for (final row in decoded) {
+        try {
+          final entry = Map<String, dynamic>.from(row as Map);
+          GameEntry.fromJson(entry);
+          entries.add(entry);
+        } catch (_) {
+          _preserveRecoveryData(raw);
+        }
+      }
       final legacyIdCounts = <String, int>{};
       for (final entry in entries) {
         final path = entry['path'] as String;
@@ -93,12 +97,25 @@ class StorageService {
 
     try {
       final list = jsonDecode(json) as List<dynamic>;
-      return list
-          .map((e) => GameEntry.fromJson(e as Map<String, dynamic>))
-          .toList();
+      final library = <GameEntry>[];
+      for (final row in list) {
+        try {
+          library.add(GameEntry.fromJson(row as Map<String, dynamic>));
+        } catch (_) {
+          // Preserve the original data before a later edit saves recovered rows.
+          _preserveRecoveryData(json);
+        }
+      }
+      return library;
     } catch (_) {
+      _preserveRecoveryData(json);
       return [];
     }
+  }
+
+  void _preserveRecoveryData(String raw) {
+    if (_prefs?.getString('game_library_recovery') == raw) return;
+    _prefs?.setString('game_library_recovery', raw);
   }
 
   Future<void> addToLibrary(GameEntry entry) async {
@@ -118,7 +135,9 @@ class StorageService {
 
   Future<void> updateLastPlayed(String path) async {
     final library = getLibrary();
-    final index = library.indexWhere((g) => g.path == path);
+    final index = library.indexWhere(
+      (g) => GameImporter.isSameLibraryPath(g.path, path),
+    );
     if (index >= 0) {
       library[index] = library[index].copyWith(lastPlayedAt: DateTime.now());
       await _saveLibrary(library);

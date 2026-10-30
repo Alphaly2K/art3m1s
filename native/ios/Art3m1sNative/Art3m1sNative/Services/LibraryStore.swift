@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 
 @MainActor
@@ -17,7 +18,24 @@ final class LibraryStore: ObservableObject {
     encoder.dateEncodingStrategy = .iso8601
     encoder.outputFormatting = [.sortedKeys]
     decoder = JSONDecoder()
-    decoder.dateDecodingStrategy = .iso8601
+    decoder.dateDecodingStrategy = .custom { decoder in
+      let value = try decoder.singleValueContainer().decode(String.self)
+      let formatter = ISO8601DateFormatter()
+      formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+      if let date = formatter.date(from: value) { return date }
+      formatter.formatOptions = [.withInternetDateTime]
+      if let date = formatter.date(from: value) { return date }
+      let local = DateFormatter()
+      local.locale = Locale(identifier: "en_US_POSIX")
+      local.timeZone = .current
+      local.isLenient = false
+      for format in ["yyyy-MM-dd'T'HH:mm:ss.SSSSSS", "yyyy-MM-dd'T'HH:mm:ss"] {
+        local.dateFormat = format
+        if let date = local.date(from: value) { return date }
+      }
+      throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Invalid date"))
+    }
+    load()
   }
 
   static var preview: LibraryStore {
@@ -42,36 +60,23 @@ final class LibraryStore: ObservableObject {
       message = "无法创建应用数据目录：\(error.localizedDescription)"
       AppLogger.error(message ?? "")
     }
-    load()
     reconcileStoredPaths()
   }
 
-  func scanAppFolder() async {
+  func scanAppFolder(in directory: URL = AppDataPaths.games) async {
     guard !isWorking else { return }
     isWorking = true
     defer { isWorking = false }
 
     do {
-      try AppDataPaths.ensureInitialized()
-      let discovered = GameImporter.discover(in: AppDataPaths.games)
-      let previousLastPlayed = Dictionary(
-        grouping: games,
-        by: { $0.displayNameOrName.lowercased() }
-      )
-      games.removeAll()
+      try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+      let discovered = await Task.detached(priority: .userInitiated) {
+        GameImporter.discover(in: directory)
+      }.value
       let added = await add(discovered)
-      if added > 0 {
-        for index in games.indices {
-          let key = games[index].displayNameOrName.lowercased()
-          games[index].lastPlayedAt = previousLastPlayed[key]?
-            .compactMap(\.lastPlayedAt)
-            .max()
-        }
-      }
-      save()
-      message = added == 0
+      message = discovered.isEmpty
         ? "未发现游戏。请在 Files 中把游戏放入本 App 的 Games 目录。"
-        : "已更新 \(added) 个游戏"
+        : "扫描发现 \(discovered.count) 个游戏，新增 \(added) 个"
     } catch {
       message = "扫描失败：\(error.localizedDescription)"
       AppLogger.error(message ?? "")
@@ -80,24 +85,29 @@ final class LibraryStore: ObservableObject {
 
   /// Copies user-selected folders into Documents/Games, then scans only that
   /// managed directory.
-  func importFolders(_ urls: [URL]) async {
+  func importFolders(_ urls: [URL], into directory: URL = AppDataPaths.games) async {
     guard !isWorking else { return }
     isWorking = true
     defer { isWorking = false }
 
     do {
-      try AppDataPaths.ensureInitialized()
-      var imported: [DiscoveredGame] = []
+      try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+      var added = 0
+      var failures = 0
       for url in urls {
-        let copied = try GameImporter.copyIntoGamesDirectory(url)
-        imported.append(contentsOf: GameImporter.discover(in: copied))
+        do {
+          let imported = try await Task.detached(priority: .userInitiated) {
+            let copied = try GameImporter.copyIntoGamesDirectory(url, gamesDirectory: directory)
+            return GameImporter.discover(in: copied)
+          }.value
+          added += await add(imported)
+        } catch {
+          failures += 1
+          AppLogger.error("目录导入失败：\(error.localizedDescription)")
+        }
       }
-      guard !imported.isEmpty else {
-        message = "所选目录中没有可识别的游戏"
-        return
-      }
-      let added = await add(imported)
-      message = added == 0 ? "所选游戏都已在资料库中" : "已导入 \(added) 个游戏"
+      message = "已导入 \(added) 个游戏"
+        + (failures > 0 ? "，\(failures) 个目录导入失败" : "")
     } catch {
       message = "导入失败：\(error.localizedDescription)"
       AppLogger.error(message ?? "")
@@ -109,12 +119,23 @@ final class LibraryStore: ObservableObject {
     save()
   }
 
-  func update(_ game: GameEntry) {
+  @discardableResult
+  func update(_ game: GameEntry) -> Bool {
     guard let index = games.firstIndex(where: { $0.id == game.id }) else {
-      return
+      return false
     }
-    games[index] = game
+    var updated = game
+    updated.lastPlayedAt = games[index].lastPlayedAt
+    do {
+      updated.manifestPath = try GameManifest.save(updated).path
+    } catch {
+      message = "项目配置保存失败：\(error.localizedDescription)"
+      AppLogger.error(message ?? "")
+      return false
+    }
+    games[index] = updated
     save()
+    return true
   }
 
   func markPlayed(_ game: GameEntry) {
@@ -175,12 +196,43 @@ final class LibraryStore: ObservableObject {
       }
       return
     }
-    games = (try? decoder.decode([GameEntry].self, from: data)) ?? []
+    decodeLibrary(data)
   }
 
   private func loadLegacyString(_ string: String) {
     guard let data = string.data(using: .utf8) else { return }
-    games = (try? decoder.decode([GameEntry].self, from: data)) ?? []
+    decodeLibrary(data)
+  }
+
+  private func decodeLibrary(_ data: Data) {
+    guard let values = try? JSONSerialization.jsonObject(with: data) as? [Any] else {
+      defaults.set(data, forKey: "game_library_recovery")
+      message = "资料库数据损坏，原始数据已保留。"
+      return
+    }
+    let rows = values.compactMap { value -> [String: Any]? in
+      guard let row = value as? [String: Any] else {
+        defaults.set(data, forKey: "game_library_recovery")
+        return nil
+      }
+      return row
+    }
+    let legacyCounts = Dictionary(grouping: rows, by: {
+      GameEntry.legacySaveId(for: $0["path"] as? String ?? "")
+    }).mapValues(\.count)
+    games = rows.compactMap { original in
+      var row = original
+      if (row["id"] as? String)?.isEmpty != false, let path = row["path"] as? String {
+        let legacy = GameEntry.legacySaveId(for: path)
+        row["id"] = legacyCounts[legacy] == 1 ? legacy : GameEntry.legacyId(for: path)
+      }
+      guard let bytes = try? JSONSerialization.data(withJSONObject: row),
+            let entry = try? decoder.decode(GameEntry.self, from: bytes) else {
+        defaults.set(data, forKey: "game_library_recovery")
+        return nil
+      }
+      return entry
+    }
   }
 
   private func save() {
@@ -201,17 +253,15 @@ final class LibraryStore: ObservableObject {
       var game = original
       let storedURL = URL(fileURLWithPath: game.path).standardizedFileURL
       if !manager.fileExists(atPath: storedURL.path) {
-        let candidate = root.appendingPathComponent(
-          storedURL.lastPathComponent,
-          isDirectory: game.source == .directory
-        )
-        if manager.fileExists(atPath: candidate.path) {
-          game.path = candidate.path
-          if let manifestPath = game.manifestPath {
-            let manifestName = URL(fileURLWithPath: manifestPath).lastPathComponent
-            game.manifestPath = candidate
-              .appendingPathComponent(manifestName)
-              .path
+        let components = storedURL.pathComponents
+        if let index = components.lastIndex(of: "Games"), index + 1 < components.count {
+          let relative = components[(index + 1)...].joined(separator: "/")
+          let candidate = root.appendingPathComponent(relative)
+          if manager.fileExists(atPath: candidate.path) {
+            game.path = candidate.path
+            game.manifestPath = GameManifest.manifestURL(for: DiscoveredGame(
+              name: game.name, path: game.path, source: game.source
+            )).path
           }
         }
       }

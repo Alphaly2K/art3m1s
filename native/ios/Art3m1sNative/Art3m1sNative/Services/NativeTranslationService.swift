@@ -17,6 +17,7 @@ final class NativeTranslationService {
   private var pending: [String: Job] = [:]
   private var queue: [Job] = []
   private var activeJobs = 0
+  private var activeTasks: [UUID: Task<Void, Never>] = [:]
   private var pumpTask: Task<Void, Never>?
   private var cacheWriteTask: Task<Void, Never>?
   private var disposed = false
@@ -43,7 +44,10 @@ final class NativeTranslationService {
 
   var hostReplacementTable: [String: String] {
     var result: [String: String] = [:]
+    let prefix = cacheKey("", ruby: nil).split(separator: "\0", omittingEmptySubsequences: false)
+      .prefix(6).joined(separator: "\0") + "\0"
     for (key, value) in cache {
+      guard !key.contains("\0") || key.hasPrefix(prefix) else { continue }
       let source = key.split(separator: "\0").last.map(String.init) ?? key
       if !source.isEmpty {
         result[source] = value
@@ -58,7 +62,7 @@ final class NativeTranslationService {
     ruby: String?,
     onComplete: @escaping (String?) -> Void
   ) {
-    guard !disposed else {
+    guard !disposed, settings.mode != .off else {
       onComplete(nil)
       return
     }
@@ -100,6 +104,8 @@ final class NativeTranslationService {
     disposed = true
     pumpTask?.cancel()
     pumpTask = nil
+    for task in activeTasks.values { task.cancel() }
+    activeTasks.removeAll()
     cacheWriteTask?.cancel()
     writeCache()
     queue.removeAll()
@@ -143,13 +149,20 @@ final class NativeTranslationService {
       let jobs = Array(queue.prefix(count))
       queue.removeFirst(jobs.count)
       activeJobs += 1
-      Task { [weak self] in
-        await self?.run(jobs)
+      let id = UUID()
+      activeTasks[id] = Task { [weak self] in
+        guard let self else { return }
+        await self.run(jobs)
+        self.activeTasks.removeValue(forKey: id)
       }
     }
   }
 
   private func run(_ jobs: [Job]) async {
+    defer {
+      activeJobs = max(activeJobs - 1, 0)
+      pumpQueue()
+    }
     var results = Array<String?>(repeating: nil, count: jobs.count)
     do {
       results = try await translateRemoteBatch(jobs)
@@ -166,7 +179,6 @@ final class NativeTranslationService {
           + error.localizedDescription
       )
     }
-    activeJobs = max(activeJobs - 1, 0)
     for index in jobs.indices {
       guard let job = pending.removeValue(forKey: jobs[index].key) else {
         continue
@@ -175,7 +187,6 @@ final class NativeTranslationService {
         callback(results[index])
       }
     }
-    pumpQueue()
   }
 
   private func cacheKey(_ source: String, ruby: String?) -> String {

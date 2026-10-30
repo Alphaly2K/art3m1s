@@ -104,7 +104,7 @@ jobs:
           CORE_SRC: ${{ github.workspace }}/art3m1s-core
           ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
           ANDROID_NDK_ROOT: ${{ steps.ndk.outputs.ndk-path }}
-        run: dart run tool/build.dart android --release
+        run: dart run tool/build.dart android --release --siglus
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
@@ -149,16 +149,19 @@ jobs:
         with:
           channel: stable
           cache: true
+      - name: Test native host services
+        working-directory: art3m1s
+        run: bash tool/native_host_tests/run.sh
       - name: Build macOS
         working-directory: art3m1s
         env:
           CORE_SRC: ${{ github.workspace }}/art3m1s-core
-        run: dart run tool/build.dart macos --release
+        run: dart run tool/build.dart macos --release --siglus
       - name: Build iOS
         working-directory: art3m1s
         env:
           CORE_SRC: ${{ github.workspace }}/art3m1s-core
-        run: dart run tool/build.dart ios --release --device-only
+        run: dart run tool/build.dart ios --release --device-only --siglus
       - name: Upload macOS app
         uses: actions/upload-artifact@v4
         with:

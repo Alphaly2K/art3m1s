@@ -45,8 +45,6 @@ struct SettingsView: View {
       Section("诊断") {
         Toggle("调试模式", isOn: $settings.debugModeEnabled)
 
-        Toggle("崩溃与错误上报", isOn: $settings.crashReportingEnabled)
-
         Button {
           Task {
             await exportProfilerReport()
@@ -148,7 +146,21 @@ private struct TranslationSettingsView: View {
 
       if settings.translation.mode == .online {
         Section("服务") {
-          Picker("提供商", selection: $settings.translation.provider) {
+          Picker("提供商", selection: Binding(
+            get: { settings.translation.provider },
+            set: { provider in
+              var translation = settings.translation
+              let previous = translation.provider
+              if translation.endpoint.isEmpty || translation.endpoint == previous.defaultEndpoint {
+                translation.endpoint = provider.defaultEndpoint
+              }
+              if translation.model.isEmpty || translation.model == previous.defaultModel {
+                translation.model = provider.defaultModel
+              }
+              translation.provider = provider
+              settings.translation = translation
+            }
+          )) {
             ForEach(TranslationProvider.allCases, id: \.self) { provider in
               Text(provider.label).tag(provider)
             }

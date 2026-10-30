@@ -9,6 +9,19 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  test('dot IDs cannot select the save directory parent', () {
+    for (final id in ['.', '..']) {
+      final entry = GameEntry(
+        id: id,
+        name: 'game',
+        path: '/games/g',
+        source: GameSource.directory,
+        addedAt: DateTime(2026),
+      );
+      expect(entry.id, startsWith('legacy_'));
+    }
+  });
+
   test('legacy library entries receive and persist path-based IDs', () async {
     SharedPreferences.setMockInitialValues({
       'game_library': jsonEncode([

@@ -12,6 +12,7 @@ import '../../models/game_engine.dart';
 import '../../models/input_gate.dart';
 import '../../services/logger.dart';
 import '../../services/profiler_snapshot.dart';
+import '../../services/script_http_client.dart';
 import '../../services/text_translation_service.dart';
 import '../engine_runtime.dart';
 import '../shared_texture_session.dart';
@@ -119,6 +120,14 @@ void _dispatchUiCommand(String kind, String rawPayload) {
           () => bridge._queueTranslation(serial, text, ruby: ruby),
         );
       }
+    case 'http_request':
+      bridge._http.start(
+        payload,
+        readFile: bridge._readProjectAsset,
+        onComplete: bridge._submitHttpResult,
+      );
+    case 'http_cancel':
+      bridge._http.cancel((payload['serial'] as num?)?.toInt());
     case 'avoid':
       // 紧急回避：show 时全屏覆盖（可带图），hide 时撤除。UI 层观察此 notifier。
       final action = payload['action']?.toString();
@@ -160,7 +169,7 @@ void _dispatchUiCommand(String kind, String rawPayload) {
         scheduleMicrotask(() => _openInBrowser(url));
       }
     default:
-      // 未处理的 kind（http_request/callnative 等）暂由宿主按需扩展。
+      Log.debug('[Art3m1sEngineRuntime] 未处理的宿主事件: $kind');
       break;
   }
 }
@@ -379,6 +388,7 @@ class Art3m1sEngineRuntime implements EngineRuntime {
   int _sharedTextureHeight = 0;
   final ProjectAssetStore _projectAssets = ProjectAssetStore();
   TextTranslationService? translation;
+  final ScriptHttpClient _http = ScriptHttpClient();
   int _stageWidth = 1280;
   int _stageHeight = 720;
 
@@ -1110,6 +1120,21 @@ class Art3m1sEngineRuntime implements EngineRuntime {
   @override
   void configureInputGate(InputGatePolicy gate) {
     _inputGate = gate;
+  }
+
+  void _submitHttpResult(int status, Uint8List body) {
+    final runtime = _runtime;
+    final api = _coreApi;
+    if (runtime == null || api == null) return;
+    final bytes = body.isEmpty
+        ? nullptr.cast<Uint8>()
+        : malloc.allocate<Uint8>(body.length);
+    try {
+      if (body.isNotEmpty) bytes.asTypedList(body.length).setAll(0, body);
+      api.submitHttpResult(runtime, status, bytes, body.length);
+    } finally {
+      if (bytes != nullptr) malloc.free(bytes);
+    }
   }
 
   void _queueTranslation(int serial, String source, {String? ruby}) {
@@ -2022,6 +2047,7 @@ class Art3m1sEngineRuntime implements EngineRuntime {
 
   @override
   void shutdown() {
+    _http.cancel();
     final hostEvents = _hostEvents;
     hostEvents?.enable(0);
     final hostEventsHandle = hostEvents?.handle;

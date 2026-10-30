@@ -138,12 +138,22 @@ class GameImporter {
   static List<String> discoverBasePfsFiles(String directoryPath) {
     final directory = Directory(directoryPath);
     if (!directory.existsSync()) return const [];
-    final paths = directory
-        .listSync(recursive: true, followLinks: false)
-        .whereType<File>()
-        .map((file) => file.path)
-        .where(_isBasePfsPath)
-        .toList();
+    final paths = <String>[];
+    void visit(Directory current) {
+      try {
+        for (final entity in current.listSync(followLinks: false)) {
+          if (entity is File && _isBasePfsPath(entity.path)) {
+            paths.add(entity.path);
+          } else if (entity is Directory) {
+            visit(entity);
+          }
+        }
+      } on FileSystemException catch (error) {
+        Log.warn('[GameImporter] 目录不可读取: $error');
+      }
+    }
+
+    visit(directory);
     paths.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
     return paths;
   }
@@ -302,14 +312,29 @@ class GameImporter {
 
   static bool isManagedImportPath(String path, Iterable<String> roots) {
     final normalized = normalizeLibraryPath(path);
-    if (normalized.isEmpty) return false;
+    if (normalized.isEmpty || normalized.split('/').contains('..')) {
+      return false;
+    }
+    final resolved = _resolvedPath(normalized);
     for (final root in roots) {
       final prefix = normalizeLibraryPath(root);
       if (prefix.isEmpty) continue;
       if (normalized == prefix) return false;
-      if (normalized.startsWith('$prefix/')) return true;
+      final resolvedRoot = _resolvedPath(prefix);
+      if (normalized.startsWith('$prefix/') &&
+          resolved.startsWith('$resolvedRoot/')) {
+        return true;
+      }
     }
     return false;
+  }
+
+  static String _resolvedPath(String path) {
+    try {
+      return normalizeLibraryPath(File(path).resolveSymbolicLinksSync());
+    } on FileSystemException {
+      return normalizeLibraryPath(path);
+    }
   }
 
   /// SAF 导入批次遗留目录:`<games>/incoming/<timestamp>/`。
@@ -378,6 +403,14 @@ class GameImporter {
     Iterable<String> retainedPaths = const [],
   }) {
     if (!isManagedImportPath(path, roots)) return;
+    final deleting = _resolvedPath(path);
+    if (retainedPaths.any((retained) {
+      final resolved = _resolvedPath(retained);
+      return _isUnderNormalized(resolved, deleting) ||
+          _isUnderNormalized(deleting, resolved);
+    })) {
+      return;
+    }
     final batch = findManagedIncomingBatch(path, roots);
     if (batch != null && !_batchHasRetainedGames(batch, path, retainedPaths)) {
       if (batch.existsSync()) batch.deleteSync(recursive: true);

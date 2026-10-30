@@ -3,6 +3,28 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  test(
+    'damaged stored settings complete initialization with defaults',
+    () async {
+      SharedPreferences.setMockInitialValues({'gfx_backend': 'invalid'});
+      final notifier = SettingsNotifier();
+      await notifier.ready;
+      expect(notifier.state.backend, const SettingsState().backend);
+      notifier.dispose();
+    },
+  );
+
+  test(
+    'disposing settings during loading completes without publishing',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final notifier = SettingsNotifier();
+      final ready = notifier.ready;
+      notifier.dispose();
+      await ready;
+    },
+  );
+
   test('脏区着色只能在调试模式中开启', () async {
     SharedPreferences.setMockInitialValues({
       'debug_mode': false,

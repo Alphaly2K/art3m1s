@@ -127,10 +127,9 @@ class VndbService {
   }
 
   static Future<VndbQueryAttempt> _query(List<Object> filters) async {
+    HttpClientRequest? request;
     try {
-      final request = await _client
-          .postUrl(Uri.parse(_vnEndpoint))
-          .timeout(_timeout);
+      request = await _client.postUrl(Uri.parse(_vnEndpoint)).timeout(_timeout);
       request.headers.contentType = ContentType.json;
       request.write(
         jsonEncode({
@@ -142,10 +141,13 @@ class VndbService {
       final response = await request.close().timeout(_timeout);
       if (response.statusCode != 200) {
         Log.warn('[VNDB] 查询返回 ${response.statusCode}: $filters');
-        await response.drain<void>();
+        await response.drain<void>().timeout(_timeout);
         return const VndbQueryAttempt(tryAnotherCandidate: false);
       }
-      final text = await response.transform(utf8.decoder).join();
+      final text = await response
+          .transform(utf8.decoder)
+          .join()
+          .timeout(_timeout);
       final decoded = jsonDecode(text);
       final results = decoded is Map ? decoded['results'] : null;
       if (results is! List || results.isEmpty) {
@@ -165,7 +167,8 @@ class VndbService {
         info: VndbGameInfo(title: title, imageUrl: imageUrl),
         tryAnotherCandidate: false,
       );
-    } catch (e) {
+    } catch (e, stackTrace) {
+      request?.abort(e, stackTrace);
       Log.warn('[VNDB] 查询失败: $e');
       return const VndbQueryAttempt(tryAnotherCandidate: false);
     }
@@ -174,19 +177,23 @@ class VndbService {
   /// 下载封面到统一应用数据根目录的 covers/，返回本地路径；失败返回 null。
   /// [keyHint] 用来生成稳定文件名（同一游戏重复导入覆盖同一文件）。
   static Future<String?> downloadCover(String imageUrl, String keyHint) async {
+    HttpClientRequest? request;
     try {
-      final request = await _client
-          .getUrl(Uri.parse(imageUrl))
-          .timeout(_timeout);
+      request = await _client.getUrl(Uri.parse(imageUrl)).timeout(_timeout);
       final response = await request.close().timeout(_timeout);
       if (response.statusCode != 200) {
-        await response.drain<void>();
+        await response.drain<void>().timeout(_timeout);
         return null;
       }
       final builder = BytesBuilder(copy: false);
-      await for (final chunk in response) {
-        builder.add(chunk);
-      }
+      await (() async {
+        await for (final chunk in response) {
+          if (builder.length + chunk.length > 32 * 1024 * 1024) {
+            throw const HttpException('Cover response too large');
+          }
+          builder.add(chunk);
+        }
+      })().timeout(_timeout);
       final bytes = builder.takeBytes();
       if (bytes.isEmpty) return null;
 
@@ -195,7 +202,8 @@ class VndbService {
       final file = File('${coversDir.path}/$safe${_extFromUrl(imageUrl)}');
       await file.writeAsBytes(bytes);
       return file.path;
-    } catch (e) {
+    } catch (e, stackTrace) {
+      request?.abort(e, stackTrace);
       Log.warn('[VNDB] 封面下载失败: $e');
       return null;
     }

@@ -1,0 +1,84 @@
+name: Engine portability
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            triplet: x64-linux
+          - os: windows-latest
+            triplet: x64-windows
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: art3m1s
+      - uses: actions/checkout@v4
+        with:
+          repository: Alphaly2K/art3m1s-core
+          ref: master
+          path: art3m1s-core
+          submodules: recursive
+      - uses: actions/checkout@v4
+        with:
+          repository: Alphaly2K/siglus_rs
+          path: siglus_rs
+      - uses: actions/checkout@v4
+        with:
+          repository: Alphaly2K/rfvp
+          path: rfvp
+      - uses: actions/checkout@v4
+        with:
+          repository: krkrsdl3/krkrsdl3
+          ref: c82b9a9fae6936a3de6b5d56abadabdb0f6ee9f9
+          path: krkrsdl3
+      - uses: actions/checkout@v4
+        with:
+          repository: krkrsdl3/krkrsdl3_build
+          ref: 66fb7d9533478d33317208cd8ec8696ab9340d6f
+          path: krkrsdl3_build
+      - uses: actions/checkout@v4
+        with:
+          repository: microsoft/vcpkg
+          ref: 8e8dfb4ba483886936ded5ca201b500b8d8b0096
+          path: vcpkg
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libudev-dev nasm libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev libxss-dev libwayland-dev libxkbcommon-dev libgl1-mesa-dev libegl1-mesa-dev
+      - name: Cache native dependencies
+        uses: actions/cache@v4
+        with:
+          path: vcpkg/installed
+          key: engines-vcpkg-8e8dfb4-${{ matrix.triplet }}-v1
+      - name: Bootstrap vcpkg
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = Windows ]; then
+            ./vcpkg/bootstrap-vcpkg.bat -disableMetrics
+          else
+            ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
+          fi
+      - name: Install KRKR dependencies
+        shell: bash
+        run: ./vcpkg/vcpkg install --triplet=${{ matrix.triplet }} zlib libpng freetype glm libjpeg-turbo libvorbis libwebp oniguruma opus opusfile sdl3 sdl3-ttf plutovg "ffmpeg[core,avcodec,avformat,swresample,swscale]"
+      - name: Build engines and test FFI contracts
+        working-directory: art3m1s-core
+        shell: bash
+        env:
+          KRKRSDL3_SOURCE_DIR: ${{ github.workspace }}/krkrsdl3
+          KRKRSDL3_BUILD_DIR: ${{ github.workspace }}/krkrsdl3_build
+          VCPKG_ROOT: ${{ github.workspace }}/vcpkg
+          VCPKG_INSTALLED_DIR: ${{ github.workspace }}/vcpkg/installed
+          ART3M1S_KRKR_REQUIRE_UPSTREAM: "1"
+        run: |
+          cargo test --no-default-features --features gl-backend,vulkan-backend,krkr-engine,siglus-engine --lib ffi::

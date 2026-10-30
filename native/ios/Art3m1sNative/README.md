@@ -5,7 +5,6 @@ This is the replacement SwiftUI iOS application.
 The Flutter iOS shell is obsolete:
 
 - `lib/shell/cupertino_shell.dart`
-- `lib/shell/liquid_glass_shell.dart`
 
 New iOS features and fixes belong in this Xcode project.
 
@@ -17,14 +16,18 @@ New iOS features and fixes belong in this Xcode project.
 - Native game-directory import
 - Native library persistence compatible with the existing `game_library`
   UserDefaults key
-- Game discovery for `system.ini`, `.hcb`, XP3/TJS, and base PFS projects
+- Game discovery for `system.ini`, `.hcb`, XP3/TJS, Scene.pck/Gameexe, and base PFS projects
 - `art3m1s.json` manifest loading
 - Native settings and online-translation configuration
 - Profiler summary export and debug-log export
 - Dynamic Rust Core loading entry point
 
-The native player loop and Metal renderer are the next migration stage. They
-will use `CoreBridge` directly instead of Flutter FFI or platform channels.
+The native player runs Artemis, FVP, Kirikiri and Siglus projects with touch
+input, audio and lifecycle handling. Artemis, FVP and Siglus support Metal
+presentation with RGBA fallback; Kirikiri uses RGBA frames.
+Artemis also supports translation and script HTTP requests.
+Build with `--krkr` or `--siglus` to include the corresponding optional engine;
+the client and core must be built from matching versions.
 
 ## Open
 

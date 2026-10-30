@@ -76,7 +76,9 @@ class LibraryNotifier extends StateNotifier<List<GameEntry>> {
     String? krkrEntryXp3,
   }) async {
     final lib = _storage.getLibrary();
-    final i = lib.indexWhere((g) => g.path == path);
+    final i = lib.indexWhere(
+      (g) => GameImporter.isSameLibraryPath(g.path, path),
+    );
     if (i < 0) return;
     final updated = lib[i].copyWith(
       displayName: displayName,

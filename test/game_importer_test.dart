@@ -213,6 +213,39 @@ void main() {
     );
   });
 
+  test('managed delete rejects traversal and retains nested games', () {
+    final temporary = Directory.systemTemp.createTempSync('managed_boundary_');
+    addTearDown(() => temporary.deleteSync(recursive: true));
+    final root = Directory('${temporary.path}/games')..createSync();
+    final outside = Directory('${temporary.path}/outside')..createSync();
+    File('${outside.path}/keep').writeAsStringSync('keep');
+    GameImporter.deleteManagedImport('${root.path}/../outside', [root.path]);
+    expect(outside.existsSync(), isTrue);
+    final parent = Directory('${root.path}/collection')..createSync();
+    final child = Directory('${parent.path}/game')..createSync();
+    GameImporter.deleteManagedImport(
+      parent.path,
+      [root.path],
+      retainedPaths: [child.path],
+    );
+    expect(child.existsSync(), isTrue);
+  });
+
+  test(
+    'managed delete rejects a link to an external directory',
+    () {
+      final temporary = Directory.systemTemp.createTempSync('managed_link_');
+      addTearDown(() => temporary.deleteSync(recursive: true));
+      final root = Directory('${temporary.path}/games')..createSync();
+      final outside = Directory('${temporary.path}/outside')..createSync();
+      final file = File('${outside.path}/keep')..writeAsStringSync('keep');
+      final link = Link('${root.path}/linked')..createSync(outside.path);
+      GameImporter.deleteManagedImport('${link.path}/keep', [root.path]);
+      expect(file.existsSync(), isTrue);
+    },
+    skip: Platform.isWindows ? 'Symbolic links require developer mode' : false,
+  );
+
   test('managed import delete removes the whole incoming batch', () {
     final root = Directory.systemTemp.createTempSync('art3m1s_managed_games_');
     addTearDown(() => root.deleteSync(recursive: true));

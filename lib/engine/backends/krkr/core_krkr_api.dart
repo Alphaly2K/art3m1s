@@ -684,3 +684,54 @@ class CoreKrkrApiV1 {
           .asFunction<_RuntimeIsExitRequestedDart>()(runtime) !=
       0;
 }
+
+typedef _MasterVolumeNative = Int32 Function(Uint64, Float);
+typedef _MasterVolumeDart = int Function(int, double);
+
+final class _KrkrControlApiV1 extends Struct {
+  @Uint32()
+  external int structSize;
+  @Uint32()
+  external int abiVersion;
+  @Uint64()
+  external int magic;
+  external Pointer<NativeFunction<_MasterVolumeNative>> volume;
+}
+
+typedef _GetControlNative =
+    Pointer<_KrkrControlApiV1> Function(Pointer<UintPtr>);
+typedef _GetControlDart = Pointer<_KrkrControlApiV1> Function(Pointer<UintPtr>);
+
+class CoreKrkrControlV1 {
+  CoreKrkrControlV1._(this._table);
+  final Pointer<_KrkrControlApiV1> _table;
+  static CoreKrkrControlV1? tryLoad(DynamicLibrary library) {
+    try {
+      final get = library.lookupFunction<_GetControlNative, _GetControlDart>(
+        'art3m1s_krkr_get_control_api_v1',
+      );
+      final size = calloc<UintPtr>();
+      try {
+        final table = get(size);
+        if (table == nullptr || size.value != sizeOf<_KrkrControlApiV1>()) {
+          return null;
+        }
+        final api = table.ref;
+        if (api.structSize != size.value ||
+            api.abiVersion != 1 ||
+            api.magic != 0x3156434b4d334152 ||
+            api.volume == nullptr) {
+          return null;
+        }
+        return CoreKrkrControlV1._(table);
+      } finally {
+        calloc.free(size);
+      }
+    } catch (_) {
+      return null;
+    }
+  }
+
+  int volume(int runtime, double volume) =>
+      _table.ref.volume.asFunction<_MasterVolumeDart>()(runtime, volume);
+}

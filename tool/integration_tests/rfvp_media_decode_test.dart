@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:art3m1s/engine/backends/rfvp/rfvp_media_host.dart';
+import 'package:art3m1s/engine/backends/audio_decode_utils.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -10,9 +10,12 @@ void main() {
     'decodes RFVP encoded audio into PCM WAV',
     () async {
       final encoded = File(input!).readAsBytesSync();
-      final output = File('/tmp/rfvp_host_decoded.wav');
-      if (output.existsSync()) output.deleteSync();
-      await decodeRfvpAudioToWavFile(encoded, output.path);
+      final temporary = Directory.systemTemp.createTempSync(
+        'rfvp_audio_probe_',
+      );
+      addTearDown(() => temporary.deleteSync(recursive: true));
+      final output = File('${temporary.path}/decoded.wav');
+      await decodeAudioToPcmWavFile(encoded, output.path);
 
       expect(output.lengthSync(), greaterThan(44));
       final header = output.readAsBytesSync().take(12).toList();

@@ -386,3 +386,79 @@ class CoreSiglusApiV1 {
   bool isExitRequested(int handle) =>
       _table.ref.runtimeIsExitRequested.asFunction<_ExitDart>()(handle) == 1;
 }
+
+typedef _OutputActionNative = Int32 Function(Uint64);
+typedef _OutputActionDart = int Function(int);
+typedef _OutputSuspendNative = Int32 Function(Uint64, Int32);
+typedef _OutputSuspendDart = int Function(int, int);
+typedef _OutputVolumeNative = Int32 Function(Uint64, Float);
+typedef _OutputVolumeDart = int Function(int, double);
+typedef _OutputAndroidNative = Int32 Function(Pointer<Void>, Pointer<Void>);
+typedef _OutputAndroidDart = int Function(Pointer<Void>, Pointer<Void>);
+typedef _GetOutputNative =
+    Pointer<_SiglusOutputApiV1> Function(Pointer<UintPtr>);
+typedef _GetOutputDart = Pointer<_SiglusOutputApiV1> Function(Pointer<UintPtr>);
+
+final class _SiglusOutputApiV1 extends Struct {
+  @Uint32()
+  external int structSize;
+  @Uint32()
+  external int abiVersion;
+  @Uint64()
+  external int magic;
+  external Pointer<NativeFunction<_OutputActionNative>> start;
+  external Pointer<NativeFunction<_OutputActionNative>> stop;
+  external Pointer<NativeFunction<_OutputSuspendNative>> suspend;
+  external Pointer<NativeFunction<_OutputVolumeNative>> volume;
+  external Pointer<NativeFunction<_OutputAndroidNative>> initializeAndroid;
+}
+
+class CoreSiglusOutputV1 {
+  CoreSiglusOutputV1._(this._table);
+  final Pointer<_SiglusOutputApiV1> _table;
+
+  static CoreSiglusOutputV1? tryLoad(DynamicLibrary library) {
+    try {
+      final get = library.lookupFunction<_GetOutputNative, _GetOutputDart>(
+        'art3m1s_siglus_get_output_api_v1',
+      );
+      final size = calloc<UintPtr>();
+      try {
+        final table = get(size);
+        if (table == nullptr || size.value != sizeOf<_SiglusOutputApiV1>()) {
+          return null;
+        }
+        final api = table.ref;
+        if (api.structSize != size.value ||
+            api.abiVersion != 1 ||
+            api.magic != 0x31564f534d334152 ||
+            api.start == nullptr ||
+            api.stop == nullptr ||
+            api.suspend == nullptr ||
+            api.volume == nullptr ||
+            api.initializeAndroid == nullptr) {
+          return null;
+        }
+        return CoreSiglusOutputV1._(table);
+      } finally {
+        calloc.free(size);
+      }
+    } catch (_) {
+      return null;
+    }
+  }
+
+  int start(int runtime) =>
+      _table.ref.start.asFunction<_OutputActionDart>()(runtime);
+  int stop(int runtime) =>
+      _table.ref.stop.asFunction<_OutputActionDart>()(runtime);
+  int suspend(int runtime, bool suspended) => _table.ref.suspend
+      .asFunction<_OutputSuspendDart>()(runtime, suspended ? 1 : 0);
+  int volume(int runtime, double volume) =>
+      _table.ref.volume.asFunction<_OutputVolumeDart>()(runtime, volume);
+  int initializeAndroid(int vm, int context) =>
+      _table.ref.initializeAndroid.asFunction<_OutputAndroidDart>()(
+        Pointer.fromAddress(vm),
+        Pointer.fromAddress(context),
+      );
+}

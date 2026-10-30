@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A00000000000000000000027 /* SiglusRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000027 /* SiglusRuntime.swift */; };
+		A00000000000000000000026 /* ScriptHTTPClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000026 /* ScriptHTTPClient.swift */; };
 		A00000000000000000000001 /* Art3m1sApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000001 /* Art3m1sApp.swift */; };
 		A00000000000000000000002 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000002 /* RootView.swift */; };
 		A00000000000000000000003 /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000003 /* LibraryView.swift */; };
@@ -70,6 +72,8 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		B00000000000000000000027 /* SiglusRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SiglusRuntime.swift; sourceTree = "<group>"; };
+		B00000000000000000000026 /* ScriptHTTPClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScriptHTTPClient.swift; sourceTree = "<group>"; };
 		B00000000000000000000001 /* Art3m1sApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Art3m1sApp.swift; sourceTree = "<group>"; };
 		B00000000000000000000002 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		B00000000000000000000003 /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryView.swift; sourceTree = "<group>"; };
@@ -179,6 +183,8 @@
 				B0000000000000000000001E /* GameInputView.swift */,
 				B0000000000000000000001F /* MetalHostView.swift */,
 				B00000000000000000000021 /* ProjectVFS.swift */,
+				B00000000000000000000026 /* ScriptHTTPClient.swift */,
+				B00000000000000000000027 /* SiglusRuntime.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -358,6 +364,8 @@
 				A00000000000000000000023 /* GameInputView.swift in Sources */,
 				A00000000000000000000024 /* MetalHostView.swift in Sources */,
 				A00000000000000000000025 /* ProjectVFS.swift in Sources */,
+				A00000000000000000000026 /* ScriptHTTPClient.swift in Sources */,
+				A00000000000000000000027 /* SiglusRuntime.swift in Sources */,
 				A20000000000000000000001 /* LicensesView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
