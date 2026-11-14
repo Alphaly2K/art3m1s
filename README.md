@@ -1,6 +1,7 @@
 <p align="center">
   <img src="assets/branding/art3m1s-logo-v1.png" alt="Art3m1s icon" width="168">
 </p>
+
 # Art3m1s
 
 > [!IMPORTANT]
