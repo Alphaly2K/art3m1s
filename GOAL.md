@@ -1,6 +1,14 @@
 # 引擎平台适配与宿主完整性
 
-## 当前阶段：KRKR 与 Siglus 平台适配
+## 当前阶段：macOS Release（2026-11-01）
+
+- 已从客户端 `2a95464` 与 core `a809729` 构建 1.3.0 Release，启用 Artemis、RFVP、KRKR 与 Siglus。
+- 交付目标为 Apple Silicon arm64，最低 macOS 12.0；所有运行二进制已统一为 arm64，移除开发目录的动态库搜索路径。
+- 已装入 KRKR 宿主和字体资源、FFmpeg、ANGLE 及原生依赖许可，并完成 ad-hoc 签名。
+- 应用产物：`build/macos/Build/Products/Release/art3m1s.app`；压缩包：同目录 `art3m1s-krkr-macos-release.zip`，内含两种可选引擎。
+- 包内动态依赖、签名与 Dart ABI 加载检查通过；真实游戏与音视频设备回归仍待运行。
+
+## 已完成：KRKR 与 Siglus 平台适配
 
 已完成跨平台源码与构建接线；平台运行验证的范围见下文。
 
