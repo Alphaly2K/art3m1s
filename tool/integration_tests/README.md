@@ -12,7 +12,7 @@ SwiftUI 目录服务的合成输入验证可在安装 Xcode 命令行工具的 m
 ## macOS Artemis v2
 
 从项目根目录运行 `dart run tool/build.dart macos --debug --artemis-v2` 构建预览。应用同时打包
-v1、独立 v2 Core 和 Metal Host。默认构建仍使用 v1；预览支持资源、存档、输入、对话框、
+v1、独立 v2 Core、Metal Host 和媒体 Host。默认构建仍使用 v1；预览支持资源、存档、输入、对话框、
 共享纹理、脚本截图、HTTP 及宿主音视频播放。
 
 完成上述构建后，可显式验证合成项目：
@@ -24,5 +24,6 @@ build/macos/Build/Products/Debug/art3m1s.app/Contents/MacOS/art3m1s
 ```
 
 冒烟自建游戏、存档目录、音视频和本地 HTTP 服务，验证 v1 可加载及 v2 保存、截图、HTTP 取消、
-音效结束和读档恢复、视频呈现和跳过，以及项目切换后的解码失败处理。需要 macOS 桌面、Metal 设备，
-以及 `PATH` 中支持 `libx264` 编码的 `ffmpeg`。无需提供游戏文件。
+音效结束和读档恢复、H.264 与 WMV 图层呈现、全屏循环和跳过，以及项目切换后的解码失败处理。
+需要 macOS 桌面、Metal 设备，以及 `PATH` 中支持 `libx264`、`wmv2`、`wmav2` 编码的 `ffmpeg`。
+无需提供游戏文件。

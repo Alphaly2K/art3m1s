@@ -211,6 +211,7 @@ final class ArtemisFlutterSession {
     'path': path,
     'fullscreen': play.layer == null,
     'loop': play.loop,
+    'delayMarginMs': play.delayMarginMs,
     'volume': volume,
   });
 

@@ -16,13 +16,16 @@ private enum ArtemisFlutterError: Error {
 
     private let corePath: String
     private let metalPath: String
+    private let mediaPath: String?
+    private var mediaLibrary: ArtemisLegacyMediaLibrary?
     private let registry: FlutterTextureRegistry
     private var channel: FlutterMethodChannel?
     private var sessions: [String: Session] = [:]
 
-    init(registry: FlutterTextureRegistry, corePath: String, metalPath: String) {
+    init(registry: FlutterTextureRegistry, corePath: String, metalPath: String, mediaPath: String? = nil) {
         self.corePath = corePath
         self.metalPath = metalPath
+        self.mediaPath = mediaPath
         self.registry = registry
     }
 
@@ -113,11 +116,19 @@ private enum ArtemisFlutterError: Error {
                   session.videos[playback] == nil, (0...1).contains(volume) else {
                 throw ArtemisFlutterError.invalidArguments
             }
-            session.videos[playback] = Video(
-                url: URL(fileURLWithPath: path), epoch: epoch,
-                fullscreen: args["fullscreen"] as? Bool == true, loop: args["loop"] as? Bool == true,
-                suspended: session.videoSuspended, volume: Float(volume)
-            )
+            let url = URL(fileURLWithPath: path)
+            let loop = args["loop"] as? Bool == true
+            let source: ArtemisVideoSource
+            if ["asf", "wmv", "ogv", "ogg"].contains(url.pathExtension.lowercased()), let mediaPath {
+                let library = try mediaLibrary ?? ArtemisLegacyMediaLibrary(path: mediaPath)
+                mediaLibrary = library
+                source = ArtemisLegacyVideoSource(library: library, path: path, loop: loop,
+                    delayMarginMS: args["delayMarginMs"] as? Int,
+                    suspended: session.videoSuspended, volume: Float(volume))
+            } else {
+                source = AVVideoSource(url: url, loop: loop, suspended: session.videoSuspended, volume: Float(volume))
+            }
+            session.videos[playback] = Video(epoch: epoch, fullscreen: args["fullscreen"] as? Bool == true, source: source)
             return nil
         case "videoClose":
             if let video = session.videos.removeValue(forKey: try number(args["playback"], as: UInt64.self)) {
@@ -319,17 +330,37 @@ private extension ArtemisFlutterHost {
     var textureID: Int64?
     var frameID: UInt64 = 0
     var started = false
+    private let source: ArtemisVideoSource
 
+    init(epoch: UInt64, fullscreen: Bool, source: ArtemisVideoSource) {
+        self.epoch = epoch
+        self.fullscreen = fullscreen
+        self.source = source
+    }
+
+    var terminalState: String? { source.terminalState }
+    func frame() -> CVPixelBuffer? { source.frame() }
+    func setVolume(_ volume: Float) { source.setVolume(volume) }
+    func setSuspended(_ suspended: Bool) { source.setSuspended(suspended) }
+
+    func close(_ registry: FlutterTextureRegistry) {
+        source.close()
+        texture.publish(nil)
+        if let textureID { registry.unregisterTexture(textureID) }
+        textureID = nil
+    }
+}
+
+@MainActor private final class AVVideoSource: ArtemisVideoSource {
     private let player: AVPlayer
     private let item: AVPlayerItem
     private let output: AVPlayerItemVideoOutput
     private var finished: String?
     private var suspended: Bool
+    private var hasFrame = false
     private var observers: [NSObjectProtocol] = []
 
-    init(url: URL, epoch: UInt64, fullscreen: Bool, loop: Bool, suspended: Bool, volume: Float) {
-        self.epoch = epoch
-        self.fullscreen = fullscreen
+    init(url: URL, loop: Bool, suspended: Bool, volume: Float) {
         self.suspended = suspended
         item = AVPlayerItem(url: url)
         output = AVPlayerItemVideoOutput(pixelBufferAttributes: [
@@ -345,11 +376,11 @@ private extension ArtemisFlutterHost {
         observers.append(center.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                if loop && self.started {
+                if loop && self.hasFrame {
                     self.player.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero)
                     if !self.suspended { self.player.play() }
                 } else {
-                    self.finished = self.started ? "ended" : "failed"
+                    self.finished = self.hasFrame ? "ended" : "failed"
                 }
             }
         })
@@ -367,7 +398,9 @@ private extension ArtemisFlutterHost {
         guard !suspended else { return nil }
         let time = item.currentTime()
         guard output.hasNewPixelBuffer(forItemTime: time) else { return nil }
-        return output.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil)
+        let frame = output.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil)
+        if frame != nil { hasFrame = true }
+        return frame
     }
 
     func setSuspended(_ value: Bool) {
@@ -376,14 +409,11 @@ private extension ArtemisFlutterHost {
         if value { player.pause() } else if terminalState == nil { player.play() }
     }
 
-    func close(_ registry: FlutterTextureRegistry) {
+    func close() {
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
         observers.removeAll()
         player.pause()
         player.replaceCurrentItem(with: nil)
-        texture.publish(nil)
-        if let textureID { registry.unregisterTexture(textureID) }
-        textureID = nil
     }
 }
 

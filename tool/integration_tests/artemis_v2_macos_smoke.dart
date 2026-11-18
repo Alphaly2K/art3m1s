@@ -83,6 +83,29 @@ Future<void> _run(Directory root, HttpServer server) async {
   if (video.exitCode != 0) {
     throw StateError('Cannot generate video fixture: ${video.stderr}');
   }
+  final legacyVideo = await Process.run('ffmpeg', [
+    '-nostdin',
+    '-v',
+    'error',
+    '-f',
+    'lavfi',
+    '-i',
+    'color=blue:s=32x32:r=24:d=1',
+    '-f',
+    'lavfi',
+    '-i',
+    'sine=frequency=440:duration=1',
+    '-c:v',
+    'wmv2',
+    '-c:a',
+    'wmav2',
+    '${game.path}/legacy.wmv',
+  ]);
+  if (legacyVideo.exitCode != 0) {
+    throw StateError(
+      'Cannot generate legacy video fixture: ${legacyVideo.stderr}',
+    );
+  }
   File('${game.path}/boot.iet').writeAsStringSync('''
 *top
 [calllua function=boot]
@@ -107,11 +130,18 @@ Future<void> _run(Directory root, HttpServer server) async {
 [savess file=video_thumb width=2 height=2]
 [wait video=2]
 [calllua function=check_video]
+[setonvideofinish id=3 label=legacy_video_ended call=1]
+[video id=3 file=legacy.wmv delaymargin=50]
+[wait time=450]
+[takess]
+[savess file=legacy_thumb width=2 height=2]
+[wait video=3]
+[calllua function=check_legacy_video]
 [avoid file=cover.png]
 [keyconfig role=15 keys=70]
 [keyconfig role=16 keys=70]
 [video file=video.mp4 loop=1 skip=1]
-[video file=video.mp4 loop=1 skip=2]
+[video file=legacy.wmv loop=1 skip=2]
 [setonsoundfinish id=restored label=restored_ended call=1]
 [seplay id=restored file=tone.wav gain=100]
 [save file=numbered]
@@ -126,6 +156,9 @@ Future<void> _run(Directory root, HttpServer server) async {
 [return]
 *video_ended
 [calllua function=video_ended]
+[return]
+*legacy_video_ended
+[calllua function=legacy_video_ended]
 [return]
 [lua]
 function boot(e)
@@ -159,6 +192,12 @@ function video_ended(e)
 end
 function check_video(e)
   assert(video_completed == 1, 'Host video did not complete naturally')
+end
+function legacy_video_ended(e)
+  legacy_completed = (legacy_completed or 0) + 1
+end
+function check_legacy_video(e)
+  assert(legacy_completed == 1, 'Host WMV did not complete naturally')
 end
 function restored_ended(e)
   restored_completed = (restored_completed or 0) + 1
@@ -276,6 +315,14 @@ __engine:setEventHandler{onEnterFrame='tick', onLoad='on_load'}
         if (!identical(runtime.media.videoPlayback.value, playback)) {
           throw StateError('Tap skipped a menu-only video.');
         }
+        final loopDeadline = Stopwatch()..start();
+        while (loopDeadline.elapsed < const Duration(milliseconds: 1300)) {
+          await runtime.advanceTexture(16);
+          if (!identical(runtime.media.videoPlayback.value, playback)) {
+            throw StateError('The fullscreen WMV retired at its first end.');
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 16));
+        }
         menu();
         skippedMenuVideo = true;
       }
@@ -306,6 +353,11 @@ __engine:setEventHandler{onEnterFrame='tick', onLoad='on_load'}
     await _checkThumbnail(thumbnail);
     await _checkThumbnail(
       File('${saves.path}/video_thumb.png'),
+      height: 2,
+      blue: true,
+    );
+    await _checkThumbnail(
+      File('${saves.path}/legacy_thumb.png'),
       height: 2,
       blue: true,
     );

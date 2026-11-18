@@ -589,7 +589,7 @@ Future<void> _buildMacos(
     'macos',
   ], workingDirectory: project);
   final artemisRuntime = options.artemisV2
-      ? await _buildArtemisV2Macos(project, core, suffix)
+      ? await _buildArtemisV2Macos(project, core, ffmpegPrefix, suffix)
       : '';
   await _run(
     flutter,
@@ -615,21 +615,33 @@ Future<void> _buildMacos(
 Future<String> _buildArtemisV2Macos(
   Directory project,
   Directory core,
+  Directory ffmpegPrefix,
   String profile,
 ) async {
   final stage = Directory('${project.path}/.build/artemis-v2').absolute;
   stage.createSync(recursive: true);
   final target = '${stage.path}/target';
-  for (final package in ['artemis-core', 'artemis-metal-host']) {
-    await _run('cargo', [
-      'build',
-      '--locked',
-      if (profile == 'release') '--release',
-      '--manifest-path',
-      '${core.path}/crates/$package/Cargo.toml',
-      '--target-dir',
-      target,
-    ], workingDirectory: core);
+  for (final package in [
+    'artemis-core',
+    'artemis-metal-host',
+    'artemis-media-host',
+  ]) {
+    await _run(
+      'cargo',
+      [
+        'build',
+        '--locked',
+        if (profile == 'release') '--release',
+        '--manifest-path',
+        '${core.path}/crates/$package/Cargo.toml',
+        '--target-dir',
+        target,
+      ],
+      workingDirectory: core,
+      environment: {
+        if (package == 'artemis-media-host') 'FFMPEG_DIR': ffmpegPrefix.path,
+      },
+    );
   }
   final standalone = File('$target/$profile/libart3m1s_core.dylib');
   final bundled = standalone.copySync(
@@ -638,11 +650,16 @@ Future<String> _buildArtemisV2Macos(
   File(
     '$target/$profile/libart3m1s_artemis_metal_host.dylib',
   ).copySync('${stage.path}/libart3m1s_artemis_metal_host.dylib');
-  await _run('install_name_tool', [
-    '-id',
-    '@rpath/libart3m1s_artemis_core.dylib',
-    bundled.path,
-  ], workingDirectory: project);
+  final media = File(
+    '$target/$profile/libart3m1s_artemis_media_host.dylib',
+  ).copySync('${stage.path}/libart3m1s_artemis_media_host.dylib');
+  for (final artifact in [bundled, media]) {
+    await _run('install_name_tool', [
+      '-id',
+      '@rpath/${artifact.uri.pathSegments.last}',
+      artifact.path,
+    ], workingDirectory: project);
+  }
   return stage.path;
 }
 

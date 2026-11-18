@@ -2,6 +2,7 @@
 #define ARTEMIS_HOST_BRIDGE_H
 
 #include "art3m1s_metal_host_v1.h"
+#include "art3m1s_media_host_v1.h"
 
 enum {
     ArtSwiftOK = ART_OK,
