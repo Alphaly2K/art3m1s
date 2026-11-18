@@ -26,6 +26,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
 
   final void Function(EngineDialogRequest)? onDialogRequested;
   final _title = ValueNotifier<String?>(null);
+  final _avoid = ValueNotifier<AvoidOverlay?>(null);
   final _inputs = <ArtemisFlutterMessage>[];
   final _replies = <ArtemisFlutterMessage>[];
   final _mediaFeedback = <ArtemisFlutterMessage>[];
@@ -75,6 +76,8 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
   bool get hasActiveSharedTexture => _textureID != null;
   @override
   ValueListenable<String?> get windowTitle => _title;
+  @override
+  ValueListenable<AvoidOverlay?> get avoidOverlay => _avoid;
   @override
   EngineSessionState get sessionState => _residency;
   @override
@@ -217,6 +220,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     _inputs.clear();
     _replies.clear();
     _dialog = null;
+    _avoid.value = null;
     _files?.close();
     _files = null;
     _state = null;
@@ -484,6 +488,12 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
       }
     } else if (event.domain == 4 && event.kind == 1) {
       _title.value = event.metadata['text'] as String?;
+    } else if (event.domain == 4 && event.kind == 4 && !_closed) {
+      final data = event.metadata;
+      media.setAvoidMuted(data['mute'] == true);
+      _avoid.value = data['visible'] == true
+          ? AvoidOverlay(file: data['asset'] as String?)
+          : null;
     } else if (event.domain == 4 &&
         event.kind == 2 &&
         !_closed &&

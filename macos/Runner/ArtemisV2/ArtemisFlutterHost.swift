@@ -108,12 +108,15 @@ private enum ArtemisFlutterError: Error {
             let epoch = try number(args["epoch"], as: UInt64.self)
             guard try session.core.state().session_epoch == epoch else { throw ArtemisFlutterError.staleReply }
             let playback = try number(args["playback"], as: UInt64.self)
+            let volume = args["volume"] as? Double ?? 1
             guard let path = args["path"] as? String, path.hasPrefix("/"),
-                  session.videos[playback] == nil else { throw ArtemisFlutterError.invalidArguments }
+                  session.videos[playback] == nil, (0...1).contains(volume) else {
+                throw ArtemisFlutterError.invalidArguments
+            }
             session.videos[playback] = Video(
                 url: URL(fileURLWithPath: path), epoch: epoch,
                 fullscreen: args["fullscreen"] as? Bool == true, loop: args["loop"] as? Bool == true,
-                suspended: session.videoSuspended
+                suspended: session.videoSuspended, volume: Float(volume)
             )
             return nil
         case "videoClose":
@@ -124,6 +127,12 @@ private enum ArtemisFlutterError: Error {
         case "videoSuspend":
             session.videoSuspended = args["suspended"] as? Bool == true
             for video in session.videos.values { video.setSuspended(session.videoSuspended) }
+            return nil
+        case "videoVolume":
+            guard let volume = args["volume"] as? Double, (0...1).contains(volume) else {
+                throw ArtemisFlutterError.invalidArguments
+            }
+            for video in session.videos.values { video.setVolume(Float(volume)) }
             return nil
         case "videoPoll":
             return try pollVideos(session)
@@ -318,7 +327,7 @@ private extension ArtemisFlutterHost {
     private var suspended: Bool
     private var observers: [NSObjectProtocol] = []
 
-    init(url: URL, epoch: UInt64, fullscreen: Bool, loop: Bool, suspended: Bool) {
+    init(url: URL, epoch: UInt64, fullscreen: Bool, loop: Bool, suspended: Bool, volume: Float) {
         self.epoch = epoch
         self.fullscreen = fullscreen
         self.suspended = suspended
@@ -330,6 +339,7 @@ private extension ArtemisFlutterHost {
         ])
         item.add(output)
         player = AVPlayer(playerItem: item)
+        player.volume = volume
         player.actionAtItemEnd = .pause
         let center = NotificationCenter.default
         observers.append(center.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { [weak self] _ in
@@ -350,6 +360,8 @@ private extension ArtemisFlutterHost {
     }
 
     var terminalState: String? { item.status == .failed ? "failed" : finished }
+
+    func setVolume(_ volume: Float) { player.volume = volume }
 
     func frame() -> CVPixelBuffer? {
         guard !suspended else { return nil }

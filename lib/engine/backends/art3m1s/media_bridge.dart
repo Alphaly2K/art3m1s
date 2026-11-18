@@ -856,6 +856,7 @@ class _AudioHandle {
   bool _resumeLoopAfterSuspend = false;
   bool _disposed = false;
   double _effectiveVolume = 1;
+  double _volumeScale = 1;
 
   static Future<_AudioHandle> create({
     required String? id,
@@ -990,10 +991,21 @@ class _AudioHandle {
   }
 
   Future<void> setEffectiveVolume(double volume) async {
-    _effectiveVolume = volume.clamp(0, 1);
+    _effectiveVolume = math.max(0.0, volume);
+    await _applyVolume();
+  }
+
+  Future<void> setVolumeScale(double scale) async {
+    _volumeScale = scale;
+    await _applyVolume();
+  }
+
+  Future<void> _applyVolume() async {
+    if (_disposed) return;
+    final volume = (_effectiveVolume * _volumeScale).clamp(0.0, 1.0);
     await Future.wait([
-      player.setVolume(_effectiveVolume),
-      if (loopPlayer != null) loopPlayer!.setVolume(_effectiveVolume),
+      player.setVolume(volume),
+      if (loopPlayer != null) loopPlayer!.setVolume(volume),
     ]);
   }
 

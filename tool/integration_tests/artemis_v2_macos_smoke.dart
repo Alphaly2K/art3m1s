@@ -68,10 +68,16 @@ Future<void> _run(Directory root, HttpServer server) async {
     'lavfi',
     '-i',
     'color=blue:s=16x16:r=24:d=2',
+    '-f',
+    'lavfi',
+    '-i',
+    'sine=frequency=440:duration=2',
     '-c:v',
     'libx264',
     '-pix_fmt',
     'yuv420p',
+    '-c:a',
+    'aac',
     '${game.path}/video.mp4',
   ]);
   if (video.exitCode != 0) {
@@ -101,6 +107,9 @@ Future<void> _run(Directory root, HttpServer server) async {
 [savess file=video_thumb width=2 height=2]
 [wait video=2]
 [calllua function=check_video]
+[avoid file=cover.png]
+[keyconfig role=15 keys=70]
+[keyconfig role=16 keys=70]
 [video file=video.mp4 loop=1 skip=1]
 [video file=video.mp4 loop=1 skip=2]
 [setonsoundfinish id=restored label=restored_ended call=1]
@@ -226,6 +235,30 @@ __engine:setEventHandler{onEnterFrame='tick', onLoad='on_load'}
           Center(child: SizedBox(width: 64, height: 64, child: playback.view)),
         );
         await WidgetsBinding.instance.endOfFrame;
+        runtime.media.handleEngineAudioCommand(
+          EngineAudioCommand(
+            kind: EngineAudioCommandKind.masterVolume,
+            streamId: 0,
+            id: 'master',
+            channel: 'master',
+            payload: Uint8List(0),
+            volume: 0.25,
+          ),
+        );
+        runtime.feedKey(70, true);
+        await runtime.advanceTexture(16);
+        if (runtime.avoidOverlay.value?.file != 'cover.png' ||
+            !identical(runtime.media.videoPlayback.value, playback)) {
+          throw StateError('Avoid did not cover the playing video.');
+        }
+        runtime.feedKey(70, false);
+        await runtime.advanceTexture(16);
+        runtime.feedKey(70, true);
+        await runtime.advanceTexture(16);
+        if (runtime.avoidOverlay.value != null) {
+          throw StateError('Avoid did not clear after the second press.');
+        }
+        runtime.feedKey(70, false);
         await runtime.setSessionState(EngineSessionState.suspended);
         if (await runtime.advanceTexture(16) ||
             runtime.media.videoPlayback.value != playback) {

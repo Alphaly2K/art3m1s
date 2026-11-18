@@ -204,12 +204,14 @@ final class ArtemisFlutterSession {
     required String epoch,
     required ArtemisVideoPlay play,
     required String path,
+    double volume = 1,
   }) => _call<void>('videoOpen', {
     'epoch': epoch,
     'playback': play.id,
     'path': path,
     'fullscreen': play.layer == null,
     'loop': play.loop,
+    'volume': volume,
   });
 
   Future<void> closeVideo(String playback) =>
@@ -217,6 +219,9 @@ final class ArtemisFlutterSession {
 
   Future<void> suspendVideos(bool suspended) =>
       _call<void>('videoSuspend', {'suspended': suspended});
+
+  Future<void> setVideoVolume(double volume) =>
+      _call<void>('videoVolume', {'volume': volume});
 
   Future<
     List<

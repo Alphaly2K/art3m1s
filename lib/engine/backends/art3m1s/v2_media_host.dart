@@ -13,6 +13,41 @@ final class ArtemisV2MediaHost extends MediaBridge {
   final _fading = <_AudioHandle>{};
   final _work = <Future<void>>{};
   _V2VideoPlayback? _fullscreen;
+  bool _muted = false;
+
+  @override
+  void handleEngineAudioCommand(EngineAudioCommand command) {
+    if (command.kind != EngineAudioCommandKind.masterVolume) {
+      super.handleEngineAudioCommand(command);
+      return;
+    }
+    if (_disposed) return;
+    _channelVolumes['master'] = command.volume.clamp(0, 1);
+    _updateVolume();
+  }
+
+  void setAvoidMuted(bool muted) {
+    if (_muted == muted) return;
+    _muted = muted;
+    _updateVolume();
+  }
+
+  double _volumeScale(String channel) =>
+      _muted ? 0 : _effectiveVolume(channel, 1);
+
+  void _updateVolume() {
+    final handles = {
+      ..._fading,
+      ..._playbacks.values.map((track) => track.handle).nonNulls,
+    };
+    for (final handle in handles) {
+      _run(handle.setVolumeScale(_volumeScale(handle.channel)));
+    }
+    for (final session
+        in _videos.values.map((track) => track.session).toSet()) {
+      _run(session.setVideoVolume(_volumeScale('video')));
+    }
+  }
 
   void handle(
     ArtemisFlutterSession session,
@@ -41,12 +76,7 @@ final class ArtemisV2MediaHost extends MediaBridge {
               final handle = track.handle;
               if (handle != null) {
                 handle.gain = track.gain;
-                _run(
-                  handle.fadeTo(
-                    _effectiveVolume(handle.channel, track.gain),
-                    timeMs,
-                  ),
-                );
+                _run(handle.fadeTo(track.gain, timeMs));
               }
             case ArtemisAudioAction.pan:
               track.pan = _pan(value);
@@ -92,7 +122,12 @@ final class ArtemisV2MediaHost extends MediaBridge {
       if (!identical(_videos[play.id], track)) return;
       await track.session.suspendVideos(_suspended);
       if (!identical(_videos[play.id], track)) return;
-      await track.session.openVideo(epoch: epoch, play: play, path: asset.path);
+      await track.session.openVideo(
+        epoch: epoch,
+        play: play,
+        path: asset.path,
+        volume: _volumeScale('video'),
+      );
       if (!identical(_videos[play.id], track)) {
         await track.session.closeVideo(play.id);
       }
@@ -229,15 +264,16 @@ final class ArtemisV2MediaHost extends MediaBridge {
       // Commands may arrive while the asset or player is opening.
       track.handle = handle;
       handle.gain = track.gain;
+      await handle.setVolumeScale(_volumeScale(handle.channel));
       await handle.setPan(track.pan);
       await handle.setHostSuspended(_suspended);
-      await handle.setEffectiveVolume(play.fadeMs > 0 ? 0 : _volume(track));
+      await handle.setEffectiveVolume(play.fadeMs > 0 ? 0 : track.gain);
       if (!_current(track) || track.stopping) return;
       await handle.play();
       if (!_current(track) || track.stopping) return;
       track.ready = true;
       if (!_suspended) _started(track);
-      if (play.fadeMs > 0) _run(handle.fadeTo(_volume(track), play.fadeMs));
+      if (play.fadeMs > 0) _run(handle.fadeTo(track.gain, play.fadeMs));
       await retirePrevious(play.crossfade ? play.fadeMs : 0);
     } catch (_) {
       _finish(track, ArtemisPlaybackStatus.failed);
@@ -246,9 +282,6 @@ final class ArtemisV2MediaHost extends MediaBridge {
       await retirePrevious(0);
     }
   }
-
-  double _volume(_V2AudioPlayback track) =>
-      _effectiveVolume(track.play.channel.name, track.gain);
 
   void _stop(_V2AudioPlayback track, int fadeMs) {
     if (track.stopping && fadeMs > 0) return;
@@ -312,6 +345,7 @@ final class ArtemisV2MediaHost extends MediaBridge {
 
   Future<void> resetProject() async {
     reset();
+    _muted = false;
     await _drainWork();
     _assetCache.clear();
     _videoAssets.clear();
