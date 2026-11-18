@@ -125,6 +125,20 @@ final class ArtemisFileService {
     _closed = true;
   }
 
+  /// Commit a Host-produced save artifact, such as a screenshot.
+  String replaceSave(int epoch, String key, Uint8List bytes) {
+    if (_closed || !_accepting || _epoch != epoch) return 'cancelled';
+    if (bytes.length > _maxFileSize) return 'denied';
+    try {
+      _replaceSave(key, bytes);
+      return 'ok';
+    } on _IoFailure catch (error) {
+      return error.status;
+    } on Exception {
+      return 'io_error';
+    }
+  }
+
   ArtemisFileReply _stat(ArtemisFileEvent event, String namespace, String key) {
     _read = null;
     Uint8List? bytes;
@@ -203,10 +217,7 @@ final class ArtemisFileService {
     final id = metadata['transaction_id'];
     if (event.blob.length > _maxChunkSize) throw const _IoFailure('denied');
     if (id == null) {
-      if (_write != null) throw const _IoFailure('io_error');
-      final pending = _startWrite(key, '', event.blob.length);
-      pending.file.writeAsBytesSync(event.blob, flush: true);
-      _commitWrite(pending);
+      _replaceSave(key, event.blob);
       return event.reply({'status': 'ok'});
     }
     if (id is! String || !_unsignedDecimal.hasMatch(id) || id == '0') {
@@ -240,6 +251,17 @@ final class ArtemisFileService {
       'transaction_id': id,
       'next_offset': '$end',
     });
+  }
+
+  void _replaceSave(String key, Uint8List bytes) {
+    if (_write != null) throw const _IoFailure('io_error');
+    final pending = _startWrite(key, '', bytes.length);
+    try {
+      pending.file.writeAsBytesSync(bytes, flush: true);
+      _commitWrite(pending);
+    } finally {
+      _discardWrite();
+    }
   }
 
   _PendingWrite _startWrite(String key, String id, int size) {

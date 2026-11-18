@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 
@@ -12,6 +13,8 @@ import 'art3m1s/project_charset.dart';
 import 'art3m1s/project_vfs.dart';
 import 'art3m1s/v2_sdk/artemis_file_service.dart';
 import 'art3m1s/v2_sdk/artemis_flutter_session.dart';
+
+typedef _Pixels = ({int width, int height, Uint8List rgba});
 
 final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     implements AsyncTextureRuntime {
@@ -27,6 +30,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
   ArtemisFlutterSession? _session;
   ArtemisFlutterState? _state;
   ArtemisFlutterEvent? _dialog;
+  ({String id, _Pixels pixels})? _capture;
   EngineSessionState _residency = EngineSessionState.active;
   InputGatePolicy _inputGate = InputGatePolicy.full;
   Future<bool>? _advancing;
@@ -149,12 +153,14 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
       hostCaps:
           ArtemisFileService.capabilities | (onDialogRequested == null ? 0 : 2),
       reportedOS: _reportedOS,
+      screenshots: true,
     );
     if (_closed) {
       await opened.session.close();
       return false;
     }
     _session = opened.session;
+    _capture = null;
     _files = ArtemisFileService(
       saveRoot: Directory(saveDir),
       readAsset: (key) {
@@ -239,7 +245,12 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
         if (events.isEmpty) break;
         sawEvents = true;
         for (final event in events) {
-          _event(event);
+          if (event.domain == 6 && event.requiresReply) {
+            final status = await _screenshot(session, event);
+            _replies.add(event.reply({'status': status}));
+          } else {
+            _event(event);
+          }
         }
       }
       final replied = await _submit(session, _replies);
@@ -264,10 +275,60 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
   }
 
   void _updateState(ArtemisFlutterState state) {
+    if (state.epoch != _state?.epoch || state.phase == 4) _capture = null;
     _state = state;
     if (state.width > 0 && state.height > 0) {
       _width = state.width;
       _height = state.height;
+    }
+  }
+
+  Future<String> _screenshot(
+    ArtemisFlutterSession session,
+    ArtemisFlutterEvent event,
+  ) async {
+    if (event.epoch != _state?.epoch) return 'cancelled';
+    final metadata = event.metadata;
+    try {
+      switch (event.kind) {
+        case 1:
+          final frame = metadata['render_frame_id'];
+          if (frame is! String) return 'io_error';
+          final pixels = await session.capture(frame);
+          _capture = (id: event.request, pixels: pixels);
+          return 'ok';
+        case 2:
+          final capture = _capture;
+          if (capture == null || metadata['capture_id'] != capture.id) {
+            return 'io_error';
+          }
+          final key = metadata['key'];
+          if (metadata['namespace'] != 'save' ||
+              key is! String ||
+              !key.endsWith('.png')) {
+            return 'denied';
+          }
+          final pixels = capture.pixels;
+          final width = metadata['width'] ?? pixels.width;
+          final height = metadata['height'] ?? pixels.height;
+          if (width is! int ||
+              height is! int ||
+              width < 1 ||
+              width > 8192 ||
+              height < 1 ||
+              height > 8192 ||
+              width * height > 16 * 1024 * 1024) {
+            return 'denied';
+          }
+          final png = await _encodePng(pixels, width, height);
+          return _files?.replaceSave(int.parse(event.epoch), key, png) ??
+              'cancelled';
+        default:
+          return 'unsupported';
+      }
+    } on Exception catch (error) {
+      Log.warn('[ArtemisV2] screenshot: $error');
+      return 'io_error';
     }
   }
 
@@ -427,7 +488,36 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
       }
       _files?.close();
       _vfs?.close();
+      _capture = null;
       _session = null;
     }
+  }
+}
+
+Future<Uint8List> _encodePng(_Pixels pixels, int width, int height) async {
+  final buffer = await ui.ImmutableBuffer.fromUint8List(pixels.rgba);
+  ui.ImageDescriptor? descriptor;
+  ui.Codec? codec;
+  ui.Image? image;
+  try {
+    descriptor = ui.ImageDescriptor.raw(
+      buffer,
+      width: pixels.width,
+      height: pixels.height,
+      pixelFormat: ui.PixelFormat.rgba8888,
+    );
+    codec = await descriptor.instantiateCodec(
+      targetWidth: width,
+      targetHeight: height,
+    );
+    image = (await codec.getNextFrame()).image;
+    final png = await image.toByteData(format: ui.ImageByteFormat.png);
+    if (png == null) throw const FormatException('Cannot encode screenshot');
+    return Uint8List.sublistView(png);
+  } finally {
+    image?.dispose();
+    codec?.dispose();
+    descriptor?.dispose();
+    buffer.dispose();
   }
 }

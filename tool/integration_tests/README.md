@@ -12,8 +12,8 @@ SwiftUI 目录服务的合成输入验证可在安装 Xcode 命令行工具的 m
 ## macOS Artemis v2
 
 从项目根目录运行 `dart run tool/build.dart macos --debug --artemis-v2` 构建预览。应用同时打包
-v1、独立 v2 Core 和 Metal Host。默认构建仍使用 v1；预览支持资源、存档、输入、对话框和共享
-纹理，尚未启用 v2 媒体、截图和网络服务。
+v1、独立 v2 Core 和 Metal Host。默认构建仍使用 v1；预览支持资源、存档、输入、对话框、
+共享纹理和脚本截图，尚未启用 v2 媒体和网络服务。
 
 完成上述构建后，可显式验证合成项目：
 
@@ -23,4 +23,4 @@ ARTEMIS_V2_RUNTIME_DIR="$PWD/.build/artemis-v2" flutter build macos --debug \
 build/macos/Build/Products/Debug/art3m1s.app/Contents/MacOS/art3m1s
 ```
 
-冒烟自建游戏和存档目录，验证 v1 可加载及 v2 保存和呈现。需要 macOS 桌面与 Metal 设备。
+冒烟自建游戏和存档目录，验证 v1 可加载及 v2 保存、截图和呈现。需要 macOS 桌面与 Metal 设备。

@@ -1,5 +1,6 @@
 import 'dart:ffi';
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:art3m1s/engine/backends/artemis_v2_engine_runtime.dart';
 import 'package:art3m1s/engine/engine_runtime.dart';
@@ -31,6 +32,8 @@ Future<void> _run(Directory root) async {
   final game = Directory('${root.path}/game')..createSync();
   final saves = Directory('${root.path}/saves')..createSync();
   Directory('${saves.path}/protected').createSync();
+  Directory('${saves.path}/protected.png').createSync();
+  final thumbnail = File('${saves.path}/thumb.png')..writeAsStringSync('old');
   File(
     '${game.path}/system.ini',
   ).writeAsStringSync('[WINDOWS]\nWIDTH=4\nHEIGHT=4\nBOOT=boot.iet\n');
@@ -39,6 +42,11 @@ Future<void> _run(Directory root) async {
 *top
 [calllua function=boot]
 [lyc id=1 width=4 height=4 color=ff00ff00]
+[takess]
+[lydel id=1]
+[lyc id=2 width=4 height=4 color=ffff0000]
+[savess file=protected]
+[savess file=thumb width=2 height=3]
 [caption data=ready]
 [stop]
 [lua]
@@ -91,6 +99,10 @@ end
         File('${saves.path}/slot').readAsStringSync() != 'confirmed') {
       throw StateError('The v2 project did not persist and present.');
     }
+    if (!Directory('${saves.path}/protected.png').existsSync()) {
+      throw StateError('The screenshot save replaced a directory.');
+    }
+    await _checkThumbnail(thumbnail);
     await WidgetsBinding.instance.endOfFrame;
     await runtime.setSessionState(EngineSessionState.suspended);
     if (runtime.hasActiveSharedTexture) {
@@ -98,5 +110,30 @@ end
     }
   } finally {
     await runtime.close();
+  }
+}
+
+Future<void> _checkThumbnail(File file) async {
+  final codec = await ui.instantiateImageCodec(await file.readAsBytes());
+  try {
+    final image = (await codec.getNextFrame()).image;
+    try {
+      if (image.width != 2 || image.height != 3) {
+        throw StateError('The saved screenshot has the wrong size.');
+      }
+      final rgba = (await image.toByteData())!.buffer.asUint8List();
+      for (var i = 0; i < rgba.length; i += 4) {
+        if (rgba[i] != 0 ||
+            rgba[i + 1] != 255 ||
+            rgba[i + 2] != 0 ||
+            rgba[i + 3] != 255) {
+          throw StateError('The saved screenshot is not the captured scene.');
+        }
+      }
+    } finally {
+      image.dispose();
+    }
+  } finally {
+    codec.dispose();
   }
 }
