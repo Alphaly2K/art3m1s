@@ -1,6 +1,9 @@
+import 'dart:io';
+
 import '../models/game_engine.dart';
 import '../services/logger.dart';
 import 'backends/art3m1s_engine_runtime.dart';
+import 'backends/artemis_v2_engine_runtime.dart';
 import 'backends/krkr_engine_runtime.dart';
 import 'backends/rfvp_engine_runtime.dart';
 import 'backends/siglus_engine_runtime.dart';
@@ -15,6 +18,9 @@ class EngineRuntimeFactory {
     bool? engineCursorControlEnabled,
   }) {
     return switch (engine) {
+      GameEngineKind.art3m1s
+          when Platform.isMacOS && const bool.fromEnvironment('ARTEMIS_V2') =>
+        ArtemisV2EngineRuntime(onDialogRequested: onDialogRequested),
       GameEngineKind.art3m1s => Art3m1sEngineRuntime(
         onDialogRequested: onDialogRequested,
         engineCursorControlEnabled: engineCursorControlEnabled,

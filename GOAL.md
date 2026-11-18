@@ -1,5 +1,13 @@
 # 引擎平台适配与宿主完整性
 
+## 当前阶段：Artemis v2 macOS 预览
+
+- `--artemis-v2` 为 macOS 玩家启用独立 Core 和 Metal Host；默认播放仍走 v1。
+- Runner 注册 Swift 会话与纹理，Dart 使用现有项目 VFS 和原子存档服务。合成项目在真实应用运行，
+  验证 v1 与 v2 同包、动态读、拒绝写入分支、保存和呈现。
+- `macos/Runner/ArtemisV2` 和 `lib/engine/backends/art3m1s/v2_sdk` 同步自 Core 的 C 接口、
+  Swift/Dart 绑定和文件服务。后续补齐媒体、截图与网络服务，再评估默认启用。
+
 ## 当前阶段：macOS Release（2026-11-01）
 
 - 已从客户端 `2a95464` 与 core `a809729` 构建 1.3.0 Release，启用 Artemis、RFVP、KRKR 与 Siglus。

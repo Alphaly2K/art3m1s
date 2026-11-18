@@ -1,0 +1,102 @@
+import 'dart:ffi';
+import 'dart:io';
+
+import 'package:art3m1s/engine/backends/artemis_v2_engine_runtime.dart';
+import 'package:art3m1s/engine/engine_runtime.dart';
+import 'package:art3m1s/engine/engine_runtime_factory.dart';
+import 'package:art3m1s/models/game_engine.dart';
+import 'package:flutter/widgets.dart';
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  runApp(const SizedBox());
+  final temp = await Directory.systemTemp.createTemp('artemis-v2-app-');
+  try {
+    await _run(temp);
+    stdout.writeln('Artemis v2 Flutter application smoke passed');
+  } catch (error, stack) {
+    stderr.writeln('$error\n$stack');
+    exitCode = 1;
+  } finally {
+    await temp.delete(recursive: true);
+  }
+  exit(exitCode);
+}
+
+Future<void> _run(Directory root) async {
+  final executable = File(Platform.resolvedExecutable).parent.path;
+  DynamicLibrary.open(
+    '$executable/libart3m1s_core.dylib',
+  ).lookup<NativeFunction<Void Function()>>('art3m1s_get_api_v1');
+  final game = Directory('${root.path}/game')..createSync();
+  final saves = Directory('${root.path}/saves')..createSync();
+  Directory('${saves.path}/protected').createSync();
+  File(
+    '${game.path}/system.ini',
+  ).writeAsStringSync('[WINDOWS]\nWIDTH=4\nHEIGHT=4\nBOOT=boot.iet\n');
+  File('${game.path}/data1').writeAsStringSync('confirmed');
+  File('${game.path}/boot.iet').writeAsStringSync('''
+*top
+[calllua function=boot]
+[lyc id=1 width=4 height=4 color=ff00ff00]
+[caption data=ready]
+[stop]
+[lua]
+function boot(e)
+  count = (count or 0) + 1
+  local payload = assert(e:file('data' .. count))
+  local f, reason = io.open('save/protected', 'w')
+  assert(not f and string.find(reason, 'denied'))
+  f = assert(io.open('save/slot', 'w'))
+  f:write(payload)
+  assert(f:close() and count == 1)
+end
+[/lua]
+''');
+  final runtime = EngineRuntimeFactory.create(engine: GameEngineKind.art3m1s);
+  if (runtime is! ArtemisV2EngineRuntime) {
+    throw StateError('Build with ARTEMIS_V2 enabled.');
+  }
+  try {
+    await runtime.initialize();
+    final ini = await runtime.prepareProject(
+      projectPath: game.path,
+      isArchive: false,
+      environmentPatchEnabled: false,
+      platform: 'WINDOWS',
+    );
+    runtime.setSaveDir(saves.path);
+    runtime.createRuntime(4, 4);
+    if (!await runtime.loadProjectBytes(ini!)) {
+      throw StateError('Cannot open v2 project.');
+    }
+    final texture = await runtime.enableSharedTexture();
+    if (texture == null) throw StateError('No Flutter texture.');
+    runApp(
+      Center(
+        child: SizedBox(
+          width: 64,
+          height: 64,
+          child: Texture(textureId: texture),
+        ),
+      ),
+    );
+    var presented = false;
+    for (var i = 0; i < 32; i++) {
+      if (await runtime.advanceTexture(16)) presented = true;
+      if (presented && runtime.windowTitle.value == 'ready') break;
+    }
+    if (!presented ||
+        runtime.windowTitle.value != 'ready' ||
+        File('${saves.path}/slot').readAsStringSync() != 'confirmed') {
+      throw StateError('The v2 project did not persist and present.');
+    }
+    await WidgetsBinding.instance.endOfFrame;
+    await runtime.setSessionState(EngineSessionState.suspended);
+    if (runtime.hasActiveSharedTexture) {
+      throw StateError('Texture did not detach.');
+    }
+  } finally {
+    await runtime.close();
+  }
+}

@@ -170,7 +170,10 @@ abstract interface class EngineRuntime {
 
   void createRuntime(int stageWidth, int stageHeight, {int backend = 0});
   void setReportedOs(String? os);
-  bool loadProjectBytes(Uint8List iniContent, {String platform = 'WINDOWS'});
+  FutureOr<bool> loadProjectBytes(
+    Uint8List iniContent, {
+    String platform = 'WINDOWS',
+  });
 
   /// Mounts a project's resource tree and returns its `system.ini` bytes.
   ///
@@ -218,10 +221,12 @@ abstract interface class EngineRuntime {
   void notifyLifecycle(int state);
 }
 
+/// A runtime whose native presentation is driven asynchronously by the player.
+abstract interface class AsyncTextureRuntime implements EngineRuntime {
+  Future<bool> advanceTexture(int deltaMs);
+}
+
 /// No-op runtime used when a build has not installed a backend yet.
-///
-/// Keeping this object valid lets PlayerScreen show a normal initialization
-/// failure instead of crashing during widget construction.
 class UnsupportedEngineRuntime implements EngineRuntime {
   UnsupportedEngineRuntime(this.kind);
 
@@ -277,8 +282,10 @@ class UnsupportedEngineRuntime implements EngineRuntime {
   @override
   void setReportedOs(String? os) {}
   @override
-  bool loadProjectBytes(Uint8List iniContent, {String platform = 'WINDOWS'}) =>
-      false;
+  FutureOr<bool> loadProjectBytes(
+    Uint8List iniContent, {
+    String platform = 'WINDOWS',
+  }) => false;
   @override
   Future<Uint8List?> prepareProject({
     required String projectPath,

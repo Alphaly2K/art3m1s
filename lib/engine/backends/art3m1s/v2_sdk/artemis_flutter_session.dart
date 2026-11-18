@@ -1,0 +1,192 @@
+import 'dart:convert';
+
+import 'package:flutter/services.dart';
+
+typedef ArtemisFlutterState = ({
+  String epoch,
+  int width,
+  int height,
+  int phase,
+  int waitFlags,
+  bool exitRequested,
+});
+
+final class ArtemisFlutterMessage {
+  ArtemisFlutterMessage({
+    required int domain,
+    required int kind,
+    required String epoch,
+    required Map<String, Object?> metadata,
+    Uint8List? blob,
+  }) : _wire = {
+         'domain': domain,
+         'kind': kind,
+         'epoch': epoch,
+         'request': '0',
+         'metadata': _encode(metadata),
+         'blob': ?blob,
+       };
+
+  ArtemisFlutterMessage._(this._wire);
+
+  final Map<String, Object?> _wire;
+}
+
+final class ArtemisFlutterEvent {
+  ArtemisFlutterEvent._(Map<Object?, Object?> wire)
+    : _owner = wire['owner'] as String,
+      domain = wire['domain'] as int,
+      kind = wire['kind'] as int,
+      epoch = wire['epoch'] as String,
+      sequence = wire['sequence'] as String,
+      request = wire['request'] as String,
+      metadata =
+          jsonDecode(utf8.decode(wire['metadata'] as Uint8List))
+              as Map<String, Object?>,
+      blob = wire['blob'] as Uint8List;
+
+  final String _owner;
+  final int domain;
+  final int kind;
+  final String epoch;
+  final String sequence;
+  final String request;
+  final Map<String, Object?> metadata;
+  final Uint8List blob;
+
+  bool get requiresReply => request != '0';
+
+  ArtemisFlutterMessage reply(
+    Map<String, Object?> metadata, {
+    Uint8List? blob,
+  }) {
+    if (!requiresReply) throw StateError('This event does not accept a reply');
+    return ArtemisFlutterMessage._({
+      'owner': _owner,
+      'domain': domain,
+      'kind': kind,
+      'epoch': epoch,
+      'request': request,
+      'metadata': _encode(metadata),
+      'blob': ?blob,
+    });
+  }
+}
+
+/// Dart receives owned events. The macOS Runner owns the Core and GPU threads.
+/// The player schedules steps and services requests through its own resource,
+/// save, media, and UI services.
+final class ArtemisFlutterSession {
+  static const _channel = MethodChannel('moe.alphaly.art3m1s/artemis_v2');
+  ArtemisFlutterSession._(this._id);
+
+  final String _id;
+  bool _closed = false;
+
+  static Future<({ArtemisFlutterSession session, ArtemisFlutterState state})>
+  open({
+    required Uint8List ini,
+    required String platform,
+    required int hostCaps,
+    String? reportedOS,
+    bool screenshots = false,
+  }) async {
+    final result = (await _channel.invokeMapMethod<Object?, Object?>('open', {
+      'ini': ini,
+      'platform': platform,
+      'hostCaps': hostCaps,
+      'reportedOS': ?reportedOS,
+      'screenshots': screenshots,
+    }))!;
+    final session = ArtemisFlutterSession._(result['session'] as String);
+    try {
+      return (session: session, state: _state(result));
+    } catch (_) {
+      await session.close();
+      rethrow;
+    }
+  }
+
+  Future<T?> _call<T>(String name, [Map<String, Object?> args = const {}]) {
+    if (_closed) throw StateError('Artemis session is closed');
+    return _channel.invokeMethod<T>(name, {'session': _id, ...args});
+  }
+
+  Future<int> setSurface(int width, int height) async =>
+      (await _call<int>('surface', {'width': width, 'height': height}))!;
+
+  Future<void> detachSurface() => _call<void>('detach');
+
+  /// Returns the ID of a freshly presented frame, or null if none was presented.
+  Future<String?> present() => _call<String>('present');
+
+  Future<({int width, int height, Uint8List rgba})> capture(
+    String frame,
+  ) async {
+    final result = (await _call<Map<Object?, Object?>>('capture', {
+      'frame': frame,
+    }))!;
+    return (
+      width: result['width'] as int,
+      height: result['height'] as int,
+      rgba: result['rgba'] as Uint8List,
+    );
+  }
+
+  Future<({ArtemisFlutterState state, bool backpressured, int stepFlags})>
+  step({
+    required int frame,
+    required int monotonicNS,
+    required DateTime time,
+  }) async {
+    final result = (await _call<Map<Object?, Object?>>('step', {
+      'frame': frame,
+      'monotonicNS': monotonicNS,
+      'unixMS': time.millisecondsSinceEpoch,
+      'utcOffsetMinutes': time.timeZoneOffset.inMinutes,
+    }))!;
+    return (
+      state: _state(result),
+      backpressured: result['backpressured'] as bool,
+      stepFlags: result['stepFlags'] as int,
+    );
+  }
+
+  Future<List<ArtemisFlutterEvent>> pollEvents() async =>
+      (await _call<List<Object?>>('poll'))!
+          .cast<Map<Object?, Object?>>()
+          .map(ArtemisFlutterEvent._)
+          .toList(growable: false);
+
+  /// A false result means the batch was not accepted and can be retried.
+  Future<bool> submit(List<ArtemisFlutterMessage> batch) async {
+    for (final message in batch) {
+      final owner = message._wire['owner'];
+      if (owner != null && owner != _id) {
+        throw ArgumentError('The reply belongs to another Artemis session');
+      }
+    }
+    return (await _call<bool>('submit', {
+      'batch': batch.map((message) => message._wire).toList(growable: false),
+    }))!;
+  }
+
+  Future<void> close() async {
+    if (_closed) return;
+    final pending = _call<void>('close');
+    _closed = true;
+    await pending;
+  }
+}
+
+ArtemisFlutterState _state(Map<Object?, Object?> wire) => (
+  epoch: wire['epoch'] as String,
+  width: wire['width'] as int,
+  height: wire['height'] as int,
+  phase: wire['phase'] as int,
+  waitFlags: wire['waitFlags'] as int,
+  exitRequested: wire['exitRequested'] as bool,
+);
+
+Uint8List _encode(Map<String, Object?> metadata) =>
+    Uint8List.fromList(utf8.encode(jsonEncode(metadata)));

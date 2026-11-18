@@ -6,6 +6,7 @@ import macos_window_utils
 
 class MainFlutterWindow: NSWindow {
   private var sharedTextureHost: Art3m1sSharedTextureHost?
+  private var artemisV2: ArtemisFlutterHost?
 
   override func awakeFromNib() {
     let windowFrame = self.frame
@@ -27,7 +28,23 @@ class MainFlutterWindow: NSWindow {
       forPlugin: "Art3m1sSharedTexture"
     )
     sharedTextureHost = Art3m1sSharedTextureHost(registrar: textureRegistrar)
+    if let directory = Bundle.main.executableURL?.deletingLastPathComponent() {
+      let core = directory.appendingPathComponent("libart3m1s_artemis_core.dylib").path
+      let metal = directory.appendingPathComponent("libart3m1s_artemis_metal_host.dylib").path
+      if FileManager.default.fileExists(atPath: core), FileManager.default.fileExists(atPath: metal) {
+        let host = ArtemisFlutterHost(registry: textureRegistrar.textures, corePath: core, metalPath: metal)
+        host.register(messenger: textureRegistrar.messenger)
+        artemisV2 = host
+        NotificationCenter.default.addObserver(self, selector: #selector(closeArtemisV2(_:)),
+          name: NSWindow.willCloseNotification, object: self)
+      }
+    }
     super.awakeFromNib()
+  }
+
+  @objc private func closeArtemisV2(_ notification: Notification) {
+    artemisV2?.close()
+    artemisV2 = nil
   }
 }
 

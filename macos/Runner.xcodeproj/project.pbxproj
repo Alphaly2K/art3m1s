@@ -27,6 +27,8 @@
 		33CC10F32044A3C60003C045 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 33CC10F22044A3C60003C045 /* Assets.xcassets */; };
 		33CC10F62044A3C60003C045 /* MainMenu.xib in Resources */ = {isa = PBXBuildFile; fileRef = 33CC10F42044A3C60003C045 /* MainMenu.xib */; };
 		33CC11132044BFA00003C045 /* MainFlutterWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33CC11122044BFA00003C045 /* MainFlutterWindow.swift */; };
+		A13C0DE00000000000000011 /* ArtemisMacSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13C0DE00000000000000013 /* ArtemisMacSession.swift */; };
+		A13C0DE00000000000000012 /* ArtemisFlutterHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13C0DE00000000000000014 /* ArtemisFlutterHost.swift */; };
 		78A318202AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage in Frameworks */ = {isa = PBXBuildFile; productRef = 78A3181F2AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage */; };
 		B4682CEF7ECDB69F9D58287D /* Pods_Runner.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 02E6FD92EE7ED15CB59FE6F4 /* Pods_Runner.framework */; };
 		D3C55106FFFF94101838FCF6 /* Pods_RunnerTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AE9B327542228360501EC75B /* Pods_RunnerTests.framework */; };
@@ -76,6 +78,8 @@
 		33CC10F52044A3C60003C045 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.xib; name = Base; path = Base.lproj/MainMenu.xib; sourceTree = "<group>"; };
 		33CC10F72044A3C60003C045 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = Info.plist; path = Runner/Info.plist; sourceTree = "<group>"; };
 		33CC11122044BFA00003C045 /* MainFlutterWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainFlutterWindow.swift; sourceTree = "<group>"; };
+		A13C0DE00000000000000013 /* ArtemisMacSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtemisV2/ArtemisMacSession.swift; sourceTree = "<group>"; };
+		A13C0DE00000000000000014 /* ArtemisFlutterHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtemisV2/ArtemisFlutterHost.swift; sourceTree = "<group>"; };
 		33CEB47222A05771004F2AC0 /* Flutter-Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = "Flutter-Debug.xcconfig"; sourceTree = "<group>"; };
 		33CEB47422A05771004F2AC0 /* Flutter-Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = "Flutter-Release.xcconfig"; sourceTree = "<group>"; };
 		33CEB47722A0578A004F2AC0 /* Flutter-Generated.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = "Flutter-Generated.xcconfig"; path = "ephemeral/Flutter-Generated.xcconfig"; sourceTree = "<group>"; };
@@ -181,6 +185,8 @@
 			children = (
 				33CC10F02044A3C60003C045 /* AppDelegate.swift */,
 				33CC11122044BFA00003C045 /* MainFlutterWindow.swift */,
+				A13C0DE00000000000000013 /* ArtemisMacSession.swift */,
+				A13C0DE00000000000000014 /* ArtemisFlutterHost.swift */,
 				33E51913231747F40026EE4D /* DebugProfile.entitlements */,
 				33E51914231749380026EE4D /* Release.entitlements */,
 				33CC11242044D66E0003C045 /* Resources */,
@@ -450,7 +456,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-				shellScript = "set -e\nCORE_SOURCE=\"${SRCROOT}/../libart3m1s_core.dylib\"\nPFS_SOURCE=\"${SRCROOT}/../libpfs_upk.dylib\"\nEGL_SOURCE=\"${SRCROOT}/../libEGL.dylib\"\nGLES_SOURCE=\"${SRCROOT}/../libGLESv2.dylib\"\nAVCODEC_SOURCE=\"${SRCROOT}/../libavcodec.62.dylib\"\nAVFORMAT_SOURCE=\"${SRCROOT}/../libavformat.62.dylib\"\nAVUTIL_SOURCE=\"${SRCROOT}/../libavutil.60.dylib\"\nSWRESAMPLE_SOURCE=\"${SRCROOT}/../libswresample.6.dylib\"\nSWSCALE_SOURCE=\"${SRCROOT}/../libswscale.9.dylib\"\nEXECUTABLE_DEST=\"${TARGET_BUILD_DIR}/${EXECUTABLE_FOLDER_PATH}\"\nFRAMEWORKS_DEST=\"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH:-Contents/Frameworks}\"\nmkdir -p \"${EXECUTABLE_DEST}\" \"${FRAMEWORKS_DEST}\"\ncopy_and_sign() {\n  SOURCE=\"$1\"\n  DEST_DIR=\"$2\"\n  if [ ! -f \"${SOURCE}\" ]; then\n    echo \"error: Missing ${SOURCE}. Build and copy the runtime libraries before building the app.\" >&2\n    exit 1\n  fi\n  DEST=\"${DEST_DIR}/$(basename \"${SOURCE}\")\"\n  /bin/cp -f \"${SOURCE}\" \"${DEST}\"\n  SIGN_IDENTITY=\"${EXPANDED_CODE_SIGN_IDENTITY}\"\n  if [ -z \"${SIGN_IDENTITY}\" ]; then\n    SIGN_IDENTITY=\"-\"\n  fi\n  /usr/bin/codesign --force --sign \"${SIGN_IDENTITY}\" --timestamp=none \"${DEST}\"\n}\nfor SOURCE in \"${CORE_SOURCE}\" \"${PFS_SOURCE}\" \"${EGL_SOURCE}\" \"${GLES_SOURCE}\"; do\n  copy_and_sign \"${SOURCE}\" \"${EXECUTABLE_DEST}\"\ndone\nfor SOURCE in \"${AVCODEC_SOURCE}\" \"${AVFORMAT_SOURCE}\" \"${AVUTIL_SOURCE}\" \"${SWRESAMPLE_SOURCE}\" \"${SWSCALE_SOURCE}\"; do\n  copy_and_sign \"${SOURCE}\" \"${FRAMEWORKS_DEST}\"\ndone\n";
+				shellScript = "set -e\nCORE_SOURCE=\"${SRCROOT}/../libart3m1s_core.dylib\"\nPFS_SOURCE=\"${SRCROOT}/../libpfs_upk.dylib\"\nEGL_SOURCE=\"${SRCROOT}/../libEGL.dylib\"\nGLES_SOURCE=\"${SRCROOT}/../libGLESv2.dylib\"\nAVCODEC_SOURCE=\"${SRCROOT}/../libavcodec.62.dylib\"\nAVFORMAT_SOURCE=\"${SRCROOT}/../libavformat.62.dylib\"\nAVUTIL_SOURCE=\"${SRCROOT}/../libavutil.60.dylib\"\nSWRESAMPLE_SOURCE=\"${SRCROOT}/../libswresample.6.dylib\"\nSWSCALE_SOURCE=\"${SRCROOT}/../libswscale.9.dylib\"\nEXECUTABLE_DEST=\"${TARGET_BUILD_DIR}/${EXECUTABLE_FOLDER_PATH}\"\nFRAMEWORKS_DEST=\"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH:-Contents/Frameworks}\"\nmkdir -p \"${EXECUTABLE_DEST}\" \"${FRAMEWORKS_DEST}\"\ncopy_and_sign() {\n  SOURCE=\"$1\"\n  DEST_DIR=\"$2\"\n  if [ ! -f \"${SOURCE}\" ]; then\n    echo \"error: Missing ${SOURCE}. Build and copy the runtime libraries before building the app.\" >&2\n    exit 1\n  fi\n  DEST=\"${DEST_DIR}/$(basename \"${SOURCE}\")\"\n  /bin/cp -f \"${SOURCE}\" \"${DEST}\"\n  SIGN_IDENTITY=\"${EXPANDED_CODE_SIGN_IDENTITY}\"\n  if [ -z \"${SIGN_IDENTITY}\" ]; then\n    SIGN_IDENTITY=\"-\"\n  fi\n  /usr/bin/codesign --force --sign \"${SIGN_IDENTITY}\" --timestamp=none \"${DEST}\"\n}\nfor SOURCE in \"${CORE_SOURCE}\" \"${PFS_SOURCE}\" \"${EGL_SOURCE}\" \"${GLES_SOURCE}\"; do\n  copy_and_sign \"${SOURCE}\" \"${EXECUTABLE_DEST}\"\ndone\nfor SOURCE in \"${AVCODEC_SOURCE}\" \"${AVFORMAT_SOURCE}\" \"${AVUTIL_SOURCE}\" \"${SWRESAMPLE_SOURCE}\" \"${SWSCALE_SOURCE}\"; do\n  copy_and_sign \"${SOURCE}\" \"${FRAMEWORKS_DEST}\"\ndone\nif [ -n \"${ARTEMIS_V2_RUNTIME_DIR:-}\" ]; then\n  for NAME in libart3m1s_artemis_core.dylib libart3m1s_artemis_metal_host.dylib; do\n    copy_and_sign \"${ARTEMIS_V2_RUNTIME_DIR}/${NAME}\" \"${EXECUTABLE_DEST}\"\n  done\nelse\n  rm -f \"${EXECUTABLE_DEST}/libart3m1s_artemis_core.dylib\" \"${EXECUTABLE_DEST}/libart3m1s_artemis_metal_host.dylib\"\nfi\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -468,6 +474,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				33CC11132044BFA00003C045 /* MainFlutterWindow.swift in Sources */,
+				A13C0DE00000000000000011 /* ArtemisMacSession.swift in Sources */,
+				A13C0DE00000000000000012 /* ArtemisFlutterHost.swift in Sources */,
 				33CC10F12044A3C60003C045 /* AppDelegate.swift in Sources */,
 				335BBD1B22A9A15E00E9071D /* GeneratedPluginRegistrant.swift in Sources */,
 			);

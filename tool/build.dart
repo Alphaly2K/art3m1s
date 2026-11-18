@@ -106,6 +106,7 @@ final class BuildOptions {
     required this.signOnly,
     required this.krkr,
     required this.siglus,
+    required this.artemisV2,
   });
 
   final String target;
@@ -114,6 +115,7 @@ final class BuildOptions {
   final bool signOnly;
   final bool krkr;
   final bool siglus;
+  final bool artemisV2;
 
   static BuildOptions parse(List<String> arguments) {
     var target = 'all';
@@ -122,6 +124,7 @@ final class BuildOptions {
     var signOnly = false;
     var krkr = false;
     var siglus = false;
+    var artemisV2 = false;
     for (final argument in arguments) {
       switch (argument) {
         case '--debug':
@@ -138,6 +141,8 @@ final class BuildOptions {
           krkr = true;
         case '--siglus':
           siglus = true;
+        case '--artemis-v2':
+          artemisV2 = true;
         case 'all':
         case 'ios':
         case 'ios-obsolete':
@@ -151,12 +156,15 @@ final class BuildOptions {
           stdout.writeln(
             'Usage: dart run tool/build.dart '
             '[all|ios|ios-obsolete|macos|android|windows|linux] '
-            '[--release|--profile|--debug] [--device-only] [--sign-only] [--krkr] [--siglus]',
+            '[--release|--profile|--debug] [--device-only] [--sign-only] [--krkr] [--siglus] [--artemis-v2]',
           );
           exit(0);
         default:
           throw UsageException('Unknown argument: $argument');
       }
+    }
+    if (artemisV2 && target != 'macos') {
+      throw UsageException('--artemis-v2 requires the macos target');
     }
     return BuildOptions(
       target: target,
@@ -165,6 +173,7 @@ final class BuildOptions {
       signOnly: signOnly,
       krkr: krkr,
       siglus: siglus,
+      artemisV2: artemisV2,
     );
   }
 }
@@ -579,21 +588,62 @@ Future<void> _buildMacos(
   await _run('${project.path}/scripts/build_angle.sh', const <String>[
     'macos',
   ], workingDirectory: project);
+  final artemisRuntime = options.artemisV2
+      ? await _buildArtemisV2Macos(project, core, suffix)
+      : '';
   await _run(
     flutter,
     <String>[
       'build',
       'macos',
       '--${options.profile}',
+      if (options.artemisV2) '--dart-define=ARTEMIS_V2=true',
       ...metadata.dartDefines,
       ...secrets.dartDefines,
     ],
     workingDirectory: project,
-    environment: secrets.environment,
+    environment: {
+      ...secrets.environment,
+      'ARTEMIS_V2_RUNTIME_DIR': artemisRuntime,
+    },
   );
   if (options.krkr) {
     await _bundleKrkrMacos(project, core, options.profile, krkrSource!);
   }
+}
+
+Future<String> _buildArtemisV2Macos(
+  Directory project,
+  Directory core,
+  String profile,
+) async {
+  final stage = Directory('${project.path}/.build/artemis-v2').absolute;
+  stage.createSync(recursive: true);
+  final target = '${stage.path}/target';
+  for (final package in ['artemis-core', 'artemis-metal-host']) {
+    await _run('cargo', [
+      'build',
+      '--locked',
+      if (profile == 'release') '--release',
+      '--manifest-path',
+      '${core.path}/crates/$package/Cargo.toml',
+      '--target-dir',
+      target,
+    ], workingDirectory: core);
+  }
+  final standalone = File('$target/$profile/libart3m1s_core.dylib');
+  final bundled = standalone.copySync(
+    '${stage.path}/libart3m1s_artemis_core.dylib',
+  );
+  File(
+    '$target/$profile/libart3m1s_artemis_metal_host.dylib',
+  ).copySync('${stage.path}/libart3m1s_artemis_metal_host.dylib');
+  await _run('install_name_tool', [
+    '-id',
+    '@rpath/libart3m1s_artemis_core.dylib',
+    bundled.path,
+  ], workingDirectory: project);
+  return stage.path;
 }
 
 bool _ffmpegMacosReady(Directory prefix) => const <String>[

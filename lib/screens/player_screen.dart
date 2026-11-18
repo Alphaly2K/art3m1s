@@ -417,7 +417,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     // 机种上报覆盖（runtime 已建、项目未加载；空串=跟随平台）。
     _bridge.setReportedOs(config.reportedOs);
     _setProfilerEnabled(settings.debugMode && settings.profilerOverlay);
-    if (!_bridge.loadProjectBytes(iniContent, platform: runtimePlatform)) {
+    final loaded = await _bridge.loadProjectBytes(
+      iniContent,
+      platform: runtimePlatform,
+    );
+    if (!mounted || _closing) return;
+    if (!loaded) {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
@@ -434,7 +439,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
     // 移动端和 macOS native/ANGLE 把 core 的最终输出提交给 Flutter 外部纹理。
     // macOS CGL 保留原 RGBA 回读路径，旧 core/旧宿主也会自动回退。
-    if (Platform.isAndroid ||
+    if (_bridge is AsyncTextureRuntime ||
+        Platform.isAndroid ||
         Platform.isIOS ||
         (Platform.isMacOS &&
             (renderBackend != 0 || widget.engine == GameEngineKind.siglus))) {
@@ -662,6 +668,15 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
     _drainWheelInput();
 
+    final runtime = _bridge;
+    if (runtime is AsyncTextureRuntime) {
+      if (!_frameInFlight && runtime.hasActiveSharedTexture) {
+        _frameInFlight = true;
+        unawaited(_advanceTexture(runtime, nowUs));
+      }
+      return;
+    }
+
     // 口型 CSV 以 60 Hz 每次 onEnterFrame 消费一个采样。显示链繁忙或一次
     // vsync 回调迟到时，先补齐逻辑 tick，只在最后一次尝试回读和显示画面。
     for (var tick = 0; tick < dueTicks - 1; tick++) {
@@ -710,6 +725,29 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       }
       _decodeFrame(pixels);
     } else {
+      _frameInFlight = false;
+    }
+  }
+
+  Future<void> _advanceTexture(AsyncTextureRuntime runtime, int nowUs) async {
+    try {
+      final presented = await runtime.advanceTexture(_nextFrameDeltaMs());
+      if (!mounted || _closing) return;
+      if (runtime.isExitRequested()) {
+        _closePlayer();
+      } else if (presented) {
+        _trackFps(nowUs);
+        if (!_sharedTextureReady) setState(() => _sharedTextureReady = true);
+      }
+    } catch (error, stack) {
+      Log.error('[Player] shared texture frame failed: $error\n$stack');
+      if (mounted && !_closing) {
+        _gameTicker.stop();
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('画面更新失败: $error')));
+      }
+    } finally {
       _frameInFlight = false;
     }
   }
