@@ -210,7 +210,14 @@ private enum ArtemisFlutterError: Error {
             acceptedRequests.append(request)
             return try original.reply(metadata: metadata, blob: blob)
         }
-        guard try session.core.submit(messages) else { return false }
+        do {
+            guard try session.core.submit(messages) else { return false }
+        } catch ArtemisMacError.status(_, let status, _) where status == ArtSwiftStale {
+            if messages.count == 1, let request = acceptedRequests.first {
+                session.requests.removeValue(forKey: request)
+            }
+            throw ArtemisFlutterError.staleReply
+        }
         for request in acceptedRequests { session.requests.removeValue(forKey: request) }
         return true
     }

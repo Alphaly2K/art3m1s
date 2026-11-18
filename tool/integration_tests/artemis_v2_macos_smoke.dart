@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
 import 'dart:typed_data';
@@ -8,6 +9,8 @@ import 'package:art3m1s/engine/backends/artemis_v2_engine_runtime.dart';
 import 'package:art3m1s/engine/engine_runtime.dart';
 import 'package:art3m1s/engine/engine_runtime_factory.dart';
 import 'package:art3m1s/models/game_engine.dart';
+import 'package:art3m1s/models/translation_settings.dart';
+import 'package:art3m1s/services/text_translation_service.dart';
 import 'package:flutter/widgets.dart';
 
 Future<void> main() async {
@@ -30,6 +33,7 @@ Future<void> main() async {
 
 Future<void> _run(Directory root, HttpServer server) async {
   var cancelStarted = false;
+  HttpResponse? delayedTranslation;
   server.listen((request) async {
     switch (request.uri.path) {
       case '/binary':
@@ -40,6 +44,13 @@ Future<void> _run(Directory root, HttpServer server) async {
         return;
       case '/next':
         request.response.write('new');
+      case '/translate':
+        final body = jsonDecode(await utf8.decoder.bind(request).join()) as Map;
+        if ((body['text'] as List).single == 'late original') {
+          delayedTranslation = request.response;
+          return;
+        }
+        request.response.statusCode = 400;
       default:
         request.response.statusCode = 404;
     }
@@ -150,6 +161,15 @@ Future<void> _run(Directory root, HttpServer server) async {
 [save file=numbered]
 [wait se=restored]
 [calllua function=check_restore]
+[chgmsg id=translation layered=1]
+late original
+[wait time=350 input=0]
+[rp]
+current original
+[caption data=translation_page]
+[wait time=750 input=0]
+[save file=translations]
+[caption data=ready]
 [stop]
 *sound_ended
 [calllua function=sound_ended]
@@ -222,7 +242,6 @@ function check_restore(e)
   else
     assert(load_count == 1 and restored_completed == 1,
       'The saved sound did not finish after load')
-    e:enqueueTag{'caption', data='ready'}
   end
 end
 __engine:setEventHandler{onEnterFrame='tick', onLoad='on_load'}
@@ -238,6 +257,19 @@ __engine:setEventHandler{onEnterFrame='tick', onLoad='on_load'}
   }
   try {
     await runtime.initialize();
+    final patch = File('${root.path}/translation.json')
+      ..writeAsStringSync('{"current original":"host replacement"}');
+    final translator = await TextTranslationService.create(
+      settings: TranslationSettings(
+        mode: TranslationMode.online,
+        provider: TranslationProvider.deepL,
+        endpoint: '$base/translate',
+        apiKey: 'smoke',
+      ),
+      patchPath: patch.path,
+      cacheFile: File('${root.path}/translation.pb'),
+    );
+    runtime.configureTranslation(translator);
     final ini = await runtime.prepareProject(
       projectPath: game.path,
       isArchive: false,
@@ -264,6 +296,7 @@ __engine:setEventHandler{onEnterFrame='tick', onLoad='on_load'}
     var cancelled = false;
     var skippedVideo = false;
     var skippedMenuVideo = false;
+    var sentLateTranslation = false;
     final deadline = Stopwatch()..start();
     while (deadline.elapsed < const Duration(seconds: 12)) {
       if (await runtime.advanceTexture(16)) presented = true;
@@ -271,6 +304,16 @@ __engine:setEventHandler{onEnterFrame='tick', onLoad='on_load'}
       if (cancelStarted && !cancelled) {
         runtime.feedKey(65, true);
         cancelled = true;
+      }
+      if (!sentLateTranslation &&
+          runtime.windowTitle.value == 'translation_page') {
+        final response = delayedTranslation;
+        if (response != null) {
+          response.headers.contentType = ContentType.json;
+          response.write('{"translations":[{"text":"discarded translation"}]}');
+          await response.close();
+          sentLateTranslation = true;
+        }
       }
       final playback = runtime.media.videoPlayback.value;
       if (playback != null && !skippedVideo) {
@@ -368,6 +411,26 @@ __engine:setEventHandler{onEnterFrame='tick', onLoad='on_load'}
         windowActions.last != EngineWindowAction.minimize) {
       throw StateError(
         'Scripted window actions did not reach the Host in order.',
+      );
+    }
+    final saved =
+        jsonDecode(File('${saves.path}/translations').readAsStringSync())
+            as Map;
+    final messageText = saved['message_text'] as Map;
+    final lines = (messageText['layers'] as List)
+        .expand((layer) => (layer as Map)['tags'] as List)
+        .whereType<Map>()
+        .map((tag) => tag['Text'])
+        .whereType<String>()
+        .toList();
+    if (!sentLateTranslation ||
+        translator.hostReplacementTable['late original'] !=
+            'discarded translation' ||
+        !lines.contains('host replacement') ||
+        lines.contains('discarded translation') ||
+        lines.contains('current original')) {
+      throw StateError(
+        'Translation replies did not preserve the current message page.',
       );
     }
     await _checkThumbnail(thumbnail);

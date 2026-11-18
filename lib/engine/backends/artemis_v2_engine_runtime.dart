@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
 
@@ -9,6 +10,7 @@ import '../../models/game_engine.dart';
 import '../../models/input_gate.dart';
 import '../../services/logger.dart';
 import '../../services/script_http_client.dart';
+import '../../services/text_translation_service.dart';
 import '../engine_runtime.dart';
 import 'art3m1s/environment_patch.dart';
 import 'art3m1s/media_bridge.dart';
@@ -31,6 +33,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
   final _inputs = <ArtemisFlutterMessage>[];
   final _replies = <ArtemisFlutterMessage>[];
   final _mediaFeedback = <ArtemisFlutterMessage>[];
+  final _translations = <ArtemisFlutterEvent, ArtemisFlutterMessage?>{};
   final _http = ScriptHttpClient();
   late final ArtemisV2MediaHost _media = ArtemisV2MediaHost()
     ..configureAssetReader(_asset);
@@ -44,6 +47,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
   ArtemisFlutterEvent? _dialog;
   ArtemisFlutterEvent? _httpRequest;
   ArtemisFlutterMessage? _httpReply;
+  TextTranslationService? _translator;
   ({String id, _Pixels pixels})? _capture;
   EngineSessionState _residency = EngineSessionState.active;
   InputGatePolicy _inputGate = InputGatePolicy.full;
@@ -146,6 +150,22 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
   void setReportedOs(String? os) => _reportedOS = os;
   @override
   void configureInputGate(InputGatePolicy gate) => _inputGate = gate;
+
+  @override
+  void configureTranslation(TextTranslationService? service) {
+    if (_closed) {
+      if (service != null) unawaited(service.dispose());
+      return;
+    }
+    final previous = _translator;
+    if (identical(previous, service)) return;
+    _translator = service;
+    for (final request in _translations.keys) {
+      _translations[request] = request.reply({'status': 'cancelled'});
+    }
+    if (previous != null) unawaited(previous.dispose());
+  }
+
   @override
   void createRuntime(int stageWidth, int stageHeight, {int backend = 0}) {
     _width = stageWidth;
@@ -177,7 +197,8 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
           ArtemisFileService.capabilities |
           ArtemisMediaCommand.capability |
           (onDialogRequested == null ? 0 : 2) |
-          8,
+          8 |
+          (_translator?.hostTranslationEnabled == true ? 16 : 0),
       reportedOS: _reportedOS,
       screenshots: true,
     );
@@ -219,6 +240,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     if (_closed || !identical(_session, previous)) return;
     _session = null;
     _mediaFeedback.clear();
+    _translations.clear();
     _inputs.clear();
     _replies.clear();
     _dialog = null;
@@ -272,6 +294,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     await _submit(session, _inputs);
     await _submit(session, _replies);
     await _submitHttp(session);
+    await _submitTranslations(session);
     await media.pollVideo(session);
     await _submitMedia(session);
     await _step(session);
@@ -336,6 +359,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     if (state.epoch != _state?.epoch || state.phase == 4) {
       _capture = null;
       _cancelHttp();
+      _translations.clear();
       media.reset();
       _mediaFeedback.clear();
     }
@@ -387,6 +411,54 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
       if (error.code != 'stale_reply') rethrow;
     }
     if (identical(_httpReply, reply)) _cancelHttp();
+  }
+
+  void _translate(ArtemisFlutterEvent event) {
+    if (_closed || event.epoch != _state?.epoch) return;
+    if (_translations.length >= 64) {
+      _translations[event] = event.reply({'status': 'limit'});
+      return;
+    }
+    final translator = _translator;
+    final text = event.metadata['text'];
+    if (translator == null ||
+        !translator.hostTranslationEnabled ||
+        text is! String) {
+      _translations[event] = event.reply({'status': 'unsupported'});
+      return;
+    }
+    _translations[event] = null;
+    translator.enqueue(
+      text,
+      ruby: event.metadata['ruby'] as String?,
+      onComplete: (value) {
+        if (_closed ||
+            !identical(_translator, translator) ||
+            !_translations.containsKey(event)) {
+          return;
+        }
+        _translations[event] = event.reply(switch (value) {
+          null || '' => {'status': 'unsupported'},
+          _ when utf8.encode(value).length > 64 * 1024 => {'status': 'limit'},
+          _ => {'status': 'ok', 'text': value},
+        });
+      },
+    );
+  }
+
+  Future<void> _submitTranslations(ArtemisFlutterSession session) async {
+    final pending = _translations.entries
+        .where((entry) => entry.value != null)
+        .take(32)
+        .toList();
+    for (final entry in pending) {
+      try {
+        if (!await session.submit([entry.value!])) return;
+      } on PlatformException catch (error) {
+        if (error.code != 'stale_reply') rethrow;
+      }
+      _translations.remove(entry.key);
+    }
   }
 
   Future<void> _submitMedia(ArtemisFlutterSession session) async {
@@ -488,6 +560,8 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
           request?.request == event.metadata['request_id']) {
         _cancelHttp();
       }
+    } else if (event.domain == 4 && event.kind == 7 && event.requiresReply) {
+      _translate(event);
     } else if (event.domain == 4 && event.kind == 1) {
       _title.value = event.metadata['text'] as String?;
     } else if (event.domain == 4 && event.kind == 3 && !_closed) {
@@ -612,6 +686,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     _closed = true;
     _textureID = null;
     _http.cancel();
+    _translations.clear();
     media.reset();
     _mediaFeedback.clear();
     return _closing = _shutdown();
@@ -659,6 +734,9 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
       _cancelHttp();
       _capture = null;
       _session = null;
+      final translator = _translator;
+      _translator = null;
+      await translator?.dispose();
       await media.dispose();
     }
   }
