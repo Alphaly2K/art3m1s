@@ -21,6 +21,8 @@ enum {
     ArtSwiftIoWrite = ART_IO_WRITE_ATOMIC,
     ArtSwiftWaitIo = ART_WAIT_IO,
     ArtSwiftUI = ART_DOMAIN_UI,
+    ArtSwiftHttpRequest = ART_UI_HTTP_REQUEST,
+    ArtSwiftHttpCancel = ART_UI_HTTP_CANCEL,
     ArtSwiftCaption = ART_UI_CAPTION,
     ArtSwiftRender = ART_DOMAIN_RENDER,
     ArtSwiftCapture = ART_RENDER_CAPTURE,

@@ -119,6 +119,13 @@ private enum ArtemisFlutterError: Error {
                     session.requests.removeAll()
                 }
                 if event.requiresReply { session.requests[event.requestID] = event }
+                if event.domain == UInt16(ArtSwiftUI), event.kind == UInt32(ArtSwiftHttpCancel),
+                   let metadata = (try? JSONSerialization.jsonObject(with: event.metadata)) as? [String: Any],
+                   let request = (metadata["request_id"] as? String).flatMap(UInt64.init),
+                   let original = session.requests[request], original.epoch == event.epoch,
+                   original.domain == event.domain, original.kind == UInt32(ArtSwiftHttpRequest) {
+                    session.requests.removeValue(forKey: request)
+                }
                 return ["owner": id, "domain": Int(event.domain), "kind": Int(event.kind), "epoch": String(event.epoch),
                         "sequence": String(event.sequence), "request": String(event.requestID),
                         "metadata": FlutterStandardTypedData(bytes: event.metadata),

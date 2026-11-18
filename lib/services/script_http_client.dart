@@ -15,13 +15,14 @@ class ScriptHttpClient {
     Map<String, dynamic> payload, {
     required Uint8List? Function(String path) readFile,
     required void Function(int status, Uint8List body) onComplete,
+    int maxResponseBytes = 32 * 1024 * 1024,
   }) {
     cancel();
     final client = HttpClient()..connectionTimeout = timeout;
     _client = client;
     final serial = payload['serial'];
     _serial = serial is num ? serial.toInt() : null;
-    unawaited(_run(client, payload, readFile, onComplete));
+    unawaited(_run(client, payload, readFile, onComplete, maxResponseBytes));
   }
 
   void cancel([int? serial]) {
@@ -36,6 +37,7 @@ class ScriptHttpClient {
     Map<String, dynamic> payload,
     Uint8List? Function(String) readFile,
     void Function(int, Uint8List) onComplete,
+    int maxResponseBytes,
   ) async {
     var status = 0;
     var body = Uint8List(0);
@@ -70,7 +72,7 @@ class ScriptHttpClient {
       final bytes = BytesBuilder(copy: false);
       await (() async {
         await for (final chunk in response) {
-          if (bytes.length + chunk.length > 32 * 1024 * 1024) {
+          if (bytes.length + chunk.length > maxResponseBytes) {
             throw const HttpException('HTTP response too large');
           }
           bytes.add(chunk);

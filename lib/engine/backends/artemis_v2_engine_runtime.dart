@@ -3,10 +3,12 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart' show PlatformException;
 
 import '../../models/game_engine.dart';
 import '../../models/input_gate.dart';
 import '../../services/logger.dart';
+import '../../services/script_http_client.dart';
 import '../engine_runtime.dart';
 import 'art3m1s/environment_patch.dart';
 import 'art3m1s/project_charset.dart';
@@ -25,11 +27,14 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
   final _title = ValueNotifier<String?>(null);
   final _inputs = <ArtemisFlutterMessage>[];
   final _replies = <ArtemisFlutterMessage>[];
+  final _http = ScriptHttpClient();
   ProjectVfs? _vfs;
   ArtemisFileService? _files;
   ArtemisFlutterSession? _session;
   ArtemisFlutterState? _state;
   ArtemisFlutterEvent? _dialog;
+  ArtemisFlutterEvent? _httpRequest;
+  ArtemisFlutterMessage? _httpReply;
   ({String id, _Pixels pixels})? _capture;
   EngineSessionState _residency = EngineSessionState.active;
   InputGatePolicy _inputGate = InputGatePolicy.full;
@@ -151,7 +156,9 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
       ini: iniContent,
       platform: platform,
       hostCaps:
-          ArtemisFileService.capabilities | (onDialogRequested == null ? 0 : 2),
+          ArtemisFileService.capabilities |
+          (onDialogRequested == null ? 0 : 2) |
+          8,
       reportedOS: _reportedOS,
       screenshots: true,
     );
@@ -160,6 +167,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
       return false;
     }
     _session = opened.session;
+    _cancelHttp();
     _capture = null;
     _files = ArtemisFileService(
       saveRoot: Directory(saveDir),
@@ -218,6 +226,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     _nextClock(deltaMs);
     await _submit(session, _inputs);
     await _submit(session, _replies);
+    await _submitHttp(session);
     await _step(session);
     return !_closed &&
         _residency.isRunning &&
@@ -254,7 +263,9 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
         }
       }
       final replied = await _submit(session, _replies);
-      if (!result.backpressured && result.state.waitFlags & (1 | 2 | 16) == 0) {
+      // HTTP waits allow onEnterFrame to run, including script cancellation.
+      final blocking = 1 | 16 | (_httpRequest == null ? 2 : 0);
+      if (!result.backpressured && result.state.waitFlags & blocking == 0) {
         _frame++;
         _frameTime = null;
         return;
@@ -275,12 +286,58 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
   }
 
   void _updateState(ArtemisFlutterState state) {
-    if (state.epoch != _state?.epoch || state.phase == 4) _capture = null;
+    if (state.epoch != _state?.epoch || state.phase == 4) {
+      _capture = null;
+      _cancelHttp();
+    }
     _state = state;
     if (state.width > 0 && state.height > 0) {
       _width = state.width;
       _height = state.height;
     }
+  }
+
+  void _cancelHttp() {
+    _http.cancel();
+    _httpRequest = null;
+    _httpReply = null;
+  }
+
+  void _startHttp(ArtemisFlutterEvent event) {
+    _cancelHttp();
+    _httpRequest = event;
+    if (_closed) {
+      _httpReply = event.reply({'status': 'cancelled'});
+      return;
+    }
+    final budget = event.metadata['max_response_bytes'];
+    final limit = budget is String ? int.tryParse(budget) : null;
+    if (limit == null || limit < 0) {
+      _httpReply = event.reply({'status': 'io_error'});
+      return;
+    }
+    _http.start(
+      event.metadata,
+      maxResponseBytes: limit.clamp(0, 32 * 1024 * 1024),
+      readFile: _asset,
+      onComplete: (status, body) {
+        if (_closed || !identical(_httpRequest, event)) return;
+        _httpReply = status == 0
+            ? event.reply({'status': 'io_error'})
+            : event.reply({'status': 'ok', 'status_code': status}, blob: body);
+      },
+    );
+  }
+
+  Future<void> _submitHttp(ArtemisFlutterSession session) async {
+    final reply = _httpReply;
+    if (reply == null) return;
+    try {
+      if (!await session.submit([reply])) return;
+    } on PlatformException catch (error) {
+      if (error.code != 'stale_reply') rethrow;
+    }
+    if (identical(_httpReply, reply)) _cancelHttp();
   }
 
   Future<String> _screenshot(
@@ -347,7 +404,15 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
       _replies.add(event.reply(fileReply.metadata, blob: fileReply.blob));
       return;
     }
-    if (event.domain == 4 && event.kind == 1) {
+    if (event.domain == 4 && event.kind == 5 && event.requiresReply) {
+      _startHttp(event);
+    } else if (event.domain == 4 && event.kind == 6) {
+      final request = _httpRequest;
+      if (request?.epoch == event.epoch &&
+          request?.request == event.metadata['request_id']) {
+        _cancelHttp();
+      }
+    } else if (event.domain == 4 && event.kind == 1) {
       _title.value = event.metadata['text'] as String?;
     } else if (event.domain == 4 &&
         event.kind == 2 &&
@@ -452,6 +517,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     if (closing != null) return closing;
     _closed = true;
     _textureID = null;
+    _http.cancel();
     return _closing = _shutdown();
   }
 
@@ -465,6 +531,12 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
       }
       final state = _state;
       if (session != null && state?.phase == 2) {
+        for (var turn = 0; _httpRequest != null && turn < 8; turn++) {
+          _httpReply = _httpRequest!.reply({'status': 'cancelled'});
+          await _submitHttp(session);
+          _nextClock(0);
+          await _step(session);
+        }
         final message = ArtemisFlutterMessage(
           domain: 1,
           kind: 16,
@@ -488,6 +560,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
       }
       _files?.close();
       _vfs?.close();
+      _cancelHttp();
       _capture = null;
       _session = null;
     }

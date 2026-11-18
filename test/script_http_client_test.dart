@@ -116,4 +116,27 @@ void main() {
     expect(await done.future, 'new');
     expect(staleCompletions, 0);
   });
+
+  test('a response beyond the host budget completes without a body', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final client = ScriptHttpClient();
+    addTearDown(() async {
+      client.cancel();
+      await server.close(force: true);
+    });
+    server.listen((request) async {
+      request.response.add([1, 2, 3]);
+      await request.response.close();
+    });
+    final done = Completer<(int, Uint8List)>();
+    client.start(
+      {'url': 'http://127.0.0.1:${server.port}/', 'method': 'GET'},
+      maxResponseBytes: 2,
+      readFile: (_) => null,
+      onComplete: (status, body) => done.complete((status, body)),
+    );
+    final (status, body) = await done.future;
+    expect(status, 0);
+    expect(body, isEmpty);
+  });
 }
