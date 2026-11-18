@@ -11,6 +11,7 @@ import '../../services/logger.dart';
 import '../../services/script_http_client.dart';
 import '../engine_runtime.dart';
 import 'art3m1s/environment_patch.dart';
+import 'art3m1s/media_bridge.dart';
 import 'art3m1s/project_charset.dart';
 import 'art3m1s/project_vfs.dart';
 import 'art3m1s/v2_sdk/artemis_file_service.dart';
@@ -27,7 +28,13 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
   final _title = ValueNotifier<String?>(null);
   final _inputs = <ArtemisFlutterMessage>[];
   final _replies = <ArtemisFlutterMessage>[];
+  final _mediaFeedback = <ArtemisFlutterMessage>[];
   final _http = ScriptHttpClient();
+  late final ArtemisV2MediaHost _media = ArtemisV2MediaHost()
+    ..configureAssetReader(_asset);
+
+  @override
+  ArtemisV2MediaHost get media => _media;
   ProjectVfs? _vfs;
   ArtemisFileService? _files;
   ArtemisFlutterSession? _session;
@@ -87,6 +94,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
       _textureID = null;
       await _session?.detachSurface();
     }
+    await media.setSuspended(!_residency.isRunning);
     return _residency;
   }
 
@@ -97,6 +105,9 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     required bool environmentPatchEnabled,
     required String platform,
   }) async {
+    if (_closed) return null;
+    await _releaseProjectSession();
+    if (_closed) return null;
     ProjectVfs open(String charset) => isArchive
         ? ProjectVfs.openArchive(projectPath, charset: charset)
         : ProjectVfs.openDirectory(projectPath, charset: charset);
@@ -152,11 +163,14 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
   }) async {
     final saveDir = _saveDir;
     if (_closed || saveDir == null) return false;
+    await _releaseProjectSession();
+    if (_closed) return false;
     final opened = await ArtemisFlutterSession.open(
       ini: iniContent,
       platform: platform,
       hostCaps:
           ArtemisFileService.capabilities |
+          ArtemisMediaCommand.capability |
           (onDialogRequested == null ? 0 : 2) |
           8,
       reportedOS: _reportedOS,
@@ -193,6 +207,31 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     return !_closed;
   }
 
+  Future<void> _releaseProjectSession() async {
+    final previous = _session;
+    if (previous == null) return;
+    await _advancing;
+    if (_closed || !identical(_session, previous)) return;
+    _session = null;
+    _mediaFeedback.clear();
+    _inputs.clear();
+    _replies.clear();
+    _dialog = null;
+    _files?.close();
+    _files = null;
+    _state = null;
+    _frame = 1;
+    _frameTime = null;
+    _textureID = null;
+    _surfaceRevision++;
+    _cancelHttp();
+    try {
+      await media.resetProject();
+    } finally {
+      await previous.close();
+    }
+  }
+
   @override
   Future<int?> enableSharedTexture({
     int? outputWidth,
@@ -227,6 +266,8 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     await _submit(session, _inputs);
     await _submit(session, _replies);
     await _submitHttp(session);
+    await media.pollVideo(session);
+    await _submitMedia(session);
     await _step(session);
     return !_closed &&
         _residency.isRunning &&
@@ -289,6 +330,8 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     if (state.epoch != _state?.epoch || state.phase == 4) {
       _capture = null;
       _cancelHttp();
+      media.reset();
+      _mediaFeedback.clear();
     }
     _state = state;
     if (state.width > 0 && state.height > 0) {
@@ -338,6 +381,21 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
       if (error.code != 'stale_reply') rethrow;
     }
     if (identical(_httpReply, reply)) _cancelHttp();
+  }
+
+  Future<void> _submitMedia(ArtemisFlutterSession session) async {
+    for (var i = 0; i < 128 && _mediaFeedback.isNotEmpty; i++) {
+      final message = _mediaFeedback.first;
+      try {
+        if (!await session.submit([message])) return;
+      } on PlatformException catch (error) {
+        if (error.code != 'stale_reply') rethrow;
+      }
+      if (_mediaFeedback.isNotEmpty &&
+          identical(_mediaFeedback.first, message)) {
+        _mediaFeedback.removeAt(0);
+      }
+    }
   }
 
   Future<String> _screenshot(
@@ -390,6 +448,18 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
   }
 
   void _event(ArtemisFlutterEvent event) {
+    if (event.mediaCommand case final command?) {
+      final owner = _session;
+      if (owner == null || _closed || event.epoch != _state?.epoch) return;
+      media.handle(owner, event.epoch, command, (id, status) {
+        if (!_closed &&
+            identical(_session, owner) &&
+            event.epoch == _state?.epoch) {
+          _mediaFeedback.add(event.playbackStatus(id, status));
+        }
+      });
+      return;
+    }
     final fileReply = _files?.handle(
       ArtemisFileEvent(
         event.domain,
@@ -518,6 +588,8 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     _closed = true;
     _textureID = null;
     _http.cancel();
+    media.reset();
+    _mediaFeedback.clear();
     return _closing = _shutdown();
   }
 
@@ -563,6 +635,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
       _cancelHttp();
       _capture = null;
       _session = null;
+      await media.dispose();
     }
   }
 }

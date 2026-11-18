@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:ffi';
 import 'dart:io';
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:art3m1s/engine/backends/artemis_v2_engine_runtime.dart';
@@ -58,6 +59,24 @@ Future<void> _run(Directory root, HttpServer server) async {
     '${game.path}/system.ini',
   ).writeAsStringSync('[WINDOWS]\nWIDTH=4\nHEIGHT=4\nBOOT=boot.iet\n');
   File('${game.path}/data1').writeAsStringSync('confirmed');
+  File('${game.path}/tone.wav').writeAsBytesSync(_tone());
+  final video = await Process.run('ffmpeg', [
+    '-nostdin',
+    '-v',
+    'error',
+    '-f',
+    'lavfi',
+    '-i',
+    'color=blue:s=16x16:r=24:d=2',
+    '-c:v',
+    'libx264',
+    '-pix_fmt',
+    'yuv420p',
+    '${game.path}/video.mp4',
+  ]);
+  if (video.exitCode != 0) {
+    throw StateError('Cannot generate video fixture: ${video.stderr}');
+  }
   File('${game.path}/boot.iet').writeAsStringSync('''
 *top
 [calllua function=boot]
@@ -71,8 +90,34 @@ Future<void> _run(Directory root, HttpServer server) async {
 [httpget url="$base/cancel" varname_code=t.cancelled]
 [httpget url="$base/next" varname_code=t.next varname_data=t.response]
 [calllua function=check_http]
-[caption data=ready]
+[setonsoundfinish id=smoke label=sound_ended call=1]
+[seplay id=smoke file=tone.wav gain=100]
+[wait se=smoke]
+[calllua function=check_sound]
+[setonvideofinish id=2 label=video_ended call=1]
+[video id=2 file=video.mp4]
+[wait time=600]
+[takess]
+[savess file=video_thumb width=2 height=2]
+[wait video=2]
+[calllua function=check_video]
+[video file=video.mp4 loop=1 skip=1]
+[video file=video.mp4 loop=1 skip=2]
+[setonsoundfinish id=restored label=restored_ended call=1]
+[seplay id=restored file=tone.wav gain=100]
+[save file=numbered]
+[wait se=restored]
+[calllua function=check_restore]
 [stop]
+*sound_ended
+[calllua function=sound_ended]
+[return]
+*restored_ended
+[calllua function=restored_ended]
+[return]
+*video_ended
+[calllua function=video_ended]
+[return]
 [lua]
 function boot(e)
   count = (count or 0) + 1
@@ -94,7 +139,38 @@ function check_http(e)
   assert(e:var('t.cancelled') == '0')
   assert(e:var('t.next') == '200' and e:var('t.response') == 'new')
 end
-__engine:setEventHandler{onEnterFrame='tick'}
+function sound_ended(e)
+  media_completed = (media_completed or 0) + 1
+end
+function check_sound(e)
+  assert(media_completed == 1, 'Host audio did not complete naturally')
+end
+function video_ended(e)
+  video_completed = (video_completed or 0) + 1
+end
+function check_video(e)
+  assert(video_completed == 1, 'Host video did not complete naturally')
+end
+function restored_ended(e)
+  restored_completed = (restored_completed or 0) + 1
+end
+function on_load(e, p)
+  assert(p.file == 'numbered')
+  load_count = (load_count or 0) + 1
+end
+function check_restore(e)
+  if not load_count then
+    assert(restored_completed == 1, 'Original sound did not finish before load')
+    restored_completed = 0
+    e:enqueueTag{'seplay', id='restored', file='tone.wav', loop='1'}
+    e:enqueueTag{'load', file='numbered'}
+  else
+    assert(load_count == 1 and restored_completed == 1,
+      'The saved sound did not finish after load')
+    e:enqueueTag{'caption', data='ready'}
+  end
+end
+__engine:setEventHandler{onEnterFrame='tick', onLoad='on_load'}
 [/lua]
 ''');
   final runtime = EngineRuntimeFactory.create(engine: GameEngineKind.art3m1s);
@@ -127,15 +203,50 @@ __engine:setEventHandler{onEnterFrame='tick'}
     );
     var presented = false;
     var cancelled = false;
+    var skippedVideo = false;
+    var skippedMenuVideo = false;
     final deadline = Stopwatch()..start();
-    while (deadline.elapsed < const Duration(seconds: 5)) {
+    while (deadline.elapsed < const Duration(seconds: 12)) {
       if (await runtime.advanceTexture(16)) presented = true;
       if (presented && runtime.windowTitle.value == 'ready') break;
       if (cancelStarted && !cancelled) {
         runtime.feedKey(65, true);
         cancelled = true;
       }
-      await Future<void>.delayed(const Duration(milliseconds: 4));
+      final playback = runtime.media.videoPlayback.value;
+      if (playback != null && !skippedVideo) {
+        if (!playback.isFullscreen ||
+            !playback.skippable ||
+            playback.view is! Texture) {
+          throw StateError(
+            'Fullscreen video was not published as a Flutter texture.',
+          );
+        }
+        runApp(
+          Center(child: SizedBox(width: 64, height: 64, child: playback.view)),
+        );
+        await WidgetsBinding.instance.endOfFrame;
+        await runtime.setSessionState(EngineSessionState.suspended);
+        if (await runtime.advanceTexture(16) ||
+            runtime.media.videoPlayback.value != playback) {
+          throw StateError('Suspension retired an active video.');
+        }
+        await runtime.setSessionState(EngineSessionState.active);
+        await runtime.media.skipVideo();
+        skippedVideo = true;
+      } else if (playback != null && !skippedMenuVideo) {
+        final menu = playback.onMenuSkip;
+        if (!playback.isFullscreen || playback.skippable || menu == null) {
+          throw StateError('Menu-only video policy is incorrect.');
+        }
+        await runtime.media.skipVideo();
+        if (!identical(runtime.media.videoPlayback.value, playback)) {
+          throw StateError('Tap skipped a menu-only video.');
+        }
+        menu();
+        skippedMenuVideo = true;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 16));
     }
     final body = File('${saves.path}/download.bin').readAsBytesSync();
     if (!cancelled ||
@@ -148,7 +259,11 @@ __engine:setEventHandler{onEnterFrame='tick'}
       );
     }
     if (!presented ||
+        !skippedVideo ||
+        !skippedMenuVideo ||
+        runtime.media.videoPlayback.value != null ||
         runtime.windowTitle.value != 'ready' ||
+        !File('${saves.path}/numbered').existsSync() ||
         File('${saves.path}/slot').readAsStringSync() != 'confirmed') {
       throw StateError('The v2 project did not persist and present.');
     }
@@ -156,30 +271,90 @@ __engine:setEventHandler{onEnterFrame='tick'}
       throw StateError('The screenshot save replaced a directory.');
     }
     await _checkThumbnail(thumbnail);
+    await _checkThumbnail(
+      File('${saves.path}/video_thumb.png'),
+      height: 2,
+      blue: true,
+    );
     await WidgetsBinding.instance.endOfFrame;
     await runtime.setSessionState(EngineSessionState.suspended);
     if (runtime.hasActiveSharedTexture) {
       throw StateError('Texture did not detach.');
+    }
+    await runtime.setSessionState(EngineSessionState.active);
+    final invalid = Directory('${root.path}/replacement')..createSync();
+    File('${invalid.path}/system.ini').writeAsBytesSync(ini);
+    File('${invalid.path}/video.mp4').writeAsStringSync('invalid video');
+    File('${invalid.path}/boot.iet').writeAsStringSync('''
+*top
+[video file=video.mp4 loop=1 skip=0]
+[caption data=replaced]
+[stop]
+''');
+    final replacement = await runtime.prepareProject(
+      projectPath: invalid.path,
+      isArchive: false,
+      environmentPatchEnabled: false,
+      platform: 'WINDOWS',
+    );
+    if (!await runtime.loadProjectBytes(replacement!)) {
+      throw StateError('Could not replace the project.');
+    }
+    deadline.reset();
+    while (deadline.elapsed < const Duration(seconds: 4) &&
+        runtime.windowTitle.value != 'replaced') {
+      await runtime.advanceTexture(16);
+      if (runtime.media.videoPlayback.value != null) {
+        throw StateError('The replacement project reused old media.');
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 16));
+    }
+    if (runtime.windowTitle.value != 'replaced') {
+      throw StateError('Video failure did not resume the replacement script.');
     }
   } finally {
     await runtime.close();
   }
 }
 
-Future<void> _checkThumbnail(File file) async {
+Uint8List _tone() {
+  const sampleRate = 16000;
+  const samples = sampleRate ~/ 4;
+  final data = ByteData(44 + samples * 2);
+  data.setUint32(0, 0x52494646); // RIFF
+  data.setUint32(4, data.lengthInBytes - 8, Endian.little);
+  data.setUint32(8, 0x57415645); // WAVE
+  data.setUint32(12, 0x666d7420); // fmt
+  data.setUint32(16, 16, Endian.little);
+  data.setUint16(20, 1, Endian.little);
+  data.setUint16(22, 1, Endian.little);
+  data.setUint32(24, sampleRate, Endian.little);
+  data.setUint32(28, sampleRate * 2, Endian.little);
+  data.setUint16(32, 2, Endian.little);
+  data.setUint16(34, 16, Endian.little);
+  data.setUint32(36, 0x64617461); // data
+  data.setUint32(40, samples * 2, Endian.little);
+  return data.buffer.asUint8List();
+}
+
+Future<void> _checkThumbnail(
+  File file, {
+  int height = 3,
+  bool blue = false,
+}) async {
   final codec = await ui.instantiateImageCodec(await file.readAsBytes());
   try {
     final image = (await codec.getNextFrame()).image;
     try {
-      if (image.width != 2 || image.height != 3) {
+      if (image.width != 2 || image.height != height) {
         throw StateError('The saved screenshot has the wrong size.');
       }
       final rgba = (await image.toByteData())!.buffer.asUint8List();
       for (var i = 0; i < rgba.length; i += 4) {
-        if (rgba[i] != 0 ||
-            rgba[i + 1] != 255 ||
-            rgba[i + 2] != 0 ||
-            rgba[i + 3] != 255) {
+        final correct = blue
+            ? rgba[i] <= 8 && rgba[i + 1] <= 8 && rgba[i + 2] >= 245
+            : rgba[i] == 0 && rgba[i + 1] == 255 && rgba[i + 2] == 0;
+        if (!correct || rgba[i + 3] != 255) {
           throw StateError('The saved screenshot is not the captured scene.');
         }
       }

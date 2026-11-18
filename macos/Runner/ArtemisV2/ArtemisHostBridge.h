@@ -24,6 +24,8 @@ enum {
     ArtSwiftHttpRequest = ART_UI_HTTP_REQUEST,
     ArtSwiftHttpCancel = ART_UI_HTTP_CANCEL,
     ArtSwiftCaption = ART_UI_CAPTION,
+    ArtSwiftMedia = ART_DOMAIN_MEDIA,
+    ArtSwiftVideoFrame = ART_MEDIA_VIDEO_FRAME,
     ArtSwiftRender = ART_DOMAIN_RENDER,
     ArtSwiftCapture = ART_RENDER_CAPTURE,
 };

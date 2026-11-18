@@ -1,3 +1,5 @@
+import Accelerate
+import AVFoundation
 import CoreVideo
 import FlutterMacOS
 import Foundation
@@ -39,7 +41,7 @@ private enum ArtemisFlutterError: Error {
                 } catch ArtemisFlutterError.staleReply {
                     result(FlutterError(code: "stale_reply", message: nil, details: nil))
                 } catch ArtemisMacError.status(_, let status, _)
-                    where call.method == "submit" && status == ArtSwiftStale {
+                    where status == ArtSwiftStale {
                     result(FlutterError(code: "stale_reply", message: nil, details: nil))
                 } catch {
                     result(FlutterError(code: "artemis_v2", message: String(describing: error), details: nil))
@@ -102,6 +104,29 @@ private enum ArtemisFlutterError: Error {
         case "submit":
             guard let batch = args["batch"] as? [[String: Any]] else { throw ArtemisFlutterError.invalidArguments }
             return try submit(batch, to: session, owner: id)
+        case "videoOpen":
+            let epoch = try number(args["epoch"], as: UInt64.self)
+            guard try session.core.state().session_epoch == epoch else { throw ArtemisFlutterError.staleReply }
+            let playback = try number(args["playback"], as: UInt64.self)
+            guard let path = args["path"] as? String, path.hasPrefix("/"),
+                  session.videos[playback] == nil else { throw ArtemisFlutterError.invalidArguments }
+            session.videos[playback] = Video(
+                url: URL(fileURLWithPath: path), epoch: epoch,
+                fullscreen: args["fullscreen"] as? Bool == true, loop: args["loop"] as? Bool == true,
+                suspended: session.videoSuspended
+            )
+            return nil
+        case "videoClose":
+            if let video = session.videos.removeValue(forKey: try number(args["playback"], as: UInt64.self)) {
+                video.close(registry)
+            }
+            return nil
+        case "videoSuspend":
+            session.videoSuspended = args["suspended"] as? Bool == true
+            for video in session.videos.values { video.setSuspended(session.videoSuspended) }
+            return nil
+        case "videoPoll":
+            return try pollVideos(session)
         case "step":
             let (backpressured, step) = try session.core.step(
                 frameID: number(args["frame"], as: UInt64.self),
@@ -154,6 +179,9 @@ private enum ArtemisFlutterError: Error {
             guard let metadata = bytes(args["metadata"]) else { throw ArtemisFlutterError.invalidArguments }
             let blob = bytes(args["blob"]) ?? Data()
             if request == 0 {
+                if let source = args["owner"] as? String, source != owner {
+                    throw ArtemisFlutterError.staleReply
+                }
                 return ArtemisMacMessage(domain: domain, kind: kind, epoch: epoch, metadata: metadata, blob: blob)
             }
             guard args["owner"] as? String == owner,
@@ -174,6 +202,58 @@ private enum ArtemisFlutterError: Error {
                 "phase": Int(state.state), "waitFlags": Int(state.wait_flags), "exitRequested": state.exit_requested != 0]
     }
 
+    private func pollVideos(_ session: Session) throws -> [[String: Any]] {
+        let state = try session.core.state()
+        var events: [[String: Any]] = []
+        for (id, video) in Array(session.videos) {
+            if state.session_epoch != video.epoch || state.state == 4 {
+                session.videos.removeValue(forKey: id)?.close(registry)
+                continue
+            }
+            if let terminal = video.terminalState {
+                events.append(["playback": String(id), "status": terminal])
+                session.videos.removeValue(forKey: id)?.close(registry)
+                continue
+            }
+            guard let pixelBuffer = video.frame() else { continue }
+            let width = CVPixelBufferGetWidth(pixelBuffer), height = CVPixelBufferGetHeight(pixelBuffer)
+            var event: [String: Any] = ["playback": String(id), "status": "started"]
+            if video.fullscreen {
+                video.texture.publish(pixelBuffer)
+                if video.textureID == nil { video.textureID = registry.register(video.texture) }
+                guard let textureID = video.textureID else { continue }
+                registry.textureFrameAvailable(textureID)
+                event["texture"] = textureID
+                event["width"] = width
+                event["height"] = height
+            } else {
+                do {
+                    let frame = video.frameID + 1
+                    let metadata = try JSONSerialization.data(withJSONObject: [
+                        "playback_id": String(id), "frame_id": String(frame), "width": width, "height": height,
+                    ])
+                    guard try session.core.submit([ArtemisMacMessage(
+                        domain: UInt16(ArtSwiftMedia), kind: UInt32(ArtSwiftVideoFrame), epoch: video.epoch,
+                        metadata: metadata, blob: rgbaPixels(pixelBuffer, width: width, height: height)
+                    )]) else { continue }
+                    video.frameID = frame
+                } catch ArtemisMacError.status(_, let status, _) where status == ArtSwiftStale {
+                    session.videos.removeValue(forKey: id)?.close(registry)
+                    continue
+                } catch {
+                    events.append(["playback": String(id), "status": "failed"])
+                    session.videos.removeValue(forKey: id)?.close(registry)
+                    continue
+                }
+            }
+            if !video.started {
+                video.started = true
+                events.append(event)
+            }
+        }
+        return events
+    }
+
     private func detach(_ session: Session) throws {
         guard let textureID = session.texture?.id else { return }
         try session.core.setSurface(nil)
@@ -183,6 +263,8 @@ private enum ArtemisFlutterError: Error {
 
     private func close(_ session: Session) throws {
         let textureID = session.texture?.id
+        for video in session.videos.values { video.close(registry) }
+        session.videos.removeAll()
         defer {
             if let textureID { registry.unregisterTexture(textureID) }
             session.texture = nil
@@ -196,6 +278,8 @@ private extension ArtemisFlutterHost {
         let core: ArtemisMacSession
         var texture: (id: Int64, texture: Texture)?
         var requests: [UInt64: ArtemisMacEvent] = [:]
+        var videos: [UInt64: Video] = [:]
+        var videoSuspended = false
 
         init(_ core: ArtemisMacSession) { self.core = core }
     }
@@ -217,6 +301,107 @@ private extension ArtemisFlutterHost {
 
         func copyPixelBuffer() -> Unmanaged<CVPixelBuffer>? { .passRetained(buffer) }
     }
+}
+
+@MainActor private final class Video {
+    let epoch: UInt64
+    let fullscreen: Bool
+    let texture = VideoTexture()
+    var textureID: Int64?
+    var frameID: UInt64 = 0
+    var started = false
+
+    private let player: AVPlayer
+    private let item: AVPlayerItem
+    private let output: AVPlayerItemVideoOutput
+    private var finished: String?
+    private var suspended: Bool
+    private var observers: [NSObjectProtocol] = []
+
+    init(url: URL, epoch: UInt64, fullscreen: Bool, loop: Bool, suspended: Bool) {
+        self.epoch = epoch
+        self.fullscreen = fullscreen
+        self.suspended = suspended
+        item = AVPlayerItem(url: url)
+        output = AVPlayerItemVideoOutput(pixelBufferAttributes: [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+            kCVPixelBufferIOSurfacePropertiesKey as String: [String: Int](),
+            kCVPixelBufferMetalCompatibilityKey as String: true,
+        ])
+        item.add(output)
+        player = AVPlayer(playerItem: item)
+        player.actionAtItemEnd = .pause
+        let center = NotificationCenter.default
+        observers.append(center.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if loop && self.started {
+                    self.player.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero)
+                    if !self.suspended { self.player.play() }
+                } else {
+                    self.finished = self.started ? "ended" : "failed"
+                }
+            }
+        })
+        observers.append(center.addObserver(forName: .AVPlayerItemFailedToPlayToEndTime, object: item, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.finished = "failed" }
+        })
+        if !suspended { player.play() }
+    }
+
+    var terminalState: String? { item.status == .failed ? "failed" : finished }
+
+    func frame() -> CVPixelBuffer? {
+        guard !suspended else { return nil }
+        let time = item.currentTime()
+        guard output.hasNewPixelBuffer(forItemTime: time) else { return nil }
+        return output.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil)
+    }
+
+    func setSuspended(_ value: Bool) {
+        guard suspended != value else { return }
+        suspended = value
+        if value { player.pause() } else if terminalState == nil { player.play() }
+    }
+
+    func close(_ registry: FlutterTextureRegistry) {
+        for observer in observers { NotificationCenter.default.removeObserver(observer) }
+        observers.removeAll()
+        player.pause()
+        player.replaceCurrentItem(with: nil)
+        texture.publish(nil)
+        if let textureID { registry.unregisterTexture(textureID) }
+        textureID = nil
+    }
+}
+
+private final class VideoTexture: NSObject, FlutterTexture {
+    private let lock = NSLock()
+    private var buffer: CVPixelBuffer?
+
+    func publish(_ buffer: CVPixelBuffer?) { lock.withLock { self.buffer = buffer } }
+
+    func copyPixelBuffer() -> Unmanaged<CVPixelBuffer>? { lock.withLock { buffer.map { .passRetained($0) } } }
+}
+
+private func rgbaPixels(_ buffer: CVPixelBuffer, width: Int, height: Int) throws -> Data {
+    guard CVPixelBufferGetPixelFormatType(buffer) == kCVPixelFormatType_32BGRA,
+          (1...16384).contains(width), (1...16384).contains(height), width * height * 4 <= 64 * 1024 * 1024,
+          CVPixelBufferLockBaseAddress(buffer, .readOnly) == kCVReturnSuccess else {
+        throw ArtemisFlutterError.invalidArguments
+    }
+    defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
+    guard let base = CVPixelBufferGetBaseAddress(buffer) else { throw ArtemisFlutterError.invalidArguments }
+    var data = Data(count: width * height * 4)
+    let status = data.withUnsafeMutableBytes { (bytes: UnsafeMutableRawBufferPointer) in
+        var source = vImage_Buffer(data: base, height: vImagePixelCount(height), width: vImagePixelCount(width),
+                                   rowBytes: CVPixelBufferGetBytesPerRow(buffer))
+        var destination = vImage_Buffer(data: bytes.baseAddress, height: vImagePixelCount(height),
+                                        width: vImagePixelCount(width), rowBytes: width * 4)
+        return vImagePermuteChannels_ARGB8888(&source, &destination, [2, 1, 0, 3], vImage_Flags(kvImageNoFlags))
+    }
+    guard status == kvImageNoError else { throw ArtemisFlutterError.invalidArguments }
+    return data
 }
 
 private func bytes(_ value: Any?) -> Data? { (value as? FlutterStandardTypedData)?.data }

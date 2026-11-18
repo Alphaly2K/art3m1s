@@ -5,8 +5,9 @@
 - `--artemis-v2` 为 macOS 玩家启用独立 Core 和 Metal Host；默认播放仍走 v1。
 - Runner 注册 Swift 会话与纹理，Dart 使用现有项目 VFS 和原子存档服务。合成项目在真实应用运行，
   验证 v1 与 v2 同包、动态读、拒绝写入分支、保存和呈现。
-- `macos/Runner/ArtemisV2` 和 `lib/engine/backends/art3m1s/v2_sdk` 同步自 Core 的 C 接口、
-  Swift/Dart 绑定和文件服务。后续补齐媒体、截图与网络服务，再评估默认启用。
+- 支持脚本截图、HTTP、宿主音频和 AVFoundation 视频。真实 macOS 应用的合成场景验证了 WAV 自然结束、
+  编号存档恢复音效、H.264 图层像素、全屏纹理及跳过策略、暂停恢复和项目切换后的解码失败处理。
+- Flutter 常规测试 182 项通过。继续核对总音量与回避、旧视频格式和实际游戏兼容性，再评估默认启用。
 
 ## 当前阶段：macOS Release（2026-11-01）
 

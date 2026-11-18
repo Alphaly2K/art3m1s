@@ -71,12 +71,14 @@ class EngineVideoPlayback {
     required this.view,
     required this.aspectRatio,
     required this.skippable,
+    this.onMenuSkip,
   });
 
   final String? id;
   final Widget view;
   final double aspectRatio;
   final bool skippable;
+  final VoidCallback? onMenuSkip;
 
   bool get isFullscreen => id == null;
 }

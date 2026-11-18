@@ -1407,13 +1407,40 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
           return Positioned.fill(child: AbsorbPointer(child: fullscreen));
         }
 
-        if (!playback.skippable) {
+        if (!playback.skippable && playback.onMenuSkip == null) {
           return Positioned.fill(child: AbsorbPointer(child: fullscreen));
         }
         return Positioned.fill(
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
-            onTap: _bridge.media.skipVideo,
+            onTap: playback.skippable ? _bridge.media.skipVideo : null,
+            onSecondaryTapUp: playback.onMenuSkip == null
+                ? null
+                : (details) async {
+                    final overlay =
+                        Overlay.of(context).context.findRenderObject()
+                            as RenderBox;
+                    final point = overlay.globalToLocal(details.globalPosition);
+                    final skip = await showMenu<bool>(
+                      context: context,
+                      position: RelativeRect.fromRect(
+                        point & Size.zero,
+                        Offset.zero & overlay.size,
+                      ),
+                      items: const [
+                        PopupMenuItem(value: true, child: Text('跳过视频')),
+                      ],
+                    );
+                    if (skip == true &&
+                        mounted &&
+                        !_closing &&
+                        identical(
+                          _bridge.media.videoPlayback.value,
+                          playback,
+                        )) {
+                      playback.onMenuSkip?.call();
+                    }
+                  },
             child: fullscreen,
           ),
         );

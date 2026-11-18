@@ -10,13 +10,14 @@ import '../../../services/logger.dart';
 import '../../engine_runtime.dart';
 import '../audio_decode_utils.dart';
 import 'file_provider.dart';
+import 'v2_sdk/artemis_flutter_session.dart';
+
+part 'v2_media_host.dart';
 
 typedef MediaFinishedCallback = void Function(String? id);
 typedef MediaAssetReader = Uint8List? Function(String path);
-typedef AudioToWavDecoder = Future<void> Function(
-  Uint8List bytes,
-  String outputPath,
-);
+typedef AudioToWavDecoder =
+    Future<void> Function(Uint8List bytes, String outputPath);
 
 /// Host-owned audio output and runtime video presentation adapter.
 ///
@@ -680,6 +681,7 @@ class MediaBridge implements EngineMediaHost {
     Map<String, dynamic> payload, {
     String fileKey = 'file',
     String resolvedFileKey = 'resolved_file',
+    bool projectOnly = false,
   }) async {
     final path = _string(payload[fileKey]);
     final resolved = _string(payload[resolvedFileKey]);
@@ -693,7 +695,8 @@ class MediaBridge implements EngineMediaHost {
       final cached = _assetCache[candidate];
       if (cached != null && cached.existsSync()) return cached;
       final bytes =
-          _assetReader?.call(candidate) ?? FileProvider.readFile(candidate);
+          _assetReader?.call(candidate) ??
+          (projectOnly ? null : FileProvider.readFile(candidate));
       if (bytes == null) continue;
       final decoded = await _decodeBytesIfNeeded(
         bytes,
