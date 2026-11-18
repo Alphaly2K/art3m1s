@@ -10,6 +10,8 @@ import '../services/text_translation_service.dart';
 
 enum EngineRenderQuality { native, quality, balanced, performance }
 
+enum EngineWindowAction { toggleFullscreen, minimize }
+
 /// Host-visible residency level for a live game session.
 ///
 /// [frozen] keeps the runtime and presentation resources resident for the

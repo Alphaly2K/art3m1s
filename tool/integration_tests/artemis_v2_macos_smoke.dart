@@ -142,6 +142,9 @@ Future<void> _run(Directory root, HttpServer server) async {
 [keyconfig role=16 keys=70]
 [video file=video.mp4 loop=1 skip=1]
 [video file=legacy.wmv loop=1 skip=2]
+[exec command=fullscreen]
+[exec command=minimize]
+[calllua function=check_focus]
 [setonsoundfinish id=restored label=restored_ended call=1]
 [seplay id=restored file=tone.wav gain=100]
 [save file=numbered]
@@ -171,10 +174,14 @@ function boot(e)
   assert(f:close() and count == 1)
 end
 function tick(e)
+  if e:isDown(74) then saw_held = true end
   if not cancelled and e:isDown(65) then
     cancelled = true
     e:tag{'var', name='s.http.cancel', data='1'}
   end
+end
+function check_focus(e)
+  assert(saw_held and not e:isDown(74), 'Suspension did not release held input')
 end
 function check_http(e)
   assert(e:var('t.status') == '418')
@@ -221,7 +228,11 @@ end
 __engine:setEventHandler{onEnterFrame='tick', onLoad='on_load'}
 [/lua]
 ''');
-  final runtime = EngineRuntimeFactory.create(engine: GameEngineKind.art3m1s);
+  final windowActions = <EngineWindowAction>[];
+  final runtime = EngineRuntimeFactory.create(
+    engine: GameEngineKind.art3m1s,
+    onWindowAction: windowActions.add,
+  );
   if (runtime is! ArtemisV2EngineRuntime) {
     throw StateError('Build with ARTEMIS_V2 enabled.');
   }
@@ -298,6 +309,8 @@ __engine:setEventHandler{onEnterFrame='tick', onLoad='on_load'}
           throw StateError('Avoid did not clear after the second press.');
         }
         runtime.feedKey(70, false);
+        runtime.feedKey(74, true);
+        await runtime.advanceTexture(16);
         await runtime.setSessionState(EngineSessionState.suspended);
         if (await runtime.advanceTexture(16) ||
             runtime.media.videoPlayback.value != playback) {
@@ -349,6 +362,13 @@ __engine:setEventHandler{onEnterFrame='tick', onLoad='on_load'}
     }
     if (!Directory('${saves.path}/protected.png').existsSync()) {
       throw StateError('The screenshot save replaced a directory.');
+    }
+    if (windowActions.length != 2 ||
+        windowActions.first != EngineWindowAction.toggleFullscreen ||
+        windowActions.last != EngineWindowAction.minimize) {
+      throw StateError(
+        'Scripted window actions did not reach the Host in order.',
+      );
     }
     await _checkThumbnail(thumbnail);
     await _checkThumbnail(

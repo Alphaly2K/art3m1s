@@ -15,12 +15,16 @@ class EngineRuntimeFactory {
   static EngineRuntime create({
     required GameEngineKind engine,
     void Function(EngineDialogRequest request)? onDialogRequested,
+    void Function(EngineWindowAction action)? onWindowAction,
     bool? engineCursorControlEnabled,
   }) {
     return switch (engine) {
       GameEngineKind.art3m1s
           when Platform.isMacOS && const bool.fromEnvironment('ARTEMIS_V2') =>
-        ArtemisV2EngineRuntime(onDialogRequested: onDialogRequested),
+        ArtemisV2EngineRuntime(
+          onDialogRequested: onDialogRequested,
+          onWindowAction: onWindowAction,
+        ),
       GameEngineKind.art3m1s => Art3m1sEngineRuntime(
         onDialogRequested: onDialogRequested,
         engineCursorControlEnabled: engineCursorControlEnabled,

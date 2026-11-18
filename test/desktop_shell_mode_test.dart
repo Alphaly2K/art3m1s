@@ -56,6 +56,32 @@ void main() {
   });
 
   test(
+    'script fullscreen keeps the player shell and restores the window',
+    () async {
+      final window = _FakeDesktopWindow();
+      final controller = DesktopShellController(window: window);
+      addTearDown(controller.dispose);
+      final player = Object();
+
+      expect(await controller.togglePlayerFullScreen(player), isTrue);
+      expect(window.fullScreen, isTrue);
+      expect(controller.mode, DesktopShellMode.standard);
+      expect(await controller.togglePlayerFullScreen(Object()), isFalse);
+
+      await controller.releasePlayerFullScreen(player);
+      expect(window.fullScreen, isFalse);
+      window.emitFullScreen(true);
+      expect(controller.mode, DesktopShellMode.bigScreen);
+
+      expect(await controller.togglePlayerFullScreen(player), isTrue);
+      expect(window.fullScreen, isFalse);
+      expect(controller.mode, DesktopShellMode.bigScreen);
+      await controller.releasePlayerFullScreen(player);
+      expect(window.fullScreen, isTrue);
+    },
+  );
+
+  test(
     'system fullscreen changes are recovered without a plugin event',
     () async {
       final window = _FakeDesktopWindow();

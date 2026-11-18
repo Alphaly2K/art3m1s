@@ -21,10 +21,11 @@ typedef _Pixels = ({int width, int height, Uint8List rgba});
 
 final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     implements AsyncTextureRuntime {
-  ArtemisV2EngineRuntime({this.onDialogRequested})
+  ArtemisV2EngineRuntime({this.onDialogRequested, this.onWindowAction})
     : super(GameEngineKind.art3m1s);
 
   final void Function(EngineDialogRequest)? onDialogRequested;
+  final void Function(EngineWindowAction)? onWindowAction;
   final _title = ValueNotifier<String?>(null);
   final _avoid = ValueNotifier<AvoidOverlay?>(null);
   final _inputs = <ArtemisFlutterMessage>[];
@@ -89,6 +90,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
 
   @override
   Future<EngineSessionState> setSessionState(EngineSessionState state) async {
+    if (_residency.isRunning && !state.isRunning) _input(4, const {});
     _residency = state == EngineSessionState.hibernated
         ? EngineSessionState.suspended
         : state;
@@ -488,6 +490,13 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
       }
     } else if (event.domain == 4 && event.kind == 1) {
       _title.value = event.metadata['text'] as String?;
+    } else if (event.domain == 4 && event.kind == 3 && !_closed) {
+      final action = switch (event.metadata['command']) {
+        'fullscreen' => EngineWindowAction.toggleFullscreen,
+        'minimize' => EngineWindowAction.minimize,
+        _ => null,
+      };
+      if (action != null) onWindowAction?.call(action);
     } else if (event.domain == 4 && event.kind == 4 && !_closed) {
       final data = event.metadata;
       media.setAvoidMuted(data['mute'] == true);
@@ -587,6 +596,11 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     final code = deltaY > 0 ? 136 : 137;
     feedForwardedKey(code, true);
     feedForwardedKey(code, false);
+  }
+
+  @override
+  void notifyLifecycle(int state) {
+    if (state == 1) _input(4, const {});
   }
 
   @override

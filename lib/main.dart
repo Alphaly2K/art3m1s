@@ -151,41 +151,44 @@ class _Art3m1sAppState extends ConsumerState<Art3m1sApp> {
   Widget build(BuildContext context) {
     final desktopShell = _desktopShell;
     if (desktopShell != null) {
-      return AnimatedBuilder(
-        animation: desktopShell,
-        builder: (context, _) {
-          final bigScreen = desktopShell.mode == DesktopShellMode.bigScreen;
-          return AnimatedSwitcher(
-            duration: const Duration(milliseconds: 480),
-            reverseDuration: const Duration(milliseconds: 360),
-            switchInCurve: Curves.easeOutCubic,
-            switchOutCurve: Curves.easeInCubic,
-            layoutBuilder: (currentChild, previousChildren) => Stack(
-              fit: StackFit.expand,
-              alignment: Alignment.center,
-              children: [...previousChildren, ?currentChild],
-            ),
-            transitionBuilder: (child, animation) {
-              final scale = Tween<double>(
-                begin: 0.975,
-                end: 1,
-              ).animate(animation);
-              return FadeTransition(
-                opacity: animation,
-                child: ScaleTransition(scale: scale, child: child),
-              );
-            },
-            child: bigScreen
-                ? Ps5ShellApp(
-                    key: const ValueKey('desktop-big-screen'),
-                    onExitBigScreen: desktopShell.exitBigScreen,
-                  )
-                : KeyedSubtree(
-                    key: const ValueKey('desktop-standard'),
-                    child: _buildStandardDesktopShell(desktopShell),
-                  ),
-          );
-        },
+      return DesktopShellScope(
+        controller: desktopShell,
+        child: AnimatedBuilder(
+          animation: desktopShell,
+          builder: (context, _) {
+            final bigScreen = desktopShell.mode == DesktopShellMode.bigScreen;
+            return AnimatedSwitcher(
+              duration: const Duration(milliseconds: 480),
+              reverseDuration: const Duration(milliseconds: 360),
+              switchInCurve: Curves.easeOutCubic,
+              switchOutCurve: Curves.easeInCubic,
+              layoutBuilder: (currentChild, previousChildren) => Stack(
+                fit: StackFit.expand,
+                alignment: Alignment.center,
+                children: [...previousChildren, ?currentChild],
+              ),
+              transitionBuilder: (child, animation) {
+                final scale = Tween<double>(
+                  begin: 0.975,
+                  end: 1,
+                ).animate(animation);
+                return FadeTransition(
+                  opacity: animation,
+                  child: ScaleTransition(scale: scale, child: child),
+                );
+              },
+              child: bigScreen
+                  ? Ps5ShellApp(
+                      key: const ValueKey('desktop-big-screen'),
+                      onExitBigScreen: desktopShell.exitBigScreen,
+                    )
+                  : KeyedSubtree(
+                      key: const ValueKey('desktop-standard'),
+                      child: _buildStandardDesktopShell(desktopShell),
+                    ),
+            );
+          },
+        ),
       );
     }
     if (Platform.isIOS) return const CupertinoShellApp();

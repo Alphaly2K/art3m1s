@@ -27,6 +27,7 @@ import '../services/game_manifest.dart';
 import '../services/logger.dart';
 import '../services/profiler_snapshot.dart';
 import '../services/text_translation_service.dart';
+import '../shell/desktop_shell_mode.dart';
 import '../widgets/engine_dialog.dart';
 import '../widgets/mobile_game_cursor.dart';
 import '../widgets/mobile_touchpad_surface.dart';
@@ -151,6 +152,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   bool _sessionReadyToRun = false;
   bool _gameLoopStarted = false;
   bool _ps5MenuOpen = false;
+  DesktopShellController? _desktopShell;
+  Future<void> _engineWindowWork = Future<void>.value();
   final Stopwatch _frameClock = Stopwatch();
   int _nextFrameUs = 0;
   int _frameIndex = 0;
@@ -168,6 +171,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     _bridge = EngineRuntimeFactory.create(
       engine: widget.engine,
       onDialogRequested: _showEngineDialog,
+      onWindowAction: _handleEngineWindowAction,
     );
     _gameTicker = createTicker(_onGameTick);
     _bridge.media.fullscreenVideoBlocking.addListener(_syncGameTicker);
@@ -183,6 +187,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _desktopShell = DesktopShellScope.maybeOf(context);
+  }
+
+  @override
   void didUpdateWidget(PlayerScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.sessionState == widget.sessionState) return;
@@ -190,6 +200,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     _releasePointerButtons();
     _endTouchpadDrag();
     if (!widget.sessionState.isRunning) {
+      unawaited(_releaseEngineWindow());
       if (_ps5MenuOpen) _ps5MenuOpen = false;
       unawaited(_bridge.setSessionState(widget.sessionState));
       _syncGameTicker();
@@ -817,6 +828,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   @override
   void dispose() {
     _closing = true;
+    unawaited(_releaseEngineWindow());
     WidgetsBinding.instance.removeObserver(this);
     _unlockOrientation();
     _bridge.media.fullscreenVideoBlocking.removeListener(_syncGameTicker);
@@ -998,10 +1010,40 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   bool get _isDesktopPlatform =>
       Platform.isMacOS || Platform.isWindows || Platform.isLinux;
 
+  void _handleEngineWindowAction(EngineWindowAction action) {
+    _engineWindowWork = _engineWindowWork.then((_) async {
+      if (!mounted ||
+          _closing ||
+          !_isDesktopPlatform ||
+          !widget.sessionState.isRunning) {
+        return;
+      }
+      try {
+        switch (action) {
+          case EngineWindowAction.toggleFullscreen:
+            await _desktopShell?.togglePlayerFullScreen(this);
+          case EngineWindowAction.minimize:
+            await windowManager.minimize();
+        }
+      } catch (error) {
+        Log.warn('[Player] Window action failed: $error');
+      }
+    });
+  }
+
+  Future<void> _releaseEngineWindow() {
+    final shell = _desktopShell;
+    return _engineWindowWork = _engineWindowWork.then((_) async {
+      await shell?.releasePlayerFullScreen(this);
+    });
+  }
+
   Future<void> _exitBigScreenFromPlayer() async {
     if (_closing) return;
     if (_isDesktopPlatform) {
       try {
+        await _releaseEngineWindow();
+        if (!mounted || _closing) return;
         await windowManager.setFullScreen(false);
       } catch (error) {
         Log.warn('[Player] 退出大屏模式失败: $error');

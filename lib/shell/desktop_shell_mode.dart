@@ -1,13 +1,31 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:macos_window_utils/macos/ns_window_delegate.dart';
 import 'package:macos_window_utils/ns_window_delegate_handler/ns_window_delegate_handle.dart';
 import 'package:macos_window_utils/window_manipulator.dart';
 import 'package:window_manager/window_manager.dart';
 
 enum DesktopShellMode { standard, bigScreen }
+
+class DesktopShellScope extends InheritedWidget {
+  const DesktopShellScope({
+    required this.controller,
+    required super.child,
+    super.key,
+  });
+
+  final DesktopShellController controller;
+
+  static DesktopShellController? maybeOf(BuildContext context) => context
+      .dependOnInheritedWidgetOfExactType<DesktopShellScope>()
+      ?.controller;
+
+  @override
+  bool updateShouldNotify(DesktopShellScope oldWidget) =>
+      controller != oldWidget.controller;
+}
 
 /// 窗口全屏能力的窄接口，便于在不启动桌面插件的情况下测试切换逻辑。
 abstract interface class DesktopWindowApi {
@@ -85,7 +103,6 @@ class _MacosFullScreenDelegate extends NSWindowDelegate {
   void windowDidExitFullScreen() => onChanged(false);
 }
 
-/// 桌面壳模式完全跟随窗口全屏状态，窗口化时不可能停留在 PS5 大屏壳。
 class DesktopShellController extends ChangeNotifier {
   DesktopShellController({DesktopWindowApi? window})
     : _window = window ?? WindowManagerDesktopWindowApi() {
@@ -105,11 +122,15 @@ class DesktopShellController extends ChangeNotifier {
   bool _transitioning = false;
   int _stateRevision = 0;
   bool _disposed = false;
+  Object? _playerWindowOwner;
+  DesktopShellMode? _playerShell;
+  bool? _playerPreviousFullScreen;
 
   bool get isFullScreen => _isFullScreen;
 
   DesktopShellMode get mode =>
-      _isFullScreen ? DesktopShellMode.bigScreen : DesktopShellMode.standard;
+      _playerShell ??
+      (_isFullScreen ? DesktopShellMode.bigScreen : DesktopShellMode.standard);
 
   Future<void> syncWindowState() async {
     final revision = _stateRevision;
@@ -122,32 +143,54 @@ class DesktopShellController extends ChangeNotifier {
   }
 
   Future<bool> enterBigScreen() async {
+    if (_playerWindowOwner != null) return false;
     if (_isFullScreen) return true;
-    if (_transitioning) return false;
-    _transitioning = true;
-    try {
-      await _window.setFullScreen(true);
-      final entered =
-          await _waitForFullScreen(true) || await _readFullScreenState();
-      if (entered) _setFullScreen(true);
-      return entered;
-    } catch (_) {
-      return false;
-    } finally {
-      _transitioning = false;
-    }
+    return _changeFullScreen(true);
   }
 
   Future<bool> exitBigScreen() async {
+    if (_playerWindowOwner != null) return false;
     if (!_isFullScreen) return true;
-    if (_transitioning) return false;
+    return _changeFullScreen(false);
+  }
+
+  Future<bool> togglePlayerFullScreen(Object player) async {
+    if (_disposed || _transitioning) return false;
+    if (_playerWindowOwner != null && !identical(_playerWindowOwner, player)) {
+      return false;
+    }
+    final wasFullScreen = await _readFullScreenState();
+    if (_disposed || _transitioning) return false;
+    if (_playerWindowOwner != null && !identical(_playerWindowOwner, player)) {
+      return false;
+    }
+    _playerShell ??= mode;
+    _playerPreviousFullScreen ??= wasFullScreen;
+    _playerWindowOwner = player;
+    return _changeFullScreen(!wasFullScreen);
+  }
+
+  Future<void> releasePlayerFullScreen(Object player) async {
+    if (_disposed || !identical(_playerWindowOwner, player)) return;
+    final previousMode = mode;
+    final previousFullScreen = _playerPreviousFullScreen!;
+    if (await _readFullScreenState() != previousFullScreen) {
+      await _changeFullScreen(previousFullScreen);
+    }
+    _playerWindowOwner = null;
+    _playerShell = null;
+    _playerPreviousFullScreen = null;
+    if (!_disposed && previousMode != mode) notifyListeners();
+  }
+
+  Future<bool> _changeFullScreen(bool expected) async {
+    if (_disposed || _transitioning) return false;
     _transitioning = true;
     try {
-      await _window.setFullScreen(false);
-      final exited =
-          await _waitForFullScreen(false) || !await _readFullScreenState();
-      if (exited) _setFullScreen(false);
-      return exited;
+      await _window.setFullScreen(expected);
+      final applied = await _waitForFullScreen(expected);
+      if (applied) _setFullScreen(expected);
+      return applied;
     } catch (_) {
       return false;
     } finally {
@@ -169,7 +212,7 @@ class DesktopShellController extends ChangeNotifier {
       if (await _readFullScreenState() == expected) return true;
       await Future<void>.delayed(_pollInterval);
     }
-    return _readFullScreenState();
+    return await _readFullScreenState() == expected;
   }
 
   void _handleFullScreenChanged(bool value) {
