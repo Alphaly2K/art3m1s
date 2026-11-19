@@ -403,12 +403,15 @@ private extension ArtemisFlutterHost {
     private let player: AVPlayer
     private let item: AVPlayerItem
     private let output: AVPlayerItemVideoOutput
+    private let loop: Bool
     private var finished: String?
+    private var reachedEnd = false
     private var suspended: Bool
     private var hasFrame = false
     private var observers: [NSObjectProtocol] = []
 
     init(url: URL, loop: Bool, suspended: Bool, volume: Float) {
+        self.loop = loop
         self.suspended = suspended
         item = AVPlayerItem(url: url)
         output = AVPlayerItemVideoOutput(pixelBufferAttributes: [
@@ -422,15 +425,7 @@ private extension ArtemisFlutterHost {
         player.actionAtItemEnd = .pause
         let center = NotificationCenter.default
         observers.append(center.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                if loop && self.hasFrame {
-                    self.player.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero)
-                    if !self.suspended { self.player.play() }
-                } else {
-                    self.finished = self.hasFrame ? "ended" : "failed"
-                }
-            }
+            MainActor.assumeIsolated { self?.reachedEnd = true }
         })
         observers.append(center.addObserver(forName: .AVPlayerItemFailedToPlayToEndTime, object: item, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.finished = "failed" }
@@ -443,18 +438,33 @@ private extension ArtemisFlutterHost {
     func setVolume(_ volume: Float) { player.volume = volume }
 
     func frame() -> CVPixelBuffer? {
-        guard !suspended else { return nil }
-        let time = item.currentTime()
-        guard output.hasNewPixelBuffer(forItemTime: time) else { return nil }
-        let frame = output.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil)
-        if frame != nil { hasFrame = true }
+        guard !suspended, terminalState == nil else { return nil }
+        var time = item.currentTime()
+        if reachedEnd {
+            // The end time is outside the last sample's display interval.
+            time = CMTimeMaximum(.zero, time - CMTime(value: 1, timescale: 60_000))
+        }
+        let frame = output.hasNewPixelBuffer(forItemTime: time)
+            ? output.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil) : nil
+        if frame != nil {
+            hasFrame = true
+        }
+        if reachedEnd {
+            reachedEnd = false
+            if loop && hasFrame {
+                player.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero)
+                player.play()
+            } else {
+                finished = hasFrame ? "ended" : "failed"
+            }
+        }
         return frame
     }
 
     func setSuspended(_ value: Bool) {
         guard suspended != value else { return }
         suspended = value
-        if value { player.pause() } else if terminalState == nil { player.play() }
+        if value { player.pause() } else if terminalState == nil && !reachedEnd { player.play() }
     }
 
     func close() {
