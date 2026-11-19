@@ -64,6 +64,7 @@ class MediaBridge implements EngineMediaHost {
   final Directory _cacheDir = Directory.systemTemp.createTempSync(
     'art3m1s_media_',
   );
+  Directory get _projectCacheDir => Directory('${_cacheDir.path}/project');
 
   _AudioHandle? _bgm;
   _AudioHandle? _videoAudio;
@@ -698,16 +699,19 @@ class MediaBridge implements EngineMediaHost {
           _assetReader?.call(candidate) ??
           (projectOnly ? null : FileProvider.readFile(candidate));
       if (bytes == null) continue;
+      final directory = projectOnly ? _projectCacheDir : _cacheDir;
+      if (projectOnly) await directory.create(recursive: true);
       final decoded = await _decodeBytesIfNeeded(
         bytes,
         cacheKey: 'asset:$candidate',
+        directory: directory,
       );
       if (decoded != null) {
         _assetCache[candidate] = decoded;
         return decoded;
       }
       final file = File(
-        '${_cacheDir.path}${Platform.pathSeparator}'
+        '${directory.path}${Platform.pathSeparator}'
         '${_stableId(candidate)}${_extension(candidate)}',
       );
       file.writeAsBytesSync(bytes, flush: true);
@@ -722,6 +726,7 @@ class MediaBridge implements EngineMediaHost {
   Future<File?> _decodeBytesIfNeeded(
     Uint8List bytes, {
     required String cacheKey,
+    Directory? directory,
   }) async {
     if (!_decodeCompressedAudio || !encodedAudioNeedsPcmWav(bytes)) {
       return null;
@@ -732,7 +737,7 @@ class MediaBridge implements EngineMediaHost {
 
     final task = _audioDecodeTasks.putIfAbsent(internalKey, () async {
       final output = File(
-        '${_cacheDir.path}${Platform.pathSeparator}'
+        '${(directory ?? _cacheDir).path}${Platform.pathSeparator}'
         'decoded_${_stableId(cacheKey)}.wav',
       );
       final stopwatch = Stopwatch()..start();
@@ -833,6 +838,7 @@ class _AudioHandle {
     required this.gain,
     required this.pan,
     required this.onCompleted,
+    required this.suspendWithSession,
   });
 
   final String? id;
@@ -842,16 +848,18 @@ class _AudioHandle {
   final bool loop;
   final File? loopFile;
   final void Function(String? id) onCompleted;
+  final bool suspendWithSession;
   double gain;
   double pan;
-  Timer? _fadeTimer;
-  Completer<void>? _fadeCompleter;
-  Timer? _panTimer;
-  Completer<void>? _panCompleter;
+  _AudioRamp? _fade;
+  _AudioRamp? _pan;
+  Future<void>? _playbackChange;
   StreamSubscription<void>? _completionSubscription;
   bool _completed = false;
   bool _loopSegmentStarted = false;
   bool _hostSuspended = false;
+  bool _primaryRequested = false;
+  bool _loopRequested = false;
   bool _resumePrimaryAfterSuspend = false;
   bool _resumeLoopAfterSuspend = false;
   bool _disposed = false;
@@ -868,6 +876,7 @@ class _AudioHandle {
     required double pan,
     required bool loop,
     required void Function(String? id) onCompleted,
+    bool suspendWithSession = false,
   }) async {
     assert(file != null || bytes != null);
     final player = audio.AudioPlayer();
@@ -882,6 +891,7 @@ class _AudioHandle {
       gain: gain,
       pan: pan,
       onCompleted: onCompleted,
+      suspendWithSession: suspendWithSession,
     );
     handle._completionSubscription = player.onPlayerComplete.listen((_) {
       unawaited(handle._handleCompletion());
@@ -915,6 +925,7 @@ class _AudioHandle {
   Future<void> _handleCompletion() async {
     if (_disposed || _completed) return;
     if (loop && loopFile == null) return;
+    _primaryRequested = false;
     if (loop && !_loopSegmentStarted) {
       final next = loopFile;
       if (next == null) return;
@@ -925,11 +936,14 @@ class _AudioHandle {
           await _complete();
           return;
         }
-        if (_hostSuspended) {
-          _resumeLoopAfterSuspend = true;
-        } else {
-          await nextPlayer.resume();
-        }
+        await _changePlayback(() async {
+          _loopRequested = true;
+          if (_hostSuspended) {
+            _resumeLoopAfterSuspend = true;
+          } else {
+            await nextPlayer.resume();
+          }
+        });
         Log.debug('[MediaBridge] BGM 已进入 B 段循环: ${next.path}');
       } catch (error, stackTrace) {
         Log.warn(
@@ -949,16 +963,18 @@ class _AudioHandle {
     onCompleted(id);
   }
 
-  Future<void> play() async {
+  Future<void> play() => _changePlayback(() async {
     if (_disposed) return;
+    _primaryRequested = true;
     if (_hostSuspended) {
       _resumePrimaryAfterSuspend = true;
       return;
     }
     await player.resume();
-  }
+  });
 
   Future<void> pause() async {
+    _primaryRequested = false;
     _resumePrimaryAfterSuspend = false;
     if (!_disposed) await player.pause();
   }
@@ -966,17 +982,47 @@ class _AudioHandle {
   Future<void> setHostSuspended(bool suspended) async {
     if (_disposed || _hostSuspended == suspended) return;
     _hostSuspended = suspended;
+    if (suspendWithSession) {
+      if (suspended) {
+        _fade?.pause();
+        _pan?.pause();
+      } else {
+        _fade?.resume();
+        _pan?.resume();
+      }
+    }
+    await _changePlayback(() => _setPlayersSuspended(suspended));
+  }
+
+  Future<void> _changePlayback(Future<void> Function() operation) {
+    if (!suspendWithSession) return operation();
+
+    Future<void> run() async {
+      if (!_disposed) await operation();
+    }
+
+    // AudioPlayer updates its state after the native reply.
+    final previous = _playbackChange;
+    final result = previous == null ? run() : previous.then((_) => run());
+    _playbackChange = result.then<void>((_) {}, onError: (Object _) {});
+    return result;
+  }
+
+  Future<void> _setPlayersSuspended(bool suspended) async {
     if (suspended) {
-      _resumePrimaryAfterSuspend =
-          _resumePrimaryAfterSuspend ||
-          player.state == audio.PlayerState.playing;
       final nextPlayer = loopPlayer;
-      _resumeLoopAfterSuspend =
-          _resumeLoopAfterSuspend ||
-          nextPlayer?.state == audio.PlayerState.playing;
+      // A native player can emit onComplete and then loop on its own.
+      final pausePrimary = suspendWithSession
+          ? _primaryRequested
+          : player.state == audio.PlayerState.playing;
+      final pauseLoop = suspendWithSession
+          ? _loopRequested
+          : nextPlayer?.state == audio.PlayerState.playing;
+      _resumePrimaryAfterSuspend |= pausePrimary;
+      _resumeLoopAfterSuspend |= pauseLoop;
       await Future.wait([
-        if (player.state == audio.PlayerState.playing) player.pause(),
-        if (nextPlayer?.state == audio.PlayerState.playing) nextPlayer!.pause(),
+        if (pausePrimary) player.pause(),
+        if (pauseLoop && nextPlayer != null) nextPlayer.pause(),
       ]);
       return;
     }
@@ -1018,81 +1064,86 @@ class _AudioHandle {
   }
 
   Future<void> panTo(double target, int durationMs) async {
-    _cancelPan();
+    if (_disposed) return;
+    _pan?.finish();
+    _pan = null;
     target = target.clamp(-1, 1);
     if (durationMs <= 0) {
       await setPan(target);
       return;
     }
     final start = pan;
-    final steps = math.max(1, durationMs ~/ 33);
-    var step = 0;
-    final completer = _panCompleter = Completer<void>();
-    _panTimer = Timer.periodic(const Duration(milliseconds: 33), (timer) {
-      step += 1;
-      final t = (step / steps).clamp(0, 1).toDouble();
-      unawaited(setPan(start + (target - start) * t));
-      if (step >= steps) {
-        timer.cancel();
-        _panTimer = null;
-        if (!completer.isCompleted) completer.complete();
-        if (identical(_panCompleter, completer)) _panCompleter = null;
-      }
-    });
-    return completer.future;
+    final ramp = _pan = _AudioRamp(
+      durationMs,
+      (t) => setPan(start + (target - start) * t),
+    );
+    if (!suspendWithSession || !_hostSuspended) ramp.resume();
+    return ramp.done;
   }
 
   Future<void> fadeTo(double target, int durationMs) async {
-    _cancelFade();
+    if (_disposed) return;
+    _fade?.finish();
+    _fade = null;
     if (durationMs <= 0) {
       await setEffectiveVolume(target);
       return;
     }
     final start = _effectiveVolume;
-    final steps = math.max(1, durationMs ~/ 33);
-    var step = 0;
-    final completer = _fadeCompleter = Completer<void>();
-    _fadeTimer = Timer.periodic(const Duration(milliseconds: 33), (timer) {
-      step += 1;
-      final t = (step / steps).clamp(0, 1).toDouble();
-      unawaited(setEffectiveVolume(start + (target - start) * t));
-      if (step >= steps) {
-        timer.cancel();
-        _fadeTimer = null;
-        if (!completer.isCompleted) completer.complete();
-        if (identical(_fadeCompleter, completer)) _fadeCompleter = null;
-      }
-    });
-    return completer.future;
-  }
-
-  void _cancelFade() {
-    _fadeTimer?.cancel();
-    _fadeTimer = null;
-    final completer = _fadeCompleter;
-    _fadeCompleter = null;
-    if (completer != null && !completer.isCompleted) completer.complete();
-  }
-
-  void _cancelPan() {
-    _panTimer?.cancel();
-    _panTimer = null;
-    final completer = _panCompleter;
-    _panCompleter = null;
-    if (completer != null && !completer.isCompleted) completer.complete();
+    final ramp = _fade = _AudioRamp(
+      durationMs,
+      (t) => setEffectiveVolume(start + (target - start) * t),
+    );
+    if (!suspendWithSession || !_hostSuspended) ramp.resume();
+    return ramp.done;
   }
 
   Future<void> dispose() async {
     if (_disposed) return;
     _disposed = true;
-    _cancelFade();
-    _cancelPan();
+    _fade?.finish();
+    _pan?.finish();
+    _fade = null;
+    _pan = null;
     await _completionSubscription?.cancel();
     _completionSubscription = null;
+    await _playbackChange;
     await Future.wait([
       player.dispose(),
       if (loopPlayer != null) loopPlayer!.dispose(),
     ]);
+  }
+}
+
+final class _AudioRamp {
+  _AudioRamp(int durationMs, this._apply)
+    : _steps = math.max(1, durationMs ~/ _interval.inMilliseconds);
+
+  static const _interval = Duration(milliseconds: 33);
+  final int _steps;
+  final Future<void> Function(double) _apply;
+  final _done = Completer<void>();
+  Timer? _timer;
+  int _step = 0;
+
+  Future<void> get done => _done.future;
+
+  void resume() {
+    if (_done.isCompleted || _timer != null) return;
+    _timer = Timer.periodic(_interval, (_) {
+      unawaited(_apply(++_step / _steps));
+      if (_step == _steps) finish();
+    });
+  }
+
+  void pause() {
+    _timer?.cancel();
+    _timer = null;
+  }
+
+  void finish() {
+    pause();
+    if (!_done.isCompleted) _done.complete();
   }
 }
 

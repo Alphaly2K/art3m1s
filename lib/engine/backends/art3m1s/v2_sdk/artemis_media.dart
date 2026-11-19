@@ -4,6 +4,8 @@ enum ArtemisPlaybackStatus { started, ended, failed, cancelled }
 
 enum ArtemisAudioChannel { bgm, se, voice }
 
+enum ArtemisVolumeChannel { bgm, se, video }
+
 enum ArtemisAudioAction { stop, gain, pan }
 
 sealed class ArtemisMediaCommand {
@@ -24,6 +26,7 @@ sealed class ArtemisMediaCommand {
       (1, 'play') => ArtemisAudioPlay._(data),
       (2, 'play') => ArtemisVideoPlay._(data),
       (1, 'stop' || 'gain' || 'pan') => ArtemisAudioUpdate._(data),
+      (1, 'volume') => ArtemisChannelVolume._(data),
       (1, 'stop_all') => ArtemisMediaStopAll._(audio: true, fadeMs: _ms(data)),
       (2, 'stop_all') => const ArtemisMediaStopAll._(audio: false, fadeMs: 0),
       (1, 'restore') => ArtemisAudioRestore._(data),
@@ -129,6 +132,15 @@ final class ArtemisAudioUpdate extends ArtemisMediaCommand {
   final List<String> ids;
   final int timeMs;
   final int? value;
+}
+
+final class ArtemisChannelVolume extends ArtemisMediaCommand {
+  ArtemisChannelVolume._(Map<String, Object?> data)
+    : channel = ArtemisVolumeChannel.values.byName(data['channel'] as String),
+      level = data['level'] as int;
+
+  final ArtemisVolumeChannel channel;
+  final int level;
 }
 
 final class ArtemisMediaStopAll extends ArtemisMediaCommand {

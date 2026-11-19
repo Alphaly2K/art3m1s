@@ -10,7 +10,7 @@ final class ArtemisV2MediaHost extends MediaBridge {
   final _playbacks = <String, _V2AudioPlayback>{};
   final _videos = <String, _V2VideoPlayback>{};
   final _videoAssets = <String, Future<File>>{};
-  final _fading = <_AudioHandle>{};
+  final _fading = <_AudioHandle, Object>{};
   final _work = <Future<void>>{};
   _V2VideoPlayback? _fullscreen;
   bool _muted = false;
@@ -35,14 +35,17 @@ final class ArtemisV2MediaHost extends MediaBridge {
   double _volumeScale(String channel) =>
       _muted ? 0 : _effectiveVolume(channel, 1);
 
-  void _updateVolume() {
+  void _updateVolume([String? channel]) {
     final handles = {
-      ..._fading,
+      ..._fading.keys,
       ..._playbacks.values.map((track) => track.handle).nonNulls,
     };
     for (final handle in handles) {
-      _run(handle.setVolumeScale(_volumeScale(handle.channel)));
+      if (channel == null || channel == handle.channel) {
+        _run(handle.setVolumeScale(_volumeScale(handle.channel)));
+      }
     }
+    if (channel != null && channel != 'video') return;
     for (final session
         in _videos.values.map((track) => track.session).toSet()) {
       _run(session.setVideoVolume(_volumeScale('video')));
@@ -59,6 +62,9 @@ final class ArtemisV2MediaHost extends MediaBridge {
     switch (command) {
       case ArtemisAudioPlay():
         _start(command, feedback);
+      case ArtemisChannelVolume(:final channel, :final level):
+        _channelVolumes[channel.name] = level.clamp(0, 1000) / 1000;
+        _updateVolume(channel.name);
       case ArtemisAudioUpdate(
         :final action,
         :final ids,
@@ -67,7 +73,10 @@ final class ArtemisV2MediaHost extends MediaBridge {
       ):
         for (final id in ids) {
           final track = _playbacks[id];
-          if (track == null || track.stopping) continue;
+          if (track == null ||
+              (track.stopping && action != ArtemisAudioAction.stop)) {
+            continue;
+          }
           switch (action) {
             case ArtemisAudioAction.stop:
               _stop(track, timeMs);
@@ -88,6 +97,9 @@ final class ArtemisV2MediaHost extends MediaBridge {
         if (audio) {
           for (final track in _playbacks.values.toList()) {
             _stop(track, fadeMs);
+          }
+          for (final handle in _fading.keys.toList()) {
+            _run(_fadeOutRetired(handle, fadeMs));
           }
         } else {
           _stopVideos();
@@ -112,8 +124,9 @@ final class ArtemisV2MediaHost extends MediaBridge {
     final pending = _videoAssets.putIfAbsent(play.key, () async {
       final bytes = _assetReader?.call(play.key);
       if (bytes == null) throw StateError('Missing video asset');
+      final directory = await _projectCacheDir.create(recursive: true);
       final file = File(
-        '${_cacheDir.path}/video_${_stableId(play.key)}${_extension(play.key)}',
+        '${directory.path}/video_${_stableId(play.key)}${_extension(play.key)}',
       );
       return file.writeAsBytes(bytes);
     });
@@ -204,7 +217,7 @@ final class ArtemisV2MediaHost extends MediaBridge {
     final track = _V2AudioPlayback(play, feedback);
     final previousHandle = previous?.handle;
     if (previousHandle != null) {
-      _fading.add(previousHandle);
+      _fading[previousHandle] = Object();
     }
     _playbacks[play.id] = track;
     _run(_open(track, previousHandle));
@@ -212,16 +225,12 @@ final class ArtemisV2MediaHost extends MediaBridge {
 
   Future<void> _open(_V2AudioPlayback track, _AudioHandle? previous) async {
     final play = track.play;
+    final previousTicket = _fading[previous];
     Future<void> retirePrevious(int fadeMs) async {
       final handle = previous;
       previous = null;
-      if (handle == null || !_fading.contains(handle)) return;
-      try {
-        if (fadeMs > 0) await handle.fadeTo(0, fadeMs);
-      } finally {
-        _fading.remove(handle);
-        await handle.dispose();
-      }
+      if (handle == null || !identical(_fading[handle], previousTicket)) return;
+      await _fadeOutRetired(handle, fadeMs);
     }
 
     try {
@@ -246,6 +255,7 @@ final class ArtemisV2MediaHost extends MediaBridge {
         gain: track.gain,
         pan: track.pan,
         loop: play.loop,
+        suspendWithSession: true,
         onCompleted: (_) {
           if (!_current(track)) return;
           if (!track.stopping) _started(track);
@@ -280,6 +290,19 @@ final class ArtemisV2MediaHost extends MediaBridge {
       rethrow;
     } finally {
       await retirePrevious(0);
+    }
+  }
+
+  Future<void> _fadeOutRetired(_AudioHandle handle, int fadeMs) async {
+    // Replacing a fade settles its old future before the new fade finishes.
+    final ticket = _fading[handle] = Object();
+    try {
+      if (fadeMs > 0) await handle.fadeTo(0, fadeMs);
+    } finally {
+      if (identical(_fading[handle], ticket)) {
+        _fading.remove(handle);
+        await handle.dispose();
+      }
     }
   }
 
@@ -318,24 +341,25 @@ final class ArtemisV2MediaHost extends MediaBridge {
 
   @override
   Future<void> setSuspended(bool suspended) async {
-    await super.setSuspended(suspended);
-    for (final session
-        in _videos.values.map((track) => track.session).toSet()) {
-      await session.suspendVideos(suspended);
-    }
-    for (final track in _playbacks.values.toList()) {
+    Future<void> suspendTrack(_V2AudioPlayback track) async {
       try {
         await track.handle?.setHostSuspended(suspended);
-        if (!suspended && track.ready && !track.stopping && _current(track)) {
+        if (!_suspended && track.ready && !track.stopping && _current(track)) {
           _started(track);
         }
       } catch (_) {
         _finish(track, ArtemisPlaybackStatus.failed);
       }
     }
-    for (final handle in _fading.toList()) {
-      await handle.setHostSuspended(suspended);
-    }
+
+    await Future.wait([
+      super.setSuspended(suspended),
+      for (final track in _playbacks.values) suspendTrack(track),
+      for (final handle in _fading.keys) handle.setHostSuspended(suspended),
+      for (final session
+          in _videos.values.map((track) => track.session).toSet())
+        session.suspendVideos(suspended),
+    ]);
   }
 
   void reset() {
@@ -346,14 +370,23 @@ final class ArtemisV2MediaHost extends MediaBridge {
   Future<void> resetProject() async {
     reset();
     _muted = false;
+    for (final channel in ArtemisVolumeChannel.values) {
+      _channelVolumes.remove(channel.name);
+    }
     await _drainWork();
     _assetCache.clear();
     _videoAssets.clear();
+    final directory = _projectCacheDir;
+    try {
+      if (directory.existsSync()) directory.deleteSync(recursive: true);
+    } on FileSystemException catch (error) {
+      Log.warn('[ArtemisV2] could not clear the project media cache: $error');
+    }
   }
 
   void _resetAudio() {
     final handles = {
-      ..._fading,
+      ..._fading.keys,
       ..._playbacks.values.map((track) => track.handle).nonNulls,
     };
     _playbacks.clear();
