@@ -1010,19 +1010,28 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   bool get _isDesktopPlatform =>
       Platform.isMacOS || Platform.isWindows || Platform.isLinux;
 
+  bool get _canHandleEngineWindowAction =>
+      mounted &&
+      _isDesktopPlatform &&
+      !_closing &&
+      widget.sessionState.isRunning;
+
   void _handleEngineWindowAction(EngineWindowAction action) {
     _engineWindowWork = _engineWindowWork.then((_) async {
-      if (!mounted ||
-          _closing ||
-          !_isDesktopPlatform ||
-          !widget.sessionState.isRunning) {
-        return;
-      }
+      if (!_canHandleEngineWindowAction) return;
       try {
         switch (action) {
           case EngineWindowAction.toggleFullscreen:
             await _desktopShell?.togglePlayerFullScreen(this);
           case EngineWindowAction.minimize:
+            final shell = _desktopShell;
+            if (Platform.isMacOS && shell != null) {
+              // AppKit cannot miniaturize a native fullscreen window.
+              if (!await shell.exitPlayerFullScreen(this) ||
+                  !_canHandleEngineWindowAction) {
+                return;
+              }
+            }
             await windowManager.minimize();
         }
       } catch (error) {
@@ -1038,18 +1047,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     });
   }
 
-  Future<void> _exitBigScreenFromPlayer() async {
+  void _exitBigScreenFromPlayer() {
     if (_closing) return;
-    if (_isDesktopPlatform) {
-      try {
-        await _releaseEngineWindow();
-        if (!mounted || _closing) return;
-        await windowManager.setFullScreen(false);
-      } catch (error) {
-        Log.warn('[Player] 退出大屏模式失败: $error');
-      }
-    }
-    if (mounted) _closePlayer();
+    _closePlayer();
+    unawaited(_desktopShell?.exitBigScreen());
   }
 
   Future<void> _closeArt3m1s() async {

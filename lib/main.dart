@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/widgets.dart';
@@ -117,7 +116,7 @@ Future<bool> _loadCrashReportingPreference() async {
   }
 }
 
-/// 按平台选壳：桌面窗口化时使用平台原生壳，全屏时自动切换为 PS5 大屏壳；
+/// 按平台选壳：桌面默认使用平台原生壳，可手动切换为 PS5 大屏壳；
 /// iOS 使用 Cupertino，Android 使用 Material 3 或 Miuix。
 class Art3m1sApp extends ConsumerStatefulWidget {
   const Art3m1sApp({super.key});
@@ -136,9 +135,7 @@ class _Art3m1sAppState extends ConsumerState<Art3m1sApp> {
   void initState() {
     super.initState();
     if (!_isDesktop) return;
-    final controller = DesktopShellController();
-    _desktopShell = controller;
-    unawaited(controller.syncWindowState());
+    _desktopShell = DesktopShellController();
   }
 
   @override

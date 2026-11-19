@@ -1,58 +1,36 @@
 import 'package:art3m1s/shell/desktop_shell_mode.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('windowed state stays on the standard desktop shell', () async {
-    final window = _FakeDesktopWindow();
+  test('native window changes leave the selected shell mounted', () async {
+    final window = _FakeDesktopWindow()..fullScreen = true;
     final controller = DesktopShellController(window: window);
     addTearDown(controller.dispose);
-
-    await controller.syncWindowState();
+    final changes = <DesktopShellMode>[];
+    controller.addListener(() => changes.add(controller.mode));
 
     expect(controller.mode, DesktopShellMode.standard);
-    expect(controller.isFullScreen, isFalse);
+    expect(await controller.enterBigScreen(), isTrue);
+    window.fullScreen = false;
+    expect(controller.mode, DesktopShellMode.bigScreen);
+    window.fullScreen = true;
+    expect(await controller.exitBigScreen(), isTrue);
+    expect(window.fullScreen, isTrue);
+    expect(changes, [DesktopShellMode.bigScreen, DesktopShellMode.standard]);
+    expect(window.requests, isEmpty);
   });
 
-  test(
-    'big screen mode is entered only after the window is fullscreen',
-    () async {
-      final window = _FakeDesktopWindow();
-      final controller = DesktopShellController(window: window);
-      addTearDown(controller.dispose);
-
-      final entered = await controller.enterBigScreen();
-
-      expect(entered, isTrue);
-      expect(window.fullScreen, isTrue);
-      expect(controller.mode, DesktopShellMode.bigScreen);
-    },
-  );
-
-  test(
-    'failed fullscreen transition leaves the standard shell active',
-    () async {
-      final window = _FakeDesktopWindow(acceptFullScreen: false);
-      final controller = DesktopShellController(window: window);
-      addTearDown(controller.dispose);
-
-      final entered = await controller.enterBigScreen();
-
-      expect(entered, isFalse);
-      expect(controller.mode, DesktopShellMode.standard);
-    },
-  );
-
-  test('native fullscreen changes drive the shell mode', () async {
+  test('a windowed app can explicitly enter and exit big screen', () async {
     final window = _FakeDesktopWindow();
     final controller = DesktopShellController(window: window);
     addTearDown(controller.dispose);
 
-    window.emitFullScreen(true);
+    expect(await controller.enterBigScreen(), isTrue);
     expect(controller.mode, DesktopShellMode.bigScreen);
-
-    window.emitFullScreen(false);
+    expect(window.fullScreen, isFalse);
+    expect(await controller.exitBigScreen(), isTrue);
     expect(controller.mode, DesktopShellMode.standard);
+    expect(window.requests, isEmpty);
   });
 
   test(
@@ -70,37 +48,20 @@ void main() {
 
       await controller.releasePlayerFullScreen(player);
       expect(window.fullScreen, isFalse);
-      window.emitFullScreen(true);
-      expect(controller.mode, DesktopShellMode.bigScreen);
+      window.fullScreen = true;
+      expect(await controller.enterBigScreen(), isTrue);
 
-      expect(await controller.togglePlayerFullScreen(player), isTrue);
+      expect(await controller.exitPlayerFullScreen(player), isTrue);
       expect(window.fullScreen, isFalse);
       expect(controller.mode, DesktopShellMode.bigScreen);
       await controller.releasePlayerFullScreen(player);
       expect(window.fullScreen, isTrue);
     },
   );
-
-  test(
-    'system fullscreen changes are recovered without a plugin event',
-    () async {
-      final window = _FakeDesktopWindow();
-      final controller = DesktopShellController(window: window);
-      addTearDown(controller.dispose);
-
-      window.fullScreen = true;
-      await Future<void>.delayed(const Duration(milliseconds: 700));
-
-      expect(controller.mode, DesktopShellMode.bigScreen);
-    },
-  );
 }
 
 class _FakeDesktopWindow implements DesktopWindowApi {
-  _FakeDesktopWindow({this.acceptFullScreen = true});
-
-  final bool acceptFullScreen;
-  final List<ValueChanged<bool>> _listeners = [];
+  final requests = <bool>[];
   bool fullScreen = false;
 
   @override
@@ -108,25 +69,7 @@ class _FakeDesktopWindow implements DesktopWindowApi {
 
   @override
   Future<void> setFullScreen(bool value) async {
-    if (!acceptFullScreen) return;
+    requests.add(value);
     fullScreen = value;
-    emitFullScreen(value);
-  }
-
-  void emitFullScreen(bool value) {
-    fullScreen = value;
-    for (final listener in List<ValueChanged<bool>>.from(_listeners)) {
-      listener(value);
-    }
-  }
-
-  @override
-  void addFullScreenListener(ValueChanged<bool> listener) {
-    _listeners.add(listener);
-  }
-
-  @override
-  void removeFullScreenListener(ValueChanged<bool> listener) {
-    _listeners.remove(listener);
   }
 }
