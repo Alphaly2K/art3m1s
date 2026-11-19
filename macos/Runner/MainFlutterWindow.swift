@@ -34,7 +34,8 @@ class MainFlutterWindow: NSWindow {
       let media = directory.appendingPathComponent("libart3m1s_artemis_media_host.dylib").path
       if FileManager.default.fileExists(atPath: core), FileManager.default.fileExists(atPath: metal) {
         let host = ArtemisFlutterHost(registry: textureRegistrar.textures, corePath: core, metalPath: metal,
-          mediaPath: FileManager.default.fileExists(atPath: media) ? media : nil)
+          mediaPath: FileManager.default.fileExists(atPath: media) ? media : nil,
+          angleDirectory: directory.path)
         host.register(messenger: textureRegistrar.messenger)
         artemisV2 = host
         NotificationCenter.default.addObserver(self, selector: #selector(closeArtemisV2(_:)),

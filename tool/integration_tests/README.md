@@ -29,6 +29,10 @@ build/macos/Build/Products/Debug/art3m1s.app/Contents/MacOS/art3m1s
 需要 macOS 桌面、Metal 设备，以及 `PATH` 中支持 `libx264`、`wmv2`、`wmav2` 编码的 `ffmpeg`。
 无需提供游戏文件。
 
+验证 v2 的 ANGLE/Metal 可选后端时，沿用上述构建命令，把 `--target` 改为
+`tool/integration_tests/artemis_v2_angle_smoke.dart`，再运行生成的应用。该入口使用包内 ANGLE
+库和合成 GLSL 项目，检查 Flutter 纹理的合成像素和脚本保存的 PNG，无需游戏文件或 FFmpeg。
+
 验证脚本窗口操作时，将 `--target` 改为 `tool/integration_tests/artemis_v2_window_smoke.dart`。
 测试窗口会进入全屏、最小化并恢复，验证这些操作不切换播放器所在的 Shell，最小化期间脚本等待
 不推进，恢复后可从原场景存档。需要活跃的 macOS 桌面会话，无需游戏文件或 FFmpeg。

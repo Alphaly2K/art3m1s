@@ -144,7 +144,7 @@ private final class ArtemisMacLifetime {
     private var pollCapacity = 4096
 
     init(corePath: String, metalPath: String, hostCaps: UInt64, screenshots: Bool = false,
-         randomSeed: UInt64 = 0) throws {
+         randomSeed: UInt64 = 0, angleDirectory: String? = nil) throws {
         let core = try ArtemisMacLibrary(path: corePath)
         let metalLibrary = try ArtemisMacLibrary(path: metalPath)
         let metal = try ArtemisMacMetal(metalLibrary)
@@ -173,13 +173,20 @@ private final class ArtemisMacLifetime {
         let frames = try queryTable(UInt32(ArtSwiftFrame), ArtFrameApiV2.self)
         var config = ArtCreateInfo(struct_size: UInt32(MemoryLayout<ArtCreateInfo>.size), flags: 0,
                                    host_service_caps: hostCaps,
-                                   renderer_caps: art_swift_renderer_caps(screenshots ? 1 : 0),
+                                   renderer_caps: angleDirectory == nil
+                                     ? art_swift_renderer_caps(screenshots ? 1 : 0)
+                                     : art_swift_angle_renderer_caps(screenshots ? 1 : 0),
                                    random_seed: randomSeed)
         var handle: ArtRuntimeHandle = 0
         try check(api.create(&config, &handle), "create", root: root)
         do {
             var renderer: OpaquePointer?
-            try check(metal.create(frames, handle, &renderer), "create renderer")
+            if let angleDirectory {
+                let create = try metalLibrary.symbol("art3m1s_metal_host_v1_create_angle", as: ArtSwiftAngleCreate.self)
+                try check(angleDirectory.withCString { create(frames, handle, $0, &renderer) }, "create ANGLE renderer")
+            } else {
+                try check(metal.create(frames, handle, &renderer), "create renderer")
+            }
             guard let renderer else { throw ArtemisMacError.protocolError("Missing Metal renderer") }
             lifetime = ArtemisMacLifetime(ArtemisMacNative(coreLibrary: core, metalLibrary: metalLibrary,
                 root: root, api: api, metal: metal, handle: handle, renderer: renderer))

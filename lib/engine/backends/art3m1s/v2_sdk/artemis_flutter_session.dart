@@ -131,6 +131,7 @@ final class ArtemisFlutterSession {
     required String platform,
     required int hostCaps,
     String? reportedOS,
+    bool angle = false,
     bool screenshots = false,
   }) async {
     final result = (await _channel.invokeMapMethod<Object?, Object?>('open', {
@@ -138,6 +139,7 @@ final class ArtemisFlutterSession {
       'platform': platform,
       'hostCaps': hostCaps,
       'reportedOS': ?reportedOS,
+      if (angle) 'renderer': 'angle',
       'screenshots': screenshots,
     }))!;
     final session = ArtemisFlutterSession._(result['session'] as String);

@@ -60,6 +60,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
   String? _reportedOS;
   int _frame = 1, _monotonicNS = 0;
   int _width = 1280, _height = 720;
+  bool _angle = false;
   int _outputWidth = 0, _outputHeight = 0;
   int? _textureID;
   int _surfaceRevision = 0;
@@ -174,6 +175,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
   void createRuntime(int stageWidth, int stageHeight, {int backend = 0}) {
     _width = stageWidth;
     _height = stageHeight;
+    _angle = backend == 6;
   }
 
   @override
@@ -206,6 +208,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
           (_translator?.hostTranslationEnabled == true ? 16 : 0),
       reportedOS: _reportedOS,
       screenshots: true,
+      angle: _angle,
     );
     try {
       final events = await opened.session.pollEvents();

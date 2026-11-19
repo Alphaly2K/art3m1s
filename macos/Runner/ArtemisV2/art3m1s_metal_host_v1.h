@@ -12,6 +12,8 @@ extern "C" {
 #define ART_METAL_HOST_V1_RENDERER_CAPS \
     (ART_RENDERER_CAP_SPRITE | ART_RENDERER_CAP_TRANSITION | ART_RENDERER_CAP_SCREENSHOT | \
      ART_RENDERER_CAP_GROUP | ART_RENDERER_CAP_EMOTE | ART_RENDERER_CAP_HLSL)
+#define ART_ANGLE_HOST_V1_RENDERER_CAPS \
+    ((ART_METAL_HOST_V1_RENDERER_CAPS & ~ART_RENDERER_CAP_HLSL) | ART_RENDERER_CAP_GLSL)
 
 typedef struct ArtMetalHost ArtMetalHost;
 
@@ -19,6 +21,10 @@ typedef struct ArtMetalHost ArtMetalHost;
  * library alive until destroy. The adapter never steps or destroys the runtime. */
 ArtStatus art3m1s_metal_host_v1_create(const ArtFrameApiV2 *frames, ArtRuntimeHandle runtime,
                                       ArtMetalHost **out);
+/* ANGLE/Metal uses GLES shaders. Supply an absolute UTF-8 directory containing
+ * the EGL and GLES libraries and negotiate ART_ANGLE_HOST_V1_RENDERER_CAPS. */
+ArtStatus art3m1s_metal_host_v1_create_angle(const ArtFrameApiV2 *frames, ArtRuntimeHandle runtime,
+                                            const char *directory, ArtMetalHost **out);
 ArtStatus art3m1s_metal_host_v1_destroy(ArtMetalHost *host);
 
 /* Supply a BGRA IOSurface and keep it alive until detached or destroyed.

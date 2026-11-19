@@ -17,15 +17,18 @@ private enum ArtemisFlutterError: Error {
     private let corePath: String
     private let metalPath: String
     private let mediaPath: String?
+    private let angleDirectory: String?
     private var mediaLibrary: ArtemisLegacyMediaLibrary?
     private let registry: FlutterTextureRegistry
     private var channel: FlutterMethodChannel?
     private var sessions: [String: Session] = [:]
 
-    init(registry: FlutterTextureRegistry, corePath: String, metalPath: String, mediaPath: String? = nil) {
+    init(registry: FlutterTextureRegistry, corePath: String, metalPath: String, mediaPath: String? = nil,
+         angleDirectory: String? = nil) {
         self.corePath = corePath
         self.metalPath = metalPath
         self.mediaPath = mediaPath
+        self.angleDirectory = angleDirectory
         self.registry = registry
     }
 
@@ -69,8 +72,17 @@ private enum ArtemisFlutterError: Error {
             guard let ini = bytes(args["ini"]),
                   let platform = args["platform"] as? String else { throw ArtemisFlutterError.invalidArguments }
             let caps = try number(args["hostCaps"], as: UInt64.self)
+            let angle: String?
+            switch args["renderer"] as? String {
+            case nil, "metal": angle = nil
+            case "angle":
+                guard let angleDirectory else { throw ArtemisMacError.loader("ANGLE is unavailable") }
+                angle = angleDirectory
+            default: throw ArtemisFlutterError.invalidArguments
+            }
             let core = try ArtemisMacSession(corePath: corePath, metalPath: metalPath, hostCaps: caps,
-                                             screenshots: args["screenshots"] as? Bool ?? false)
+                                             screenshots: args["screenshots"] as? Bool ?? false,
+                                             angleDirectory: angle)
             do {
                 try core.openProject(ini, platform: platform, reportedOS: args["reportedOS"] as? String)
                 let id = UUID().uuidString
