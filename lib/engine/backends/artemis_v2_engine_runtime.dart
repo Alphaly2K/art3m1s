@@ -188,6 +188,34 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     return effects;
   }
 
+  List<Uint8List> _knownGlslSources() {
+    final files = _vfs;
+    if (files == null || !_angle) return const [];
+    const extensions = {'.glsl', '.frag', '.fsh', '.fs'};
+    final sources = <Uint8List>[];
+    final seen = <Digest>{};
+    var size = 0;
+    for (final path in files.listFiles()) {
+      if (!extensions.any(path.endsWith)) continue;
+      try {
+        final source = _asset(path);
+        if (source == null ||
+            source.isEmpty ||
+            source.length > 256 * 1024 ||
+            size + source.length > 4 * 1024 * 1024) {
+          continue;
+        }
+        if (!seen.add(sha256.convert(source))) continue;
+        sources.add(source);
+        size += source.length;
+        if (sources.length == 256) break;
+      } on FileSystemException {
+        continue;
+      }
+    }
+    return sources;
+  }
+
   @override
   void setSaveDir(String dir) => _saveDir = dir;
   @override
@@ -249,6 +277,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
       screenshots: true,
       angle: _angle,
       hlslEffects: _cachedHlslEffects(),
+      glslSources: _knownGlslSources(),
     );
     try {
       final events = await opened.session.pollEvents();

@@ -108,6 +108,10 @@ private enum ArtemisFlutterError: Error {
             let core = try dxvk ?? ArtemisMacSession(corePath: corePath, metalPath: metalPath, hostCaps: caps,
                                                      screenshots: screenshots, angleDirectory: angle)
             do {
+                if angle != nil {
+                    let sources = (args["glslSources"] as? [Any] ?? []).prefix(256).compactMap(bytes)
+                    try core.warmGLSL(sources)
+                }
                 try core.openProject(ini, platform: platform, reportedOS: args["reportedOS"] as? String)
                 let id = UUID().uuidString
                 var result = try state(core)

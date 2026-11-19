@@ -25,6 +25,11 @@ ArtStatus art3m1s_metal_host_v1_create(const ArtFrameApiV2 *frames, ArtRuntimeHa
  * the EGL and GLES libraries and negotiate ART_ANGLE_HOST_V1_RENDERER_CAPS. */
 ArtStatus art3m1s_metal_host_v1_create_angle(const ArtFrameApiV2 *frames, ArtRuntimeHandle runtime,
                                             const char *directory, ArtMetalHost **out);
+/* Optional ANGLE-only disk cache. Pass an absolute UTF-8 Host cache directory.
+ * ART_E_UNSUPPORTED leaves normal source compilation available. */
+ArtStatus art3m1s_metal_host_v1_set_glsl_cache(ArtMetalHost *host, const char *directory);
+/* Prepare exact GLSL source bytes on this ANGLE context before drawing. */
+ArtStatus art3m1s_metal_host_v1_prepare_glsl(ArtMetalHost *host, ArtBytes source);
 /* Supply a trusted absolute UTF-8 runtime directory. Negotiate the same
  * renderer capabilities as the Metal Host. */
 ArtStatus art3m1s_metal_host_v1_create_dxvk(const ArtFrameApiV2 *frames, ArtRuntimeHandle runtime,

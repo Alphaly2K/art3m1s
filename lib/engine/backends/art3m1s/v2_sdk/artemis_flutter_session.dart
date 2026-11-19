@@ -134,6 +134,7 @@ final class ArtemisFlutterSession {
     bool angle = false,
     bool screenshots = false,
     List<({Uint8List source, Uint8List artifact})> hlslEffects = const [],
+    List<Uint8List> glslSources = const [],
   }) async {
     final result = (await _channel.invokeMapMethod<Object?, Object?>('open', {
       'ini': ini,
@@ -141,6 +142,7 @@ final class ArtemisFlutterSession {
       'hostCaps': hostCaps,
       'reportedOS': ?reportedOS,
       if (angle) 'renderer': 'angle',
+      if (angle && glslSources.isNotEmpty) 'glslSources': glslSources,
       'screenshots': screenshots,
       if (!angle && hlslEffects.isNotEmpty)
         'hlslEffects': [
