@@ -808,7 +808,14 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
       _replies.add(event.reply(fileReply.metadata, blob: fileReply.blob));
       return;
     }
-    if (event.domain == 4 && event.kind == 5 && event.requiresReply) {
+    if (event.domain == 1 && event.kind == 4) {
+      if (event.metadata['save_status'] == 'failed') {
+        Log.warn(
+          '[ArtemisV2] Final save failed: ${event.metadata['reason']} '
+          '(${event.metadata['files_written']} files written)',
+        );
+      }
+    } else if (event.domain == 4 && event.kind == 5 && event.requiresReply) {
       _startHttp(event);
     } else if (event.domain == 4 && event.kind == 6) {
       final request = _httpRequest;
@@ -1038,6 +1045,9 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
           }
           _nextClock(0);
           await _step(session);
+        }
+        if (_state?.phase != 4) {
+          Log.warn('[ArtemisV2] Shutdown ended before Core confirmed closure');
         }
       }
     } on Exception catch (error) {

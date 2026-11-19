@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:art3m1s/engine/backends/artemis_v2_engine_runtime.dart';
+import 'package:art3m1s/services/logger.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -30,6 +31,9 @@ void main() {
       var writePending = false;
       var exitWritePending = false;
       var exitWriteReplied = false;
+      var finalWritePending = false;
+      String? finalWriteStatus;
+      var closedPending = false;
       var shutdownAttempts = 0;
       var closingSteps = 0;
       var closing = false;
@@ -50,27 +54,50 @@ void main() {
           case 'surface':
             return 0;
           case 'poll':
-            if (writePending || exitWritePending) {
-              final exitWrite = exitWritePending;
+            if (writePending || exitWritePending || finalWritePending) {
+              final (request, key) = finalWritePending
+                  ? ('3', 'system.dat')
+                  : exitWritePending
+                  ? ('2', 'exit-pending')
+                  : ('1', '__autosave.dat');
               writePending = false;
               exitWritePending = false;
+              finalWritePending = false;
               return [
                 {
                   'owner': '1',
                   'domain': 3,
                   'kind': 4,
                   'epoch': '1',
-                  'sequence': '2',
-                  'request': exitWrite ? '2' : '1',
+                  'sequence': '${int.parse(request) + 1}',
+                  'request': request,
+                  'metadata': Uint8List.fromList(
+                    utf8.encode(jsonEncode({'namespace': 'save', 'key': key})),
+                  ),
+                  'blob': Uint8List.fromList(utf8.encode('snapshot')),
+                },
+              ];
+            }
+            if (closedPending) {
+              closedPending = false;
+              return [
+                {
+                  'owner': '1',
+                  'domain': 1,
+                  'kind': 4,
+                  'epoch': '1',
+                  'sequence': '5',
+                  'request': '0',
                   'metadata': Uint8List.fromList(
                     utf8.encode(
                       jsonEncode({
-                        'namespace': 'save',
-                        'key': exitWrite ? 'exit-pending' : '__autosave.dat',
+                        'save_status': 'failed',
+                        'reason': finalWriteStatus,
+                        'files_written': 1,
                       }),
                     ),
                   ),
-                  'blob': Uint8List.fromList(utf8.encode('snapshot')),
+                  'blob': Uint8List(0),
                 },
               ];
             }
@@ -113,6 +140,11 @@ void main() {
             }
             frames.add(frame);
             final saving = closing && closingSteps++ == 0;
+            if (saving) finalWritePending = true;
+            if (closing && !saving) {
+              expect(finalWriteStatus, 'denied');
+              closedPending = true;
+            }
             return {
               ...state,
               'phase': saving ? 3 : (closing ? 4 : 2),
@@ -126,10 +158,15 @@ void main() {
               final kind = (wire['domain'] as int, wire['kind'] as int);
               submitted.add(kind);
               if (kind == (3, 4)) {
-                expect(jsonDecode(utf8.decode(wire['metadata'] as Uint8List)), {
-                  'status': 'ok',
-                });
-                if (wire['request'] == '2') exitWriteReplied = true;
+                final reply = jsonDecode(
+                  utf8.decode(wire['metadata'] as Uint8List),
+                );
+                if (wire['request'] == '3') {
+                  finalWriteStatus = reply['status'] as String;
+                } else {
+                  expect(reply, {'status': 'ok'});
+                  if (wire['request'] == '2') exitWriteReplied = true;
+                }
               }
               if (kind == (1, 16)) {
                 shutdownAttempts++;
@@ -198,11 +235,17 @@ void main() {
           'snapshot',
         );
 
+        Directory('${saves.path}/save/system.dat').createSync();
+        final logStart = Log.entries.length;
         await runtime.close();
         expect(shutdownAttempts, 2);
         expect(exitWriteReplied, isTrue);
         expect(closing, isTrue);
         expect(closingSteps, 2);
+        expect(
+          Log.entries.skip(logStart).map((entry) => entry.message),
+          contains('[ArtemisV2] Final save failed: denied (1 files written)'),
+        );
         expect(
           File('${saves.path}/save/exit-pending').readAsStringSync(),
           'snapshot',
