@@ -220,14 +220,11 @@ private final class ArtemisMacLifetime {
         }
     }
 
-    func warmGLSL(_ sources: [Data]) throws {
+    func warmGLSL(_ sources: [Data], cacheDirectory: URL? = nil) throws {
         let native = try live()
-        if let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first,
-           let bundleID = Bundle.main.bundleIdentifier,
+        if let cacheDirectory,
            let cache = try? native.metalLibrary.symbol("art3m1s_metal_host_v1_set_glsl_cache", as: ArtSwiftGlslCache.self) {
-            let directory = caches.appendingPathComponent(bundleID, isDirectory: true)
-                .appendingPathComponent("artemis-angle", isDirectory: true)
-            _ = directory.path.withCString { cache(native.renderer, $0) }
+            _ = cacheDirectory.path.withCString { cache(native.renderer, $0) }
         }
         guard !sources.isEmpty,
               let prepare = try? native.metalLibrary.symbol("art3m1s_metal_host_v1_prepare_glsl", as: ArtSwiftPrepareGlsl.self)

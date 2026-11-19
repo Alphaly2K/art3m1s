@@ -114,7 +114,12 @@ private enum ArtemisFlutterError: Error {
             do {
                 if angle != nil {
                     let sources = (args["glslSources"] as? [Any] ?? []).prefix(256).compactMap(bytes)
-                    try core.warmGLSL(sources)
+                    let cacheDirectory = Bundle.main.bundleIdentifier.flatMap { identifier in
+                        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
+                            .appendingPathComponent(identifier, isDirectory: true)
+                            .appendingPathComponent("artemis-angle", isDirectory: true)
+                    }
+                    try core.warmGLSL(sources, cacheDirectory: cacheDirectory)
                 }
                 try core.openProject(ini, platform: platform, reportedOS: args["reportedOS"] as? String)
                 let id = UUID().uuidString

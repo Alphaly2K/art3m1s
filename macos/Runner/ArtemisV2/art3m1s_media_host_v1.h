@@ -13,7 +13,7 @@ typedef struct ArtMediaAudio ArtMediaAudio;
 typedef struct ArtMediaFrame {
     const uint8_t *rgba;
     uint64_t bytes;
-    uint64_t pts_us;
+    uint64_t pts_us; /* Relative to the common container start. */
     uint64_t duration_us;
     uint32_t width;
     uint32_t height;
@@ -21,7 +21,7 @@ typedef struct ArtMediaFrame {
 
 typedef struct ArtMediaPcm {
     const int16_t *stereo_i16;
-    uint64_t pts_us;
+    uint64_t pts_us; /* Same clock as video. Gaps between blocks are silence. */
     uint32_t frames;
 } ArtMediaPcm;
 

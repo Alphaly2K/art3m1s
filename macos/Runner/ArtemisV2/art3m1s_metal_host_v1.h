@@ -31,7 +31,8 @@ ArtStatus art3m1s_metal_host_v1_set_glsl_cache(ArtMetalHost *host, const char *d
 /* Prepare exact GLSL source bytes on this ANGLE context before drawing. */
 ArtStatus art3m1s_metal_host_v1_prepare_glsl(ArtMetalHost *host, ArtBytes source);
 /* Supply a trusted absolute UTF-8 runtime directory. Negotiate the same
- * renderer capabilities as the Metal Host. */
+ * renderer capabilities as the Metal Host. The first ADE2 preparation
+ * initializes the DXVK device. */
 ArtStatus art3m1s_metal_host_v1_create_dxvk(const ArtFrameApiV2 *frames, ArtRuntimeHandle runtime,
                                            const char *directory, ArtMetalHost **out);
 /* Prepare a program for the exact HLSL source bytes before frames use it.

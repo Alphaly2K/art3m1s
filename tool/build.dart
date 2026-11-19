@@ -538,6 +538,7 @@ Future<void> _buildMacos(
       'ARTEMIS_V2_HLSL_COMPILER_DIR requires ARTEMIS_V2_DXVK_RUNTIME_DIR',
     );
   }
+  if (options.artemisV2) _checkArtemisV2Bindings(project, core);
   final ffmpegPrefix = Directory('${project.path}/.build/ffmpeg-macos/prefix');
   if (!_ffmpegMacosReady(ffmpegPrefix)) {
     await _run(
@@ -631,6 +632,29 @@ Directory _macosApp(Directory project, String profile) {
   return Directory(
     '${project.path}/build/macos/Build/Products/$configuration/art3m1s.app',
   );
+}
+
+void _checkArtemisV2Bindings(Directory project, Directory core) {
+  const copies = {
+    'art3m1s_core_v2.draft.h': 'doc/abi',
+    'art3m1s_metal_host_v1.h': 'doc/abi',
+    'art3m1s_media_host_v1.h': 'doc/abi',
+    'ArtemisHostBridge.h': 'tools/host-bindings/swift',
+    'ArtemisMacSession.swift': 'tools/host-bindings/swift',
+    'ArtemisLegacyMedia.swift': 'tools/host-bindings/swift',
+  };
+  for (final MapEntry(key: name, value: source) in copies.entries) {
+    final canonical = File('${core.path}/$source/$name');
+    final bundled = File('${project.path}/macos/Runner/ArtemisV2/$name');
+    if (!canonical.existsSync() ||
+        !bundled.existsSync() ||
+        canonical.readAsStringSync() != bundled.readAsStringSync()) {
+      throw UsageException(
+        'Artemis v2 binding mismatch: macos/Runner/ArtemisV2/$name must '
+        'match $source/$name from CORE_SRC',
+      );
+    }
+  }
 }
 
 Future<String> _buildArtemisV2Macos(
