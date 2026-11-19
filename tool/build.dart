@@ -530,6 +530,14 @@ Future<void> _buildMacos(
   BuildOptions options,
 ) async {
   final krkrSource = Platform.environment['KRKRSDL3_SOURCE_DIR'];
+  if (options.artemisV2 &&
+      (Platform.environment['ARTEMIS_V2_HLSL_COMPILER_DIR']?.isNotEmpty ??
+          false) &&
+      (Platform.environment['ARTEMIS_V2_DXVK_RUNTIME_DIR']?.isEmpty ?? true)) {
+    throw UsageException(
+      'ARTEMIS_V2_HLSL_COMPILER_DIR requires ARTEMIS_V2_DXVK_RUNTIME_DIR',
+    );
+  }
   final ffmpegPrefix = Directory('${project.path}/.build/ffmpeg-macos/prefix');
   if (!_ffmpegMacosReady(ffmpegPrefix)) {
     await _run(
@@ -610,6 +618,19 @@ Future<void> _buildMacos(
   if (options.krkr) {
     await _bundleKrkrMacos(project, core, options.profile, krkrSource!);
   }
+  if (options.artemisV2) {
+    await _run('bash', [
+      'tool/verify_artemis_v2_macos.sh',
+      _macosApp(project, options.profile).path,
+    ], workingDirectory: project);
+  }
+}
+
+Directory _macosApp(Directory project, String profile) {
+  final configuration = profile[0].toUpperCase() + profile.substring(1);
+  return Directory(
+    '${project.path}/build/macos/Build/Products/$configuration/art3m1s.app',
+  );
 }
 
 Future<String> _buildArtemisV2Macos(
@@ -706,10 +727,7 @@ Future<void> _bundleKrkrMacos(
     throw StateError('KRKR native-upstream 缺少 Res 资源目录');
   }
 
-  final configuration = profile[0].toUpperCase() + profile.substring(1);
-  final app = Directory(
-    '${project.path}/build/macos/Build/Products/$configuration/art3m1s.app',
-  );
+  final app = _macosApp(project, profile);
   if (!app.existsSync()) throw StateError('未找到 macOS 应用包: ${app.path}');
   final executableDir = Directory('${app.path}/Contents/MacOS');
   final bundledCore = File('${executableDir.path}/libart3m1s_core.dylib');

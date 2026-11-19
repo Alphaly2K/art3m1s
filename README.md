@@ -35,12 +35,16 @@ Art3m1s 是一个多引擎支持的视觉小说启动器，支持 Windows、Linu
 
 ```bash
 dart run tool/build.dart [all|ios|ios-obsolete|macos|android|windows|linux] \
-  [--release|--profile|--debug] [--device-only] [--sign-only] [--krkr] [--siglus]
+  [--release|--profile|--debug] [--device-only] [--sign-only] [--krkr] [--siglus] [--artemis-v2]
 ```
 
 `all` 表示能够原生构建的全部目标，`ios-obsolete` 为原 Flutter iOS 目标，不会加入 `all` 构建列表。
 `krkr` 与 `siglus` 参数均需要额外的环境变量，详情参考错误信息。
 需要 H.264 UCI 视频时，设置目标平台的 `FFMPEG_DIR` 后重新构建。
+
+macOS 的 Artemis v2 可通过 `dart run tool/build.dart macos --release --artemis-v2` 预览。
+也可在 GitHub Actions 手动运行 Flutter 工作流并选中 `artemis_v2`，下载单独的 macOS 预览包。
+DXVK 和 HLSL 编译器需在本机构建时提供，CI 预览包不含这两项。
 
 启用 `krkr` 参数时，参考下方环境变量设置：
 
