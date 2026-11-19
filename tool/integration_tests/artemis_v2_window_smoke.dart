@@ -60,12 +60,21 @@ Future<void> _run(Directory root, _WindowProbeBinding binding) async {
 [flip]
 [exec command=fullscreen]
 [wait time=3000 input=0]
+[var system=fullscreen name=g.observed_fullscreen]
 [autosave allow=1]
 [exec command=minimize]
 [wait time=1500 input=0]
+[var system=minimize name=g.restored_minimized]
+[var system=fullscreen name=g.restored_fullscreen]
 [save file=restored]
 [var name=g.quit_marker data=confirmed]
 [stop]
+[lua]
+function capture_window(e)
+  e:tag{'var', system='minimize', name='g.saved_minimized'}
+end
+__engine:setEventHandler{onSave='capture_window'}
+[/lua]
 ''');
 
   await windowManager.ensureInitialized();
@@ -105,6 +114,17 @@ Future<void> _run(Directory root, _WindowProbeBinding binding) async {
     await _until('AppKit minimizes the window', windowManager.isMinimized);
     final autosave = File('${data.path}/saves/fixture/save/__autosave.dat');
     await _until('the minimized session writes its autosave', autosave.exists);
+    final globals = File('${data.path}/saves/fixture/save/saveg.dat');
+    Map readGlobals() => jsonDecode(globals.readAsStringSync()) as Map;
+    await _until('the script saves its observed window state', globals.exists);
+    final background = readGlobals();
+    if (background['observed_fullscreen'] != 1 ||
+        background['saved_minimized'] != 1) {
+      throw StateError(
+        'Window queries: fullscreen=${background['observed_fullscreen']}, '
+        'minimized during save=${background['saved_minimized']}.',
+      );
+    }
     final checkpoint = File('${data.path}/saves/fixture/save/restored');
     await Future<void>.delayed(const Duration(milliseconds: 1800));
     if (await checkpoint.exists()) {
@@ -118,10 +138,12 @@ Future<void> _run(Directory root, _WindowProbeBinding binding) async {
     await windowManager.show();
     await _until('Flutter can draw the restored window', _isVisible);
     await _until('the original scene resumes and saves', checkpoint.exists);
-    final globals = File('${data.path}/saves/fixture/save/saveg.dat');
-    bool hasQuitMarker() =>
-        (jsonDecode(globals.readAsStringSync()) as Map)['quit_marker'] ==
-        'confirmed';
+    await _until('the restored window state is saved', () async {
+      final restored = readGlobals();
+      return restored['restored_minimized'] == 0 &&
+          restored['restored_fullscreen'] == 0;
+    });
+    bool hasQuitMarker() => readGlobals()['quit_marker'] == 'confirmed';
     if (hasQuitMarker()) throw StateError('Quit marker was written too early.');
     binding.verifyExit = (response) {
       if (response != ui.AppExitResponse.exit ||

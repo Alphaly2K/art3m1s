@@ -182,7 +182,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     if (_bridge is ArtemisV2EngineRuntime) {
       _syncArtemisVisibility(WidgetsBinding.instance.lifecycleState);
       _windowDelegate = WindowManipulator.addNSWindowDelegate(
-        _ArtemisPlayerWindowDelegate(_setWindowMinimized),
+        _ArtemisPlayerWindowDelegate(
+          _setWindowMinimized,
+          (fullscreen) => _bridge.setWindowStateBits(fullscreen: fullscreen),
+        ),
       );
     }
     _gameTicker = createTicker(_onGameTick);
@@ -258,16 +261,20 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         _syncGameTicker();
         if (widget.sessionState.isRunning) {
           _scheduleSharedTextureResize();
-          _bridge.setWindowStateBits(minimized: false);
-          if (!artemisV2) _bridge.notifyLifecycle(2); // 回前台
+          if (!artemisV2) {
+            _bridge.setWindowStateBits(minimized: false);
+            _bridge.notifyLifecycle(2); // 回前台
+          }
         }
       case AppLifecycleState.paused:
       case AppLifecycleState.hidden:
         _appActive = false;
         _syncGameTicker();
         _endTouchpadDrag();
-        _bridge.setWindowStateBits(minimized: true);
-        if (!artemisV2) _bridge.notifyLifecycle(1); // 切后台
+        if (!artemisV2) {
+          _bridge.setWindowStateBits(minimized: true);
+          _bridge.notifyLifecycle(1); // 切后台
+        }
       case AppLifecycleState.inactive:
         if (!artemisV2) _appActive = false;
         _syncGameTicker();
@@ -293,6 +300,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   void _setWindowMinimized(bool minimized) {
     if (_closing || _windowMinimized == minimized) return;
     _windowMinimized = minimized;
+    _bridge.setWindowStateBits(minimized: minimized);
     _syncArtemisVisibility(WidgetsBinding.instance.lifecycleState);
     if (minimized) {
       _endTouchpadDrag();
@@ -356,6 +364,15 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     final appliedState = await _bridge.setSessionState(widget.sessionState);
     if (!mounted || _closing) return;
     _sessionReadyToRun = appliedState.isRunning;
+    if (_bridge is ArtemisV2EngineRuntime) {
+      final [fullscreen, minimized] = await Future.wait([
+        windowManager.isFullScreen(),
+        windowManager.isMinimized(),
+      ]);
+      if (!mounted || _closing) return;
+      _bridge.setWindowStateBits(fullscreen: fullscreen);
+      _setWindowMinimized(minimized);
+    }
 
     final settings = ref.read(settingsProvider);
     final baseConfig = GameEntry(
@@ -1085,6 +1102,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         switch (action) {
           case EngineWindowAction.toggleFullscreen:
             await _desktopShell?.togglePlayerFullScreen(this);
+            await _syncArtemisFullscreen();
           case EngineWindowAction.minimize:
             final shell = _desktopShell;
             if (Platform.isMacOS && shell != null) {
@@ -1093,13 +1111,23 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                   !_canHandleEngineWindowAction) {
                 return;
               }
+              await _syncArtemisFullscreen();
             }
+            if (!_canHandleEngineWindowAction) return;
             await windowManager.minimize();
         }
       } catch (error) {
         Log.warn('[Player] Window action failed: $error');
       }
     });
+  }
+
+  Future<void> _syncArtemisFullscreen() async {
+    if (_bridge is! ArtemisV2EngineRuntime) return;
+    final fullscreen = await windowManager.isFullScreen();
+    if (_canHandleEngineWindowAction) {
+      _bridge.setWindowStateBits(fullscreen: fullscreen);
+    }
   }
 
   Future<void> _releaseEngineWindow() {
@@ -1793,13 +1821,20 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 }
 
 final class _ArtemisPlayerWindowDelegate extends NSWindowDelegate {
-  _ArtemisPlayerWindowDelegate(this.onMinimized);
+  _ArtemisPlayerWindowDelegate(this.onMinimized, this.onFullscreen);
 
   final ValueChanged<bool> onMinimized;
+  final ValueChanged<bool> onFullscreen;
 
   @override
   void windowDidMiniaturize() => onMinimized(true);
 
   @override
   void windowDidDeminiaturize() => onMinimized(false);
+
+  @override
+  void windowDidEnterFullScreen() => onFullscreen(true);
+
+  @override
+  void windowDidExitFullScreen() => onFullscreen(false);
 }

@@ -73,6 +73,9 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
   bool _environmentPatch = false;
   bool _appBackgrounded = false;
   bool _closed = false;
+  static const _normalWindow = (fullscreen: false, minimized: false);
+  var _window = _normalWindow;
+  var _submittedWindow = _normalWindow;
 
   bool get _canRun => !_closed && !_appBackgrounded && _residency.isRunning;
 
@@ -495,6 +498,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     var stepped = false;
     for (final deltaMs in frameDeltasMs) {
       if (!_canRun || isExitRequested()) break;
+      if (!await _submitWindowState(session)) break;
       await _submit(session, _inputs);
       await _submit(session, _replies);
       await _submitHttp(session);
@@ -578,6 +582,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
 
   void _updateState(ArtemisFlutterState state) {
     if (state.epoch != _state?.epoch || state.phase == 4) {
+      _submittedWindow = _normalWindow;
       _capture = null;
       _cancelHttp();
       _translations.clear();
@@ -923,6 +928,33 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
   }
 
   @override
+  void setWindowStateBits({bool? fullscreen, bool? minimized}) {
+    if (_closed) return;
+    _window = (
+      fullscreen: fullscreen ?? _window.fullscreen,
+      minimized: minimized ?? _window.minimized,
+    );
+  }
+
+  Future<bool> _submitWindowState(ArtemisFlutterSession session) async {
+    final window = _window;
+    if (window == _submittedWindow) return true;
+    final accepted = await session.submit([
+      ArtemisFlutterMessage(
+        domain: 2,
+        kind: 6,
+        epoch: _state!.epoch,
+        metadata: {
+          'fullscreen': window.fullscreen,
+          'minimized': window.minimized,
+        },
+      ),
+    ]);
+    if (accepted) _submittedWindow = window;
+    return accepted;
+  }
+
+  @override
   void notifyLifecycle(int state) {
     if (_closed || state < 0 || state > 2) return;
     final backgrounded = state != 2;
@@ -953,6 +985,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
         await _step(session);
         if (_frameTime != null) return;
       }
+      if (!await _submitWindowState(session)) return;
       await _step(session, backgroundAutosave: true);
     } on Exception catch (error) {
       Log.warn('[ArtemisV2] background autosave: $error');
