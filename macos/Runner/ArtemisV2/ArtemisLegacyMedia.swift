@@ -88,13 +88,17 @@ final class ArtemisLegacyMediaLibrary: @unchecked Sendable {
         }
     }
 
-    func frame() -> CVPixelBuffer? {
+    var playbackTime: Double { running ? max(0, clock.currentTime().seconds) : 0 }
+
+    func frame() -> CVPixelBuffer? { nextFrame()?.buffer }
+
+    func nextFrame() -> LegacyVideoFrame? {
         guard !suspended, !opening, terminalState == nil, let reader else { return nil }
         if renderer.status == .failed {
             terminalState = "failed"
             return nil
         }
-        let now = running ? max(0, clock.currentTime().seconds) : 0
+        let now = playbackTime
         fetchVideo(reader)
         fetchAudio(reader, now: now)
         if !running {
@@ -111,10 +115,15 @@ final class ArtemisLegacyMediaLibrary: @unchecked Sendable {
                 while next.pts < now - delayMargin, let ahead = frames.first, ahead.pts <= now {
                     next = frames.removeFirst()
                 }
+                if next.pts < now - delayMargin, frames.isEmpty, !videoEnded {
+                    // After a stall, the entire decoded batch can be behind the clock.
+                    fetchVideo(reader)
+                    return nil
+                }
             }
             videoUntil = max(videoUntil, next.pts + next.duration)
             hasFrame = true
-            return next.buffer
+            return next
         }
         if videoEnded && audioEnded && frames.isEmpty && now >= max(videoUntil, audioUntil) {
             if loop && hasFrame {
@@ -199,7 +208,7 @@ final class ArtemisLegacyMediaLibrary: @unchecked Sendable {
     }
 }
 
-private struct LegacyVideoFrame: @unchecked Sendable {
+struct LegacyVideoFrame: @unchecked Sendable {
     let buffer: CVPixelBuffer
     let pts: Double
     let duration: Double
