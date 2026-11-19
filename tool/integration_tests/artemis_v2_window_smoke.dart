@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:art3m1s/models/game_entry.dart';
@@ -5,6 +6,7 @@ import 'package:art3m1s/screens/player_screen.dart';
 import 'package:art3m1s/services/logger.dart';
 import 'package:art3m1s/shell/desktop_shell_mode.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:macos_window_utils/window_manipulator.dart';
 // ignore: depend_on_referenced_packages
@@ -13,14 +15,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
 Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
+  final binding = _WindowProbeBinding();
   const v2 = bool.fromEnvironment('ARTEMIS_V2');
   if (!Platform.isMacOS || !v2) {
     throw StateError('Requires a macOS desktop build with ARTEMIS_V2 enabled.');
   }
   final root = await Directory.systemTemp.createTemp('artemis-v2-window-');
   try {
-    await _run(root);
+    await _run(root, binding.probe);
     stdout.writeln('Artemis v2 macOS window smoke passed');
   } catch (error, stack) {
     stderr.writeln('$error\n$stack');
@@ -29,12 +31,17 @@ Future<void> main() async {
     }
     exitCode = 1;
   } finally {
-    await root.delete(recursive: true);
+    try {
+      await root.delete(recursive: true);
+    } on FileSystemException catch (error) {
+      stderr.writeln('Window probe cleanup failed: ${error.osError?.message}');
+      exitCode = 1;
+    }
   }
   exit(exitCode);
 }
 
-Future<void> _run(Directory root) async {
+Future<void> _run(Directory root, _WindowProbe probe) async {
   final data = await Directory('${root.path}/data').create();
   await File('${data.path}/.storage-layout-v2').writeAsString('2\n');
   PathProviderPlatform.instance = _ProbePaths(data.path);
@@ -50,6 +57,7 @@ Future<void> _run(Directory root) async {
 [flip]
 [exec command=fullscreen]
 [wait time=3000 input=0]
+[autosave allow=1]
 [exec command=minimize]
 [wait time=1500 input=0]
 [save file=restored]
@@ -91,6 +99,8 @@ Future<void> _run(Directory root) async {
       throw StateError('Script fullscreen changed the player shell.');
     }
     await _until('AppKit minimizes the window', windowManager.isMinimized);
+    final autosave = File('${data.path}/saves/fixture/save/__autosave.dat');
+    await _until('the minimized session writes its autosave', autosave.exists);
     final checkpoint = File('${data.path}/saves/fixture/save/restored');
     await Future<void>.delayed(const Duration(milliseconds: 1800));
     if (await checkpoint.exists()) {
@@ -108,7 +118,68 @@ Future<void> _run(Directory root) async {
     if (await windowManager.isMinimized()) await windowManager.restore();
     runApp(const SizedBox.shrink());
     await WidgetsBinding.instance.endOfFrame;
+    if (probe.opened) {
+      await probe.closed.future.timeout(const Duration(seconds: 9));
+    }
     desktop.dispose();
+  }
+}
+
+class _WindowProbeBinding extends WidgetsFlutterBinding {
+  late final _WindowProbe probe;
+
+  @override
+  BinaryMessenger createBinaryMessenger() =>
+      probe = _WindowProbe(super.createBinaryMessenger());
+}
+
+class _WindowProbe extends BinaryMessenger {
+  _WindowProbe(this.delegate);
+
+  final BinaryMessenger delegate;
+  final closed = Completer<void>();
+  bool opened = false;
+
+  @override
+  Future<ByteData?>? send(String channel, ByteData? message) {
+    final response = delegate.send(channel, message);
+    if (channel != 'moe.alphaly.art3m1s/artemis_v2' ||
+        message == null ||
+        response == null) {
+      return response;
+    }
+    const codec = StandardMethodCodec();
+    final method = codec.decodeMethodCall(message).method;
+    if (method != 'open' && method != 'close') return response;
+    return response.then((reply) {
+      if (reply != null) {
+        try {
+          codec.decodeEnvelope(reply);
+          if (method == 'open') opened = true;
+          if (method == 'close' && !closed.isCompleted) closed.complete();
+        } on PlatformException {
+          // The runtime handles the original reply.
+        }
+      }
+      return reply;
+    });
+  }
+
+  @override
+  void setMessageHandler(String channel, MessageHandler? handler) =>
+      delegate.setMessageHandler(channel, handler);
+
+  @override
+  Future<void> handlePlatformMessage(
+    String channel,
+    ByteData? data,
+    PlatformMessageResponseCallback? callback,
+  ) async {
+    ServicesBinding.instance.channelBuffers.push(
+      channel,
+      data,
+      callback ?? (_) {},
+    );
   }
 }
 

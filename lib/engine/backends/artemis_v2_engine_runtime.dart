@@ -58,6 +58,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
   EngineSessionState _residency = EngineSessionState.active;
   InputGatePolicy _inputGate = InputGatePolicy.full;
   Future<bool>? _advancing;
+  Future<void>? _backgroundAutosave;
   Future<void>? _closing;
   DateTime? _frameTime;
   Uint8List? _font;
@@ -410,6 +411,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     final previous = _session;
     if (previous == null) return;
     await _advancing;
+    await _backgroundAutosave;
     if (_closed || !identical(_session, previous)) return;
     _session = null;
     _hlslCompiler = null;
@@ -461,6 +463,9 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     if (!_canRun || _session == null) {
       return Future.value(false);
     }
+    if (_backgroundAutosave case final pending?) {
+      return pending.then((_) => advanceTextureBatch(frameDeltasMs));
+    }
     return _advancing ??= _advance(_session!, frameDeltasMs).whenComplete(() {
       _advancing = null;
     });
@@ -499,12 +504,17 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     _frameTime = DateTime.now();
   }
 
-  Future<void> _step(ArtemisFlutterSession session) async {
-    for (var turn = 0; turn < 32; turn++) {
+  Future<void> _step(
+    ArtemisFlutterSession session, {
+    bool backgroundAutosave = false,
+  }) async {
+    final time = backgroundAutosave ? DateTime.now() : _frameTime!;
+    for (var turn = 0; backgroundAutosave || turn < 32; turn++) {
       final result = await session.step(
         frame: _frame,
         monotonicNS: _monotonicNS,
-        time: _frameTime!,
+        time: time,
+        backgroundAutosave: backgroundAutosave,
       );
       _updateState(result.state);
       var sawEvents = false;
@@ -523,10 +533,14 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
       }
       final replied = await _submit(session, _replies);
       // HTTP waits allow onEnterFrame to run, including script cancellation.
-      final blocking = 1 | 16 | (_httpRequest == null ? 2 : 0);
+      final blocking = backgroundAutosave
+          ? 1
+          : 1 | 16 | (_httpRequest == null ? 2 : 0);
       if (!result.backpressured && result.state.waitFlags & blocking == 0) {
-        _frame++;
-        _frameTime = null;
+        if (!backgroundAutosave) {
+          _frame++;
+          _frameTime = null;
+        }
         return;
       }
       if (!replied && !sawEvents) return;
@@ -897,11 +911,34 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     if (_appBackgrounded == backgrounded) return;
     if (backgrounded) _input(4, const {});
     _appBackgrounded = backgrounded;
+    final session = _session;
+    if (state == 1 && session != null) {
+      _backgroundAutosave ??= _saveOnBackground(session).whenComplete(() {
+        _backgroundAutosave = null;
+      });
+    }
     unawaited(
       media.setSuspended(!_canRun).catchError((Object error) {
         Log.warn('[ArtemisV2] media lifecycle: $error');
       }),
     );
+  }
+
+  Future<void> _saveOnBackground(ArtemisFlutterSession session) async {
+    try {
+      await _advancing;
+      if (_closed || !identical(_session, session) || _state?.phase != 2) {
+        return;
+      }
+      if (_frameTime != null) {
+        await _submit(session, _replies);
+        await _step(session);
+        if (_frameTime != null) return;
+      }
+      await _step(session, backgroundAutosave: true);
+    } on Exception catch (error) {
+      Log.warn('[ArtemisV2] background autosave: $error');
+    }
   }
 
   @override
@@ -924,6 +961,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     try {
       try {
         await _advancing;
+        await _backgroundAutosave;
       } on Exception {
         /* The session can still be closed. */
       }

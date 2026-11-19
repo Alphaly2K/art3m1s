@@ -251,10 +251,12 @@ private final class ArtemisMacLifetime {
         presented = 0
     }
 
-    func step(frameID: UInt64, monotonicNS: UInt64, unixMS: Int64, utcOffsetMinutes: Int32)
+    func step(frameID: UInt64, monotonicNS: UInt64, unixMS: Int64, utcOffsetMinutes: Int32,
+              backgroundAutosave: Bool = false)
         throws -> (backpressured: Bool, result: ArtStepResult) {
         let native = try live()
-        var info = ArtStepInfo(struct_size: UInt32(MemoryLayout<ArtStepInfo>.size), flags: 0,
+        let flags: UInt32 = backgroundAutosave ? UInt32(ArtSwiftBackgroundAutosave) : 0
+        var info = ArtStepInfo(struct_size: UInt32(MemoryLayout<ArtStepInfo>.size), flags: flags,
                                host_frame_id: frameID, monotonic_ns: monotonicNS, utc_unix_ms: unixMS,
                                utc_offset_minutes: utcOffsetMinutes, reserved: 0)
         var result = ArtStepResult()

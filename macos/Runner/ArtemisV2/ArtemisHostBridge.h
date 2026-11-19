@@ -21,6 +21,7 @@ enum {
     ArtSwiftIoRead = ART_IO_READ,
     ArtSwiftIoWrite = ART_IO_WRITE_ATOMIC,
     ArtSwiftWaitIo = ART_WAIT_IO,
+    ArtSwiftBackgroundAutosave = ART_STEP_BACKGROUND_AUTOSAVE,
     ArtSwiftUI = ART_DOMAIN_UI,
     ArtSwiftHttpRequest = ART_UI_HTTP_REQUEST,
     ArtSwiftHttpCancel = ART_UI_HTTP_CANCEL,

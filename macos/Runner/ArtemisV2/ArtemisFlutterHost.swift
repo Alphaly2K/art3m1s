@@ -203,7 +203,8 @@ private enum ArtemisFlutterError: Error {
                 frameID: number(args["frame"], as: UInt64.self),
                 monotonicNS: number(args["monotonicNS"], as: UInt64.self),
                 unixMS: number(args["unixMS"], as: Int64.self),
-                utcOffsetMinutes: number(args["utcOffsetMinutes"], as: Int32.self))
+                utcOffsetMinutes: number(args["utcOffsetMinutes"], as: Int32.self),
+                backgroundAutosave: args["backgroundAutosave"] as? Bool ?? false)
             var result = try state(session.core)
             result["backpressured"] = backpressured
             result["stepFlags"] = Int(step.flags)

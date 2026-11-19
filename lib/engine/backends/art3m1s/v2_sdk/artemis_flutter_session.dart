@@ -199,12 +199,14 @@ final class ArtemisFlutterSession {
     required int frame,
     required int monotonicNS,
     required DateTime time,
+    bool backgroundAutosave = false,
   }) async {
     final result = (await _call<Map<Object?, Object?>>('step', {
       'frame': frame,
       'monotonicNS': monotonicNS,
       'unixMS': time.millisecondsSinceEpoch,
       'utcOffsetMinutes': time.timeZoneOffset.inMinutes,
+      if (backgroundAutosave) 'backgroundAutosave': true,
     }))!;
     return (
       state: _state(result),

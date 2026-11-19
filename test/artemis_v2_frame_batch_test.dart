@@ -10,7 +10,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   test(
-    'v2 batches due frames and retries blocked work on the same clock',
+    'v2 retains the frame clock across IO and background autosave',
     () async {
       const channel = MethodChannel('moe.alphaly.art3m1s/artemis_v2');
       final messenger =
@@ -18,12 +18,17 @@ void main() {
       final saves = Directory.systemTemp.createTempSync('artemis-frame-batch-');
       final runtime = ArtemisV2EngineRuntime()..setSaveDir(saves.path);
       final frames = <(int, int)>[];
-      final submittedKinds = <int>[];
+      final autosaveFrames = <(int, int)>[];
+      final submitted = <(int, int)>[];
       final submitStarted = Completer<void>();
       final releaseSubmit = Completer<void>();
+      final autosaveStarted = Completer<void>();
+      final releaseAutosave = Completer<void>();
       var opening = true;
       var blocked = false;
       var holdSubmit = false;
+      var writePending = false;
+      var closing = false;
       var presentations = 0;
       const state = {
         'session': '1',
@@ -41,6 +46,23 @@ void main() {
           case 'surface':
             return 0;
           case 'poll':
+            if (writePending) {
+              writePending = false;
+              return [
+                {
+                  'owner': '1',
+                  'domain': 3,
+                  'kind': 4,
+                  'epoch': '1',
+                  'sequence': '2',
+                  'request': '1',
+                  'metadata': Uint8List.fromList(
+                    utf8.encode('{"namespace":"save","key":"__autosave.dat"}'),
+                  ),
+                  'blob': Uint8List.fromList(utf8.encode('snapshot')),
+                },
+              ];
+            }
             if (!opening) return <Object>[];
             opening = false;
             return [
@@ -58,19 +80,45 @@ void main() {
               },
             ];
           case 'step':
-            frames.add((
+            final frame = (
               call.arguments['frame'] as int,
               call.arguments['monotonicNS'] as int,
-            ));
+            );
+            if (call.arguments['backgroundAutosave'] == true) {
+              autosaveFrames.add(frame);
+              final first = !autosaveStarted.isCompleted;
+              if (first) {
+                autosaveStarted.complete();
+                await releaseAutosave.future;
+                writePending = true;
+              }
+              return {
+                ...state,
+                'phase': 2,
+                'waitFlags': first ? 1 : 0,
+                'backpressured': false,
+                'stepFlags': 0,
+              };
+            }
+            frames.add(frame);
             return {
               ...state,
+              'phase': closing ? 4 : 2,
               'waitFlags': blocked ? 1 : 0,
               'backpressured': false,
               'stepFlags': 0,
             };
           case 'submit':
             for (final event in call.arguments['batch'] as List) {
-              submittedKinds.add((event as Map)['kind'] as int);
+              final wire = event as Map;
+              final kind = (wire['domain'] as int, wire['kind'] as int);
+              submitted.add(kind);
+              if (kind == (3, 4)) {
+                expect(jsonDecode(utf8.decode(wire['metadata'] as Uint8List)), {
+                  'status': 'ok',
+                });
+              }
+              if (kind == (1, 16)) closing = true;
             }
             if (holdSubmit) {
               holdSubmit = false;
@@ -116,12 +164,22 @@ void main() {
         expect(frames, isEmpty);
         expect(presentations, 3);
 
+        await autosaveStarted.future.timeout(const Duration(seconds: 2));
         runtime.notifyLifecycle(2);
-        expect(await runtime.advanceTextureBatch([17]), isTrue);
+        final resumed = runtime.advanceTextureBatch([17]);
+        expect(frames, isEmpty);
+        releaseAutosave.complete();
+        expect(await resumed, isTrue);
+        expect(autosaveFrames, [(6, 83000000), (6, 83000000)]);
         expect(frames, [(6, 100000000)]);
-        expect(submittedKinds, [1, 4]);
+        expect(submitted, [(2, 1), (3, 4), (2, 4)]);
+        expect(
+          File('${saves.path}/save/__autosave.dat').readAsStringSync(),
+          'snapshot',
+        );
       } finally {
         if (!releaseSubmit.isCompleted) releaseSubmit.complete();
+        if (!releaseAutosave.isCompleted) releaseAutosave.complete();
         await runtime.close();
         messenger.setMockMethodCallHandler(channel, null);
         saves.deleteSync(recursive: true);
