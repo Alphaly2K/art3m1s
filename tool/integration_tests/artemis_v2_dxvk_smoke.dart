@@ -18,16 +18,23 @@ Future<void> main() async {
   try {
     final artifact = Platform.environment['ARTEMIS_DXVK_TEST_ADE2'];
     final token = Platform.environment['ARTEMIS_DXVK_TEST_CACHE_TOKEN'];
+    final legacy = Platform.environment['ARTEMIS_DXVK_TEST_LEGACY'] == '1';
+    final profile = Platform.environment['ARTEMIS_DXVK_TEST_1080P'] == '1';
     if (artifact == null &&
         (token == null || !RegExp(r'^[a-zA-Z0-9_-]+$').hasMatch(token))) {
       throw StateError(
         'Set ARTEMIS_DXVK_TEST_ADE2 or ARTEMIS_DXVK_TEST_CACHE_TOKEN.',
       );
     }
+    if ((legacy || profile) && artifact != null) {
+      throw StateError('Legacy and 1080p checks require the bundled compiler.');
+    }
     await _run(
       root,
       artifact == null ? null : await File(artifact).readAsBytes(),
       token,
+      legacy: legacy,
+      profile: profile,
     );
     stdout.writeln(
       'Artemis v2 DXVK Flutter presentation, screenshot and reload passed',
@@ -41,16 +48,25 @@ Future<void> main() async {
   exit(exitCode);
 }
 
-Future<void> _run(Directory root, List<int>? artifact, String? token) async {
+Future<void> _run(
+  Directory root,
+  List<int>? artifact,
+  String? token, {
+  required bool legacy,
+  required bool profile,
+}) async {
   final game = Directory('${root.path}/game')..createSync();
   final saves = Directory('${root.path}/saves')..createSync();
-  File(
-    '${game.path}/system.ini',
-  ).writeAsStringSync('[WINDOWS]\nWIDTH=4\nHEIGHT=4\nBOOT=boot.iet\n');
+  final (width, height) = profile ? (1920, 1080) : (4, 4);
+  File('${game.path}/system.ini').writeAsStringSync(
+    '[WINDOWS]\nWIDTH=$width\nHEIGHT=$height\nBOOT=boot.iet\n',
+  );
   final shader = File('${game.path}/paint.hlsl');
+  final startupShader = legacy
+      ? _legacyShader('float3(fore.b, fore.g, fore.r)')
+      : 'float4 main() : SV_Target { return float4(0, 0, 1, 1); }';
   final source = utf8.encode(
-    'float4 main() : SV_Target { return float4(0, 0, 1, 1); }'
-    '${artifact == null ? '\n// startup $token' : ''}',
+    artifact == null ? '$startupShader\n// startup $token' : startupShader,
   );
   shader.writeAsBytesSync(source);
   if (artifact != null) {
@@ -72,17 +88,18 @@ Future<void> _run(Directory root, List<int>? artifact, String? token) async {
       String tag,
       List<int> expected, {
       Future<void> Function()? beforeStep,
+      bool effect = true,
+      bool measure = false,
     }) async {
       File('${game.path}/boot.iet').writeAsStringSync('''
 *top
-[lyshader id=paint file=paint.hlsl]
-[lyc id=1 width=4 height=4 color=ffff0000]
-[lyprop id=1 shader=paint]
+${effect ? '[lyshader id=paint file=paint.hlsl]' : ''}
+[lyc id=1 width=$width height=$height color=ffff0000]
+${effect ? '[lyprop id=1 shader=paint]' : ''}
 [flip]
-[takess]
-[savess file=$tag]
+${measure ? '' : '[takess]\n[savess file=$tag]'}
 [caption data=$tag]
-[stop]
+${measure ? _motion : '[stop]'}
 ''');
       final ini = await runtime.prepareProject(
         projectPath: game.path,
@@ -90,9 +107,15 @@ Future<void> _run(Directory root, List<int>? artifact, String? token) async {
         environmentPatchEnabled: false,
         platform: 'WINDOWS',
       );
-      runtime.createRuntime(4, 4);
+      runtime.createRuntime(width, height);
+      final opening = Stopwatch()..start();
       if (ini == null || !await runtime.loadProjectBytes(ini)) {
         throw StateError('Project failed to open.');
+      }
+      if (profile) {
+        stdout.writeln(
+          '$tag project open: ${_ms(opening.elapsedMicroseconds)} ms',
+        );
       }
       await beforeStep?.call();
       final texture = await runtime.enableSharedTexture();
@@ -123,6 +146,10 @@ Future<void> _run(Directory root, List<int>? artifact, String? token) async {
       final boundary =
           key.currentContext!.findRenderObject()! as RenderRepaintBoundary;
       await _expect(await boundary.toImage(), expected);
+      if (measure) {
+        await _measureFrames(runtime, tag);
+        return;
+      }
       final codec = await ui.instantiateImageCodec(
         await File('${saves.path}/save/$tag.png').readAsBytes(),
       );
@@ -168,9 +195,10 @@ Future<void> _run(Directory root, List<int>? artifact, String? token) async {
         },
       );
 
-      final dynamicSource = utf8.encode(
-        'float4 main() : SV_Target { return float4(0, 1, 0, 1); }\n// dynamic $token',
-      );
+      final dynamicShader = legacy
+          ? _legacyShader('float3(fore.b, fore.r, fore.g)')
+          : 'float4 main() : SV_Target { return float4(0, 1, 0, 1); }';
+      final dynamicSource = utf8.encode('$dynamicShader\n// dynamic $token');
       await checkProject(
         'dynamic',
         [0, 255, 0, 255],
@@ -191,9 +219,66 @@ Future<void> _run(Directory root, List<int>? artifact, String? token) async {
     await checkProject('changed', [255, 0, 0, 255]);
     shader.writeAsBytesSync(source);
     await checkProject('restored', [0, 0, 255, 255]);
+    if (profile) {
+      await checkProject(
+        'metal',
+        [255, 0, 0, 255],
+        effect: false,
+        measure: true,
+      );
+      await checkProject('dxvk', [0, 0, 255, 255], measure: true);
+    }
   } finally {
     await runtime.close();
   }
+}
+
+String _legacyShader(String color) =>
+    '''
+texture textureFore;
+texture textureMask;
+sampler samplerFore = sampler_state { Texture = <textureFore>; };
+sampler samplerMask = sampler_state { Texture = <textureMask>; };
+float alpha;
+float weights[2] = {0.25, 0.75};
+void ps(float2 uv0 : TEXCOORD0, float2 uv1 : TEXCOORD1, out float4 result : COLOR0) {
+    float4 fore = tex2D(samplerFore, uv1);
+    float mask = tex2D(samplerMask, uv0).a;
+    result = float4($color * (weights[0] + weights[1]), fore.a * mask * alpha);
+}
+''';
+
+const _motion = '''
+*move
+[wait time=1 input=0]
+[lyprop id=1 left=1]
+[flip]
+[wait time=1 input=0]
+[lyprop id=1 left=0]
+[flip]
+[jump label=move]
+''';
+
+String _ms(int us) => (us / 1000).toStringAsFixed(2);
+
+Future<void> _measureFrames(ArtemisV2EngineRuntime runtime, String tag) async {
+  final samples = <int>[];
+  for (var frame = 0; frame < 140; frame++) {
+    final clock = Stopwatch()..start();
+    var presented = false;
+    for (var step = 0; step < 8 && !presented; step++) {
+      presented = await runtime.advanceTexture(16);
+    }
+    if (!presented) {
+      throw StateError('$tag did not present frame $frame.');
+    }
+    if (frame >= 20) samples.add(clock.elapsedMicroseconds);
+  }
+  samples.sort();
+  stdout.writeln(
+    '$tag ${samples.length} frames: median ${_ms(samples[samples.length ~/ 2])} ms, '
+    'p95 ${_ms(samples[(samples.length * 0.95).ceil() - 1])} ms',
+  );
 }
 
 Future<void> _expect(ui.Image image, List<int> expected) async {
