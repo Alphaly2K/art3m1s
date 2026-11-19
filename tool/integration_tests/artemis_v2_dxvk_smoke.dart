@@ -61,6 +61,10 @@ Future<void> _run(
   File('${game.path}/system.ini').writeAsStringSync(
     '[WINDOWS]\nWIDTH=$width\nHEIGHT=$height\nBOOT=boot.iet\n',
   );
+  File('${game.path}/paint.glsl').writeAsStringSync('''
+precision mediump float;
+void main() { gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0); }
+''');
   final shader = File('${game.path}/paint.hlsl');
   final startupShader = legacy
       ? _legacyShader('float3(fore.b, fore.g, fore.r)')

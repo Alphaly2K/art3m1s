@@ -29,7 +29,7 @@ Future<void> _run(Directory root) async {
   final saves = Directory('${root.path}/saves')..createSync();
   File(
     '${game.path}/system.ini',
-  ).writeAsStringSync('[WINDOWS]\nWIDTH=4\nHEIGHT=4\nBOOT=boot.iet\n');
+  ).writeAsStringSync('[IOS]\nWIDTH=4\nHEIGHT=4\nBOOT=boot.iet\n');
   File('${game.path}/boot.iet').writeAsStringSync('''
 *top
 [lyshader id=paint file=paint.frag]
@@ -59,6 +59,9 @@ void main() {
 precision mediump float;
 void main() { gl_FragColor = vec4(0.0, 1.0, 0.0, 1.0); }
 ''');
+  File('${game.path}/paint.hlsl').writeAsStringSync('''
+float4 main() : SV_Target { return float4(1.0, 0.0, 0.0, 1.0); }
+''');
   final runtime = EngineRuntimeFactory.create(engine: GameEngineKind.art3m1s);
   if (runtime is! ArtemisV2EngineRuntime) {
     throw StateError('Build with --dart-define=ARTEMIS_V2=true.');
@@ -69,11 +72,11 @@ void main() { gl_FragColor = vec4(0.0, 1.0, 0.0, 1.0); }
       projectPath: game.path,
       isArchive: false,
       environmentPatchEnabled: false,
-      platform: 'WINDOWS',
+      platform: 'IOS',
     );
     runtime.setSaveDir(saves.path);
-    runtime.createRuntime(4, 4, backend: 6);
-    if (ini == null || !await runtime.loadProjectBytes(ini)) {
+    runtime.createRuntime(4, 4, backend: 3);
+    if (ini == null || !await runtime.loadProjectBytes(ini, platform: 'IOS')) {
       throw StateError('ANGLE project failed to open.');
     }
     final texture = await runtime.enableSharedTexture();

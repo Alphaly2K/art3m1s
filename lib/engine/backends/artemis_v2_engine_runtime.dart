@@ -66,7 +66,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
   String? _reportedOS;
   int _frame = 1, _monotonicNS = 0;
   int _width = 1280, _height = 720;
-  bool _angle = false;
+  bool _preferAngle = false;
   int _outputWidth = 0, _outputHeight = 0;
   int? _textureID;
   int _surfaceRevision = 0;
@@ -155,18 +155,22 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
         : bytes;
   }
 
-  List<({Uint8List source, Uint8List artifact})> _cachedHlslEffects() {
-    final files = _vfs;
-    if (files == null || _angle) return const [];
-    const folder = 'artemis-shaders/ade2/';
+  static const _ade2Folder = 'artemis-shaders/ade2/';
+
+  static bool _isAde2Path(String path) =>
+      path.startsWith(_ade2Folder) && path.endsWith('.ade2');
+
+  List<({Uint8List source, Uint8List artifact})> _cachedHlslEffects(
+    ProjectVfs files,
+    List<String> paths,
+  ) {
     const byteLimit = 16 * 1024 * 1024;
     final entryPattern = RegExp(r'^(.+)\.([a-f0-9]{64})\.ade2$');
     final effects = <({Uint8List source, Uint8List artifact})>[];
     final seen = <String>{};
     var size = 0;
-    for (final path in files.listFiles(extension: '.ade2')) {
-      if (!path.startsWith(folder)) continue;
-      final entry = entryPattern.firstMatch(path.substring(folder.length));
+    for (final path in paths.where(_isAde2Path)) {
+      final entry = entryPattern.firstMatch(path.substring(_ade2Folder.length));
       if (entry == null || seen.contains(entry[2])) continue;
       try {
         final source = _asset(entry[1]!);
@@ -199,19 +203,20 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
   }
 
   Future<List<({Uint8List source, Uint8List artifact})>> _prepareHlslEffects(
-    ProjectVfs? files,
+    ProjectVfs files,
+    List<String> paths,
     ArtemisHlslCompiler? compiler,
     Set<Digest> seen,
   ) async {
-    final effects = _cachedHlslEffects();
+    final effects = _cachedHlslEffects(files, paths);
     seen.addAll(effects.map((effect) => sha256.convert(effect.source)));
-    if (files == null || compiler == null) return effects;
+    if (compiler == null) return effects;
     var size = effects.fold(
       0,
       (size, effect) => size + effect.source.length + effect.artifact.length,
     );
     final budget = Stopwatch()..start();
-    for (final path in files.listFiles().where(_isHlsl)) {
+    for (final path in paths.where(_isHlsl)) {
       if (_closed ||
           !identical(_vfs, files) ||
           seen.length >= 256 ||
@@ -244,15 +249,14 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     return effects;
   }
 
-  List<Uint8List> _knownGlslSources() {
-    final files = _vfs;
-    if (files == null || !_angle) return const [];
-    const extensions = {'.glsl', '.frag', '.fsh', '.fs'};
+  static bool _isGlsl(String path) =>
+      const {'.glsl', '.frag', '.fsh', '.fs'}.any(path.endsWith);
+
+  List<Uint8List> _knownGlslSources(Iterable<String> paths) {
     final sources = <Uint8List>[];
     final seen = <Digest>{};
     var size = 0;
-    for (final path in files.listFiles()) {
-      if (!extensions.any(path.endsWith)) continue;
+    for (final path in paths) {
       try {
         final source = _asset(path);
         if (source == null ||
@@ -298,7 +302,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
   void createRuntime(int stageWidth, int stageHeight, {int backend = 0}) {
     _width = stageWidth;
     _height = stageHeight;
-    _angle = backend == 6;
+    _preferAngle = backend == 6;
   }
 
   @override
@@ -320,12 +324,25 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     await _releaseProjectSession();
     if (_closed) return false;
     final files = _vfs;
-    final compiler = _angle || files == null
+    final paths = files?.listFiles() ?? const <String>[];
+    final glsl = paths.where(_isGlsl);
+    final portPrefersGlsl = switch (platform.trim().toUpperCase()) {
+      'ANDROID' || 'IOS' || 'WASM' || 'SWITCH' => true,
+      _ => false,
+    };
+    final angle =
+        _preferAngle ||
+        (glsl.isNotEmpty &&
+            (portPrefersGlsl ||
+                !paths.any((path) => _isHlsl(path) || _isAde2Path(path))));
+    final compiler = angle || files == null
         ? null
         : await (_hlslCompilerDiscovery ??= ArtemisHlslCompiler.bundled());
     if (_closed || !identical(files, _vfs)) return false;
     final seenHlsl = <Digest>{};
-    final hlslEffects = await _prepareHlslEffects(files, compiler, seenHlsl);
+    final hlslEffects = angle || files == null
+        ? const <({Uint8List source, Uint8List artifact})>[]
+        : await _prepareHlslEffects(files, paths, compiler, seenHlsl);
     if (_closed || !identical(files, _vfs)) return false;
     final opened = await ArtemisFlutterSession.open(
       ini: iniContent,
@@ -339,10 +356,10 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
           (_translator?.hostTranslationEnabled == true ? 16 : 0),
       reportedOS: _reportedOS,
       screenshots: true,
-      angle: _angle,
+      angle: angle,
       hlslEffects: hlslEffects,
       compileHlsl: compiler != null,
-      glslSources: _knownGlslSources(),
+      glslSources: angle ? _knownGlslSources(glsl) : const [],
     );
     try {
       final events = await opened.session.pollEvents();
