@@ -18,17 +18,19 @@ private enum ArtemisFlutterError: Error {
     private let metalPath: String
     private let mediaPath: String?
     private let angleDirectory: String?
+    private let dxvkDirectory: String?
     private var mediaLibrary: ArtemisLegacyMediaLibrary?
     private let registry: FlutterTextureRegistry
     private var channel: FlutterMethodChannel?
     private var sessions: [String: Session] = [:]
 
     init(registry: FlutterTextureRegistry, corePath: String, metalPath: String, mediaPath: String? = nil,
-         angleDirectory: String? = nil) {
+         angleDirectory: String? = nil, dxvkDirectory: String? = nil) {
         self.corePath = corePath
         self.metalPath = metalPath
         self.mediaPath = mediaPath
         self.angleDirectory = angleDirectory
+        self.dxvkDirectory = dxvkDirectory
         self.registry = registry
     }
 
@@ -80,9 +82,31 @@ private enum ArtemisFlutterError: Error {
                 angle = angleDirectory
             default: throw ArtemisFlutterError.invalidArguments
             }
-            let core = try ArtemisMacSession(corePath: corePath, metalPath: metalPath, hostCaps: caps,
-                                             screenshots: args["screenshots"] as? Bool ?? false,
-                                             angleDirectory: angle)
+            let screenshots = args["screenshots"] as? Bool ?? false
+            var dxvk: ArtemisMacSession?
+            if angle == nil, let dxvkDirectory, let effects = args["hlslEffects"] as? [[String: Any]],
+               !effects.isEmpty {
+                do {
+                    let candidate = try ArtemisMacSession(corePath: corePath, metalPath: metalPath, hostCaps: caps,
+                                                          screenshots: screenshots, dxvkDirectory: dxvkDirectory)
+                    do {
+                        for effect in effects {
+                            guard let source = bytes(effect["source"]), let artifact = bytes(effect["artifact"]) else {
+                                throw ArtemisFlutterError.invalidArguments
+                            }
+                            try candidate.prepareADE2(source: source, artifact: artifact)
+                        }
+                        dxvk = candidate
+                    } catch {
+                        try? candidate.close()
+                        throw error
+                    }
+                } catch {
+                    NSLog("Artemis DXVK unavailable: %@", String(describing: error))
+                }
+            }
+            let core = try dxvk ?? ArtemisMacSession(corePath: corePath, metalPath: metalPath, hostCaps: caps,
+                                                     screenshots: screenshots, angleDirectory: angle)
             do {
                 try core.openProject(ini, platform: platform, reportedOS: args["reportedOS"] as? String)
                 let id = UUID().uuidString

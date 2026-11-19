@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show PlatformException;
 
@@ -149,6 +150,44 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
         : bytes;
   }
 
+  List<({Uint8List source, Uint8List artifact})> _cachedHlslEffects() {
+    final files = _vfs;
+    if (files == null || _angle) return const [];
+    const folder = 'artemis-shaders/ade2/';
+    const byteLimit = 16 * 1024 * 1024;
+    final entryPattern = RegExp(r'^(.+)\.([a-f0-9]{64})\.ade2$');
+    final effects = <({Uint8List source, Uint8List artifact})>[];
+    final seen = <String>{};
+    var size = 0;
+    for (final path in files.listFiles(extension: '.ade2')) {
+      if (!path.startsWith(folder)) continue;
+      final entry = entryPattern.firstMatch(path.substring(folder.length));
+      if (entry == null || seen.contains(entry[2])) continue;
+      try {
+        final source = _asset(entry[1]!);
+        if (source == null ||
+            source.isEmpty ||
+            source.length > 256 * 1024 ||
+            sha256.convert(source).toString() != entry[2]) {
+          continue;
+        }
+        final artifact = files.readFile(path);
+        if (artifact == null ||
+            artifact.isEmpty ||
+            size + source.length + artifact.length > byteLimit) {
+          continue;
+        }
+        seen.add(entry[2]!);
+        effects.add((source: source, artifact: artifact));
+        size += source.length + artifact.length;
+        if (effects.length == 256) break;
+      } on FileSystemException {
+        continue;
+      }
+    }
+    return effects;
+  }
+
   @override
   void setSaveDir(String dir) => _saveDir = dir;
   @override
@@ -209,6 +248,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
       reportedOS: _reportedOS,
       screenshots: true,
       angle: _angle,
+      hlslEffects: _cachedHlslEffects(),
     );
     try {
       final events = await opened.session.pollEvents();

@@ -144,7 +144,7 @@ private final class ArtemisMacLifetime {
     private var pollCapacity = 4096
 
     init(corePath: String, metalPath: String, hostCaps: UInt64, screenshots: Bool = false,
-         randomSeed: UInt64 = 0, angleDirectory: String? = nil) throws {
+         randomSeed: UInt64 = 0, angleDirectory: String? = nil, dxvkDirectory: String? = nil) throws {
         let core = try ArtemisMacLibrary(path: corePath)
         let metalLibrary = try ArtemisMacLibrary(path: metalPath)
         let metal = try ArtemisMacMetal(metalLibrary)
@@ -184,6 +184,9 @@ private final class ArtemisMacLifetime {
             if let angleDirectory {
                 let create = try metalLibrary.symbol("art3m1s_metal_host_v1_create_angle", as: ArtSwiftAngleCreate.self)
                 try check(angleDirectory.withCString { create(frames, handle, $0, &renderer) }, "create ANGLE renderer")
+            } else if let dxvkDirectory {
+                let create = try metalLibrary.symbol("art3m1s_metal_host_v1_create_dxvk", as: ArtSwiftDxvkCreate.self)
+                try check(dxvkDirectory.withCString { create(frames, handle, $0, &renderer) }, "create DXVK renderer")
             } else {
                 try check(metal.create(frames, handle, &renderer), "create renderer")
             }
@@ -205,6 +208,16 @@ private final class ArtemisMacLifetime {
     private func live() throws -> ArtemisMacNative {
         guard let native = lifetime.native else { throw ArtemisMacError.closed }
         return native
+    }
+
+    func prepareADE2(source: Data, artifact: Data) throws {
+        let native = try live()
+        let prepare = try native.metalLibrary.symbol("art3m1s_metal_host_v1_prepare_ade2", as: ArtSwiftPrepareADE2.self)
+        try withBytes(source) { source in
+            try withBytes(artifact) { artifact in
+                try check(prepare(native.renderer, source, artifact), "prepare DXVK effect")
+            }
+        }
     }
 
     func openProject(_ ini: Data, platform: String, reportedOS: String? = nil) throws {

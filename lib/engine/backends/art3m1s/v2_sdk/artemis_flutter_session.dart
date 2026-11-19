@@ -133,6 +133,7 @@ final class ArtemisFlutterSession {
     String? reportedOS,
     bool angle = false,
     bool screenshots = false,
+    List<({Uint8List source, Uint8List artifact})> hlslEffects = const [],
   }) async {
     final result = (await _channel.invokeMapMethod<Object?, Object?>('open', {
       'ini': ini,
@@ -141,6 +142,11 @@ final class ArtemisFlutterSession {
       'reportedOS': ?reportedOS,
       if (angle) 'renderer': 'angle',
       'screenshots': screenshots,
+      if (!angle && hlslEffects.isNotEmpty)
+        'hlslEffects': [
+          for (final effect in hlslEffects)
+            {'source': effect.source, 'artifact': effect.artifact},
+        ],
     }))!;
     final session = ArtemisFlutterSession._(result['session'] as String);
     try {

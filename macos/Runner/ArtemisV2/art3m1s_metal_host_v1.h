@@ -25,6 +25,13 @@ ArtStatus art3m1s_metal_host_v1_create(const ArtFrameApiV2 *frames, ArtRuntimeHa
  * the EGL and GLES libraries and negotiate ART_ANGLE_HOST_V1_RENDERER_CAPS. */
 ArtStatus art3m1s_metal_host_v1_create_angle(const ArtFrameApiV2 *frames, ArtRuntimeHandle runtime,
                                             const char *directory, ArtMetalHost **out);
+/* Supply a trusted absolute UTF-8 runtime directory. Negotiate the same
+ * renderer capabilities as the Metal Host. */
+ArtStatus art3m1s_metal_host_v1_create_dxvk(const ArtFrameApiV2 *frames, ArtRuntimeHandle runtime,
+                                           const char *directory, ArtMetalHost **out);
+/* Prepare a program for the exact HLSL source bytes before frames use it.
+ * Both byte ranges are borrowed for this call only. */
+ArtStatus art3m1s_metal_host_v1_prepare_ade2(ArtMetalHost *host, ArtBytes source, ArtBytes artifact);
 ArtStatus art3m1s_metal_host_v1_destroy(ArtMetalHost *host);
 
 /* Supply a BGRA IOSurface and keep it alive until detached or destroyed.
