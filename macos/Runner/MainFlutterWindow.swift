@@ -41,17 +41,11 @@ class MainFlutterWindow: NSWindow {
           dxvkDirectory: dxvk.flatMap { FileManager.default.fileExists(atPath: $0) ? frameworks?.path : nil })
         host.register(messenger: textureRegistrar.messenger)
         artemisV2 = host
-        NotificationCenter.default.addObserver(self, selector: #selector(closeArtemisV2(_:)),
-          name: NSWindow.willCloseNotification, object: self)
       }
     }
     super.awakeFromNib()
   }
 
-  @objc private func closeArtemisV2(_ notification: Notification) {
-    artemisV2?.close()
-    artemisV2 = nil
-  }
 }
 
 private final class Art3m1sSharedTextureHost: NSObject {

@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:art3m1s/models/game_entry.dart';
 import 'package:art3m1s/screens/player_screen.dart';
@@ -22,7 +24,7 @@ Future<void> main() async {
   }
   final root = await Directory.systemTemp.createTemp('artemis-v2-window-');
   try {
-    await _run(root, binding.probe);
+    await _run(root, binding);
     stdout.writeln('Artemis v2 macOS window smoke passed');
   } catch (error, stack) {
     stderr.writeln('$error\n$stack');
@@ -41,7 +43,8 @@ Future<void> main() async {
   exit(exitCode);
 }
 
-Future<void> _run(Directory root, _WindowProbe probe) async {
+Future<void> _run(Directory root, _WindowProbeBinding binding) async {
+  final probe = binding.probe;
   final data = await Directory('${root.path}/data').create();
   await File('${data.path}/.storage-layout-v2').writeAsString('2\n');
   PathProviderPlatform.instance = _ProbePaths(data.path);
@@ -61,6 +64,7 @@ Future<void> _run(Directory root, _WindowProbe probe) async {
 [exec command=minimize]
 [wait time=1500 input=0]
 [save file=restored]
+[var name=g.quit_marker data=confirmed]
 [stop]
 ''');
 
@@ -114,12 +118,28 @@ Future<void> _run(Directory root, _WindowProbe probe) async {
     await windowManager.show();
     await _until('Flutter can draw the restored window', _isVisible);
     await _until('the original scene resumes and saves', checkpoint.exists);
+    final globals = File('${data.path}/saves/fixture/save/saveg.dat');
+    bool hasQuitMarker() =>
+        (jsonDecode(globals.readAsStringSync()) as Map)['quit_marker'] ==
+        'confirmed';
+    if (hasQuitMarker()) throw StateError('Quit marker was written too early.');
+    binding.verifyExit = (response) {
+      if (response != ui.AppExitResponse.exit ||
+          !probe.closed.isCompleted ||
+          !hasQuitMarker()) {
+        throw StateError('Quit returned before the session finished saving.');
+      }
+    };
+    await windowManager.close();
+    await binding.exitChecked.future.timeout(const Duration(seconds: 9));
   } finally {
-    if (await windowManager.isMinimized()) await windowManager.restore();
-    runApp(const SizedBox.shrink());
-    await WidgetsBinding.instance.endOfFrame;
-    if (probe.opened) {
-      await probe.closed.future.timeout(const Duration(seconds: 9));
+    if (!binding.exitChecked.isCompleted) {
+      if (await windowManager.isMinimized()) await windowManager.restore();
+      runApp(const SizedBox.shrink());
+      await WidgetsBinding.instance.endOfFrame;
+      if (probe.opened) {
+        await probe.closed.future.timeout(const Duration(seconds: 9));
+      }
     }
     desktop.dispose();
   }
@@ -127,6 +147,25 @@ Future<void> _run(Directory root, _WindowProbe probe) async {
 
 class _WindowProbeBinding extends WidgetsFlutterBinding {
   late final _WindowProbe probe;
+  final exitChecked = Completer<void>();
+  void Function(ui.AppExitResponse)? verifyExit;
+
+  @override
+  Future<ui.AppExitResponse> handleRequestAppExit() async {
+    final response = await super.handleRequestAppExit();
+    final verify = verifyExit;
+    if (verify == null) return response;
+    if (!exitChecked.isCompleted) {
+      try {
+        verify(response);
+        exitChecked.complete();
+      } catch (error, stack) {
+        exitChecked.completeError(error, stack);
+      }
+    }
+    // Keep the harness alive long enough to report and clean up.
+    return ui.AppExitResponse.cancel;
+  }
 
   @override
   BinaryMessenger createBinaryMessenger() =>

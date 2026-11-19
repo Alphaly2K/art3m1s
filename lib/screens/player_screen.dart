@@ -238,6 +238,16 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   }
 
   @override
+  Future<ui.AppExitResponse> didRequestAppExit() async {
+    if (_bridge case final ArtemisV2EngineRuntime runtime) {
+      _closing = true;
+      _syncGameTicker();
+      await runtime.close();
+    }
+    return ui.AppExitResponse.exit;
+  }
+
+  @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     final artemisV2 = _bridge is ArtemisV2EngineRuntime;
     if (artemisV2) _syncArtemisVisibility(state);
