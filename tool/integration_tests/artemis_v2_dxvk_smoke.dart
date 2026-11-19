@@ -9,6 +9,7 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
+import 'package:path_provider/path_provider.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -16,8 +17,18 @@ Future<void> main() async {
   final root = await Directory.systemTemp.createTemp('artemis-dxvk-');
   try {
     final artifact = Platform.environment['ARTEMIS_DXVK_TEST_ADE2'];
-    if (artifact == null) throw StateError('Set ARTEMIS_DXVK_TEST_ADE2.');
-    await _run(root, await File(artifact).readAsBytes());
+    final token = Platform.environment['ARTEMIS_DXVK_TEST_CACHE_TOKEN'];
+    if (artifact == null &&
+        (token == null || !RegExp(r'^[a-zA-Z0-9_-]+$').hasMatch(token))) {
+      throw StateError(
+        'Set ARTEMIS_DXVK_TEST_ADE2 or ARTEMIS_DXVK_TEST_CACHE_TOKEN.',
+      );
+    }
+    await _run(
+      root,
+      artifact == null ? null : await File(artifact).readAsBytes(),
+      token,
+    );
     stdout.writeln(
       'Artemis v2 DXVK Flutter presentation, screenshot and reload passed',
     );
@@ -30,7 +41,7 @@ Future<void> main() async {
   exit(exitCode);
 }
 
-Future<void> _run(Directory root, List<int> artifact) async {
+Future<void> _run(Directory root, List<int>? artifact, String? token) async {
   final game = Directory('${root.path}/game')..createSync();
   final saves = Directory('${root.path}/saves')..createSync();
   File(
@@ -38,14 +49,17 @@ Future<void> _run(Directory root, List<int> artifact) async {
   ).writeAsStringSync('[WINDOWS]\nWIDTH=4\nHEIGHT=4\nBOOT=boot.iet\n');
   final shader = File('${game.path}/paint.hlsl');
   final source = utf8.encode(
-    'float4 main() : SV_Target { return float4(0, 0, 1, 1); }',
+    'float4 main() : SV_Target { return float4(0, 0, 1, 1); }'
+    '${artifact == null ? '\n// startup $token' : ''}',
   );
   shader.writeAsBytesSync(source);
-  final cache = Directory('${game.path}/artemis-shaders/ade2')
-    ..createSync(recursive: true);
-  File(
-    '${cache.path}/paint.hlsl.${sha256.convert(source)}.ade2',
-  ).writeAsBytesSync(artifact);
+  if (artifact != null) {
+    final cache = Directory('${game.path}/artemis-shaders/ade2')
+      ..createSync(recursive: true);
+    File(
+      '${cache.path}/paint.hlsl.${sha256.convert(source)}.ade2',
+    ).writeAsBytesSync(artifact);
+  }
 
   final runtime = EngineRuntimeFactory.create(engine: GameEngineKind.art3m1s);
   if (runtime is! ArtemisV2EngineRuntime) {
@@ -54,7 +68,11 @@ Future<void> _run(Directory root, List<int> artifact) async {
   try {
     await runtime.initialize();
     runtime.setSaveDir(saves.path);
-    Future<void> checkProject(String tag, List<int> expected) async {
+    Future<void> checkProject(
+      String tag,
+      List<int> expected, {
+      Future<void> Function()? beforeStep,
+    }) async {
       File('${game.path}/boot.iet').writeAsStringSync('''
 *top
 [lyshader id=paint file=paint.hlsl]
@@ -76,6 +94,7 @@ Future<void> _run(Directory root, List<int> artifact) async {
       if (ini == null || !await runtime.loadProjectBytes(ini)) {
         throw StateError('Project failed to open.');
       }
+      await beforeStep?.call();
       final texture = await runtime.enableSharedTexture();
       if (texture == null) throw StateError('No Flutter texture.');
       final key = GlobalKey();
@@ -114,6 +133,59 @@ Future<void> _run(Directory root, List<int> artifact) async {
       }
     }
 
+    if (artifact == null) {
+      final cacheRoot = await getApplicationCacheDirectory();
+      final cache = Directory('${cacheRoot.path}/artemis-ade2-v1');
+      Future<File?> cachedEffect(List<int> source) async {
+        if (!await cache.exists()) return null;
+        final name = '/${sha256.convert(source)}.ade2';
+        await for (final entry in cache.list(
+          recursive: true,
+          followLinks: false,
+        )) {
+          if (entry is File && entry.path.endsWith(name)) return entry;
+        }
+        return null;
+      }
+
+      final warm = Platform.environment['ARTEMIS_DXVK_TEST_WARM'] == '1';
+      final prior = await cachedEffect(source);
+      if ((prior != null) != warm) {
+        throw StateError('Unexpected starting cache state.');
+      }
+      final modified = await prior?.lastModified();
+      await checkProject(
+        'compiled',
+        [0, 0, 255, 255],
+        beforeStep: () async {
+          final entry = await cachedEffect(source);
+          if (entry == null) {
+            throw StateError('ADE2 missing before the first step.');
+          }
+          if (modified != null && await entry.lastModified() != modified) {
+            throw StateError('The cached program was rewritten.');
+          }
+        },
+      );
+
+      final dynamicSource = utf8.encode(
+        'float4 main() : SV_Target { return float4(0, 1, 0, 1); }\n// dynamic $token',
+      );
+      await checkProject(
+        'dynamic',
+        [0, 255, 0, 255],
+        beforeStep: () async {
+          if (!warm && await cachedEffect(dynamicSource) != null) {
+            throw StateError('Dynamic ADE2 was present before the asset read.');
+          }
+          shader.writeAsBytesSync(dynamicSource);
+        },
+      );
+      if (await cachedEffect(dynamicSource) == null) {
+        throw StateError('No ADE2 was stored for the dynamic shader.');
+      }
+      shader.writeAsBytesSync(source);
+    }
     await checkProject('cached', [0, 0, 255, 255]);
     shader.writeAsStringSync('// invalid shader after project reload');
     await checkProject('changed', [255, 0, 0, 255]);

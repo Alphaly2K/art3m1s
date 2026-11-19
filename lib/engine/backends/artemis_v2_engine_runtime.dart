@@ -20,6 +20,7 @@ import 'art3m1s/project_save_root.dart';
 import 'art3m1s/project_vfs.dart';
 import 'art3m1s/v2_sdk/artemis_file_service.dart';
 import 'art3m1s/v2_sdk/artemis_flutter_session.dart';
+import 'art3m1s/v2_sdk/artemis_hlsl_compiler.dart';
 
 typedef _Pixels = ({int width, int height, Uint8List rgba});
 
@@ -45,6 +46,9 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
   ProjectVfs? _vfs;
   ArtemisFileService? _files;
   ArtemisFlutterSession? _session;
+  Future<ArtemisHlslCompiler?>? _hlslCompilerDiscovery;
+  ArtemisHlslCompiler? _hlslCompiler;
+  Set<Digest> _seenHlsl = {};
   ArtemisFlutterState? _state;
   ArtemisFlutterEvent? _dialog;
   ArtemisFlutterEvent? _httpRequest;
@@ -188,6 +192,57 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     return effects;
   }
 
+  static bool _isHlsl(String path) {
+    final lower = path.toLowerCase();
+    return lower.endsWith('.hlsl') || lower.endsWith('.fx');
+  }
+
+  Future<List<({Uint8List source, Uint8List artifact})>> _prepareHlslEffects(
+    ProjectVfs? files,
+    ArtemisHlslCompiler? compiler,
+    Set<Digest> seen,
+  ) async {
+    final effects = _cachedHlslEffects();
+    seen.addAll(effects.map((effect) => sha256.convert(effect.source)));
+    if (files == null || compiler == null) return effects;
+    var size = effects.fold(
+      0,
+      (size, effect) => size + effect.source.length + effect.artifact.length,
+    );
+    final budget = Stopwatch()..start();
+    for (final path in files.listFiles().where(_isHlsl)) {
+      if (_closed ||
+          !identical(_vfs, files) ||
+          seen.length >= 256 ||
+          budget.elapsed >= const Duration(seconds: 5)) {
+        break;
+      }
+      Uint8List? source;
+      try {
+        source = _asset(path);
+      } on FileSystemException {
+        continue;
+      }
+      if (source == null ||
+          source.isEmpty ||
+          source.length > ArtemisHlslCompiler.maxSourceBytes) {
+        continue;
+      }
+      final digest = sha256.convert(source);
+      if (seen.contains(digest)) continue;
+      final artifact = await compiler.prepare(source);
+      if (artifact != null &&
+          size + source.length + artifact.length > 16 * 1024 * 1024) {
+        continue;
+      }
+      seen.add(digest);
+      if (artifact == null) continue;
+      size += source.length + artifact.length;
+      effects.add((source: source, artifact: artifact));
+    }
+    return effects;
+  }
+
   List<Uint8List> _knownGlslSources() {
     final files = _vfs;
     if (files == null || !_angle) return const [];
@@ -263,6 +318,14 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     if (_closed || saveDir == null) return false;
     await _releaseProjectSession();
     if (_closed) return false;
+    final files = _vfs;
+    final compiler = _angle || files == null
+        ? null
+        : await (_hlslCompilerDiscovery ??= ArtemisHlslCompiler.bundled());
+    if (_closed || !identical(files, _vfs)) return false;
+    final seenHlsl = <Digest>{};
+    final hlslEffects = await _prepareHlslEffects(files, compiler, seenHlsl);
+    if (_closed || !identical(files, _vfs)) return false;
     final opened = await ArtemisFlutterSession.open(
       ini: iniContent,
       platform: platform,
@@ -276,12 +339,13 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
       reportedOS: _reportedOS,
       screenshots: true,
       angle: _angle,
-      hlslEffects: _cachedHlslEffects(),
+      hlslEffects: hlslEffects,
+      compileHlsl: compiler != null,
       glslSources: _knownGlslSources(),
     );
     try {
       final events = await opened.session.pollEvents();
-      if (_closed) {
+      if (_closed || !identical(files, _vfs)) {
         await opened.session.close();
         return false;
       }
@@ -310,15 +374,19 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
         },
       );
       _session = opened.session;
+      _hlslCompiler = opened.session.usesDxvk ? compiler : null;
+      _seenHlsl = seenHlsl;
       _updateState(opened.state);
       for (final event in events) {
-        _event(event);
+        await _event(event);
       }
     } on Exception catch (error) {
       Log.warn('[ArtemisV2] Could not open the project save folder: $error');
       _files?.close();
       _files = null;
       _session = null;
+      _hlslCompiler = null;
+      _seenHlsl = {};
       await opened.session.close();
       return false;
     }
@@ -344,6 +412,8 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     await _advancing;
     if (_closed || !identical(_session, previous)) return;
     _session = null;
+    _hlslCompiler = null;
+    _seenHlsl = {};
     _mediaFeedback.clear();
     _translations.clear();
     _inputs.clear();
@@ -447,7 +517,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
             final status = await _screenshot(session, event);
             _replies.add(event.reply({'status': status}));
           } else {
-            _event(event);
+            await _event(event);
           }
         }
       }
@@ -644,7 +714,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     }
   }
 
-  void _event(ArtemisFlutterEvent event) {
+  Future<void> _event(ArtemisFlutterEvent event) async {
     if (event.mediaCommand case final command?) {
       final owner = _session;
       if (owner == null || _closed || event.epoch != _state?.epoch) return;
@@ -668,6 +738,35 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
       ),
     );
     if (fileReply != null) {
+      final session = _session;
+      final compiler = _hlslCompiler;
+      final source = fileReply.blob;
+      final key = event.metadata['key'];
+      if (session != null &&
+          compiler != null &&
+          source != null &&
+          event.domain == 3 &&
+          event.kind == 2 &&
+          event.metadata['namespace'] == 'asset' &&
+          event.metadata['offset'] == '0' &&
+          fileReply.metadata['eof'] == true &&
+          key is String &&
+          _isHlsl(key) &&
+          source.isNotEmpty &&
+          source.length <= ArtemisHlslCompiler.maxSourceBytes &&
+          _seenHlsl.length < 256 &&
+          _seenHlsl.add(sha256.convert(source))) {
+        final artifact = await compiler.prepare(source);
+        if (_closed || !identical(_session, session)) return;
+        if (artifact != null) {
+          try {
+            await session.prepareHlsl(source, artifact);
+          } on PlatformException catch (error) {
+            Log.warn('[ArtemisV2] DXVK effect unavailable: ${error.code}');
+          }
+        }
+        if (_closed || !identical(_session, session)) return;
+      }
       _replies.add(event.reply(fileReply.metadata, blob: fileReply.blob));
       return;
     }

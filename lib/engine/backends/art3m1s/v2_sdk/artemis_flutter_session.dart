@@ -120,9 +120,10 @@ final class ArtemisFlutterEvent {
 /// save, media, and UI services.
 final class ArtemisFlutterSession {
   static const _channel = MethodChannel('moe.alphaly.art3m1s/artemis_v2');
-  ArtemisFlutterSession._(this._id);
+  ArtemisFlutterSession._(this._id, this.usesDxvk);
 
   final String _id;
+  final bool usesDxvk;
   bool _closed = false;
 
   static Future<({ArtemisFlutterSession session, ArtemisFlutterState state})>
@@ -135,6 +136,7 @@ final class ArtemisFlutterSession {
     bool screenshots = false,
     List<({Uint8List source, Uint8List artifact})> hlslEffects = const [],
     List<Uint8List> glslSources = const [],
+    bool compileHlsl = false,
   }) async {
     final result = (await _channel.invokeMapMethod<Object?, Object?>('open', {
       'ini': ini,
@@ -144,13 +146,17 @@ final class ArtemisFlutterSession {
       if (angle) 'renderer': 'angle',
       if (angle && glslSources.isNotEmpty) 'glslSources': glslSources,
       'screenshots': screenshots,
+      if (!angle && compileHlsl) 'compileHlsl': true,
       if (!angle && hlslEffects.isNotEmpty)
         'hlslEffects': [
           for (final effect in hlslEffects)
             {'source': effect.source, 'artifact': effect.artifact},
         ],
     }))!;
-    final session = ArtemisFlutterSession._(result['session'] as String);
+    final session = ArtemisFlutterSession._(
+      result['session'] as String,
+      result['dxvk'] == true,
+    );
     try {
       return (session: session, state: _state(result));
     } catch (_) {
@@ -168,6 +174,9 @@ final class ArtemisFlutterSession {
       (await _call<int>('surface', {'width': width, 'height': height}))!;
 
   Future<void> detachSurface() => _call<void>('detach');
+
+  Future<void> prepareHlsl(Uint8List source, Uint8List artifact) =>
+      _call<void>('prepareHlsl', {'source': source, 'artifact': artifact});
 
   /// Returns the ID of a freshly presented frame, or null if none was presented.
   Future<String?> present() => _call<String>('present');

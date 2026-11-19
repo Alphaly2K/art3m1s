@@ -84,22 +84,26 @@ private enum ArtemisFlutterError: Error {
             }
             let screenshots = args["screenshots"] as? Bool ?? false
             var dxvk: ArtemisMacSession?
-            if angle == nil, let dxvkDirectory, let effects = args["hlslEffects"] as? [[String: Any]],
-               !effects.isEmpty {
+            let effects = args["hlslEffects"] as? [[String: Any]] ?? []
+            let compileHlsl = args["compileHlsl"] as? Bool == true
+            if angle == nil, let dxvkDirectory, compileHlsl || !effects.isEmpty {
                 do {
                     let candidate = try ArtemisMacSession(corePath: corePath, metalPath: metalPath, hostCaps: caps,
                                                           screenshots: screenshots, dxvkDirectory: dxvkDirectory)
-                    do {
-                        for effect in effects {
-                            guard let source = bytes(effect["source"]), let artifact = bytes(effect["artifact"]) else {
-                                throw ArtemisFlutterError.invalidArguments
-                            }
+                    var prepared = false
+                    for effect in effects.prefix(256) {
+                        guard let source = bytes(effect["source"]), let artifact = bytes(effect["artifact"]) else { continue }
+                        do {
                             try candidate.prepareADE2(source: source, artifact: artifact)
+                            prepared = true
+                        } catch {
+                            NSLog("Artemis DXVK effect unavailable: %@", String(describing: error))
                         }
+                    }
+                    if prepared || compileHlsl {
                         dxvk = candidate
-                    } catch {
-                        try? candidate.close()
-                        throw error
+                    } else {
+                        try candidate.close()
                     }
                 } catch {
                     NSLog("Artemis DXVK unavailable: %@", String(describing: error))
@@ -116,6 +120,7 @@ private enum ArtemisFlutterError: Error {
                 let id = UUID().uuidString
                 var result = try state(core)
                 result["session"] = id
+                result["dxvk"] = dxvk != nil
                 sessions[id] = Session(core)
                 return result
             } catch {
@@ -130,6 +135,12 @@ private enum ArtemisFlutterError: Error {
         }
         guard let session = sessions[id] else { throw ArtemisFlutterError.closedSession }
         switch call.method {
+        case "prepareHlsl":
+            guard let source = bytes(args["source"]), let artifact = bytes(args["artifact"]) else {
+                throw ArtemisFlutterError.invalidArguments
+            }
+            try session.core.prepareADE2(source: source, artifact: artifact)
+            return nil
         case "surface":
             guard let width = args["width"] as? Int, let height = args["height"] as? Int,
                   (1...16384).contains(width), (1...16384).contains(height) else {
