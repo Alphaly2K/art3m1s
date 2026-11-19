@@ -199,6 +199,7 @@ ${measure ? _motion : '[stop]'}
           ? _legacyShader('float3(fore.b, fore.r, fore.g)')
           : 'float4 main() : SV_Target { return float4(0, 1, 0, 1); }';
       final dynamicSource = utf8.encode('$dynamicShader\n// dynamic $token');
+      shader.writeAsBytesSync([]);
       await checkProject(
         'dynamic',
         [0, 255, 0, 255],
@@ -206,6 +207,9 @@ ${measure ? _motion : '[stop]'}
           if (!warm && await cachedEffect(dynamicSource) != null) {
             throw StateError('Dynamic ADE2 was present before the asset read.');
           }
+          stdout.writeln(
+            'Project opened before the shader asset was available',
+          );
           shader.writeAsBytesSync(dynamicSource);
         },
       );
@@ -220,12 +224,14 @@ ${measure ? _motion : '[stop]'}
     shader.writeAsBytesSync(source);
     await checkProject('restored', [0, 0, 255, 255]);
     if (profile) {
+      shader.writeAsBytesSync([]);
       await checkProject(
         'metal',
         [255, 0, 0, 255],
         effect: false,
         measure: true,
       );
+      shader.writeAsBytesSync(source);
       await checkProject('dxvk', [0, 0, 255, 255], measure: true);
     }
   } finally {
