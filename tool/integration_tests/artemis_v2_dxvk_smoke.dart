@@ -90,12 +90,23 @@ Future<void> _run(
       Future<void> Function()? beforeStep,
       bool effect = true,
       bool measure = false,
+      int layers = 1,
     }) async {
+      final scene = StringBuffer();
+      if (layers > 1) {
+        scene.writeln('[lyc id=0 width=$width height=$height color=ff000000]');
+      }
+      for (var layer = 1; layer <= layers; layer++) {
+        final color = layers == 1 ? 'ffff0000' : '80ff0000';
+        scene.writeln(
+          '[lyc id=$layer width=$width height=$height color=$color]',
+        );
+        if (effect) scene.writeln('[lyprop id=$layer shader=paint]');
+      }
       File('${game.path}/boot.iet').writeAsStringSync('''
 *top
 ${effect ? '[lyshader id=paint file=paint.hlsl]' : ''}
-[lyc id=1 width=$width height=$height color=ffff0000]
-${effect ? '[lyprop id=1 shader=paint]' : ''}
+$scene
 [flip]
 ${measure ? '' : '[takess]\n[savess file=$tag]'}
 [caption data=$tag]
@@ -232,7 +243,21 @@ ${measure ? _motion : '[stop]'}
         measure: true,
       );
       shader.writeAsBytesSync(source);
-      await checkProject('dxvk', [0, 0, 255, 255], measure: true);
+      await checkProject('dxvk-1', [0, 0, 255, 255], measure: true);
+      if (legacy) {
+        await checkProject(
+          'dxvk-2',
+          [0, 0, 192, 255],
+          layers: 2,
+          measure: true,
+        );
+        await checkProject(
+          'dxvk-4',
+          [0, 0, 240, 255],
+          layers: 4,
+          measure: true,
+        );
+      }
     }
   } finally {
     await runtime.close();
