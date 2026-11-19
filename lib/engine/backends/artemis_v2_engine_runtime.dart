@@ -15,6 +15,7 @@ import '../engine_runtime.dart';
 import 'art3m1s/environment_patch.dart';
 import 'art3m1s/media_bridge.dart';
 import 'art3m1s/project_charset.dart';
+import 'art3m1s/project_save_root.dart';
 import 'art3m1s/project_vfs.dart';
 import 'art3m1s/v2_sdk/artemis_file_service.dart';
 import 'art3m1s/v2_sdk/artemis_flutter_session.dart';
@@ -196,27 +197,56 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
       hostCaps:
           ArtemisFileService.capabilities |
           ArtemisMediaCommand.capability |
+          artemisProjectSavePathCapability |
           (onDialogRequested == null ? 0 : 2) |
           8 |
           (_translator?.hostTranslationEnabled == true ? 16 : 0),
       reportedOS: _reportedOS,
       screenshots: true,
     );
-    if (_closed) {
+    try {
+      final events = await opened.session.pollEvents();
+      if (_closed) {
+        await opened.session.close();
+        return false;
+      }
+      final started = events.isEmpty ? null : events.first;
+      final savePath = started?.metadata['save_path'];
+      if (started?.domain != 1 ||
+          started?.kind != 1 ||
+          started?.epoch != opened.state.epoch ||
+          savePath is! String) {
+        throw const FormatException('Missing Artemis project save path');
+      }
+      final layout = resolveArtemisProjectSaveRoot(
+        Directory(saveDir),
+        savePath,
+      );
+      if (layout.conflict) {
+        Log.warn(
+          '[ArtemisV2] Using the project save folder; preview saves remain separate.',
+        );
+      }
+      _files = ArtemisFileService(
+        saveRoot: layout.directory,
+        readAsset: (key) {
+          final asset = _asset(key);
+          return asset == null ? null : (bytes: asset, modified: null);
+        },
+      );
+      _session = opened.session;
+      _updateState(opened.state);
+      for (final event in events) {
+        _event(event);
+      }
+    } on Exception catch (error) {
+      Log.warn('[ArtemisV2] Could not open the project save folder: $error');
+      _files?.close();
+      _files = null;
+      _session = null;
       await opened.session.close();
       return false;
     }
-    _session = opened.session;
-    _cancelHttp();
-    _capture = null;
-    _files = ArtemisFileService(
-      saveRoot: Directory(saveDir),
-      readAsset: (key) {
-        final asset = _asset(key);
-        return asset == null ? null : (bytes: asset, modified: null);
-      },
-    );
-    _updateState(opened.state);
     final font = _font;
     if (font != null) {
       final message = ArtemisFlutterMessage(

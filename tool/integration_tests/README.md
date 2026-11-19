@@ -28,3 +28,7 @@ build/macos/Build/Products/Debug/art3m1s.app/Contents/MacOS/art3m1s
 以及项目切换后的解码失败处理。
 需要 macOS 桌面、Metal 设备，以及 `PATH` 中支持 `libx264`、`wmv2`、`wmav2` 编码的 `ffmpeg`。
 无需提供游戏文件。
+
+验证 v1 和 v2 存档互读时，将 `--target` 改为
+`tool/integration_tests/artemis_save_interop_smoke.dart`。该入口自建项目和存档，验证非默认
+`SAVEPATH` 的系统存档与编号存档能在两版之间往返，以及旧预览目录仍可读写。
