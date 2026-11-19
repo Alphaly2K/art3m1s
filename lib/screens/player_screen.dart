@@ -8,12 +8,16 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
+import 'package:macos_window_utils/macos/ns_window_delegate.dart';
+import 'package:macos_window_utils/ns_window_delegate_handler/ns_window_delegate_handle.dart';
+import 'package:macos_window_utils/window_manipulator.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../controllers/mobile_touchpad.dart';
 import '../controllers/ps5_input.dart';
 import '../controllers/two_finger_gesture.dart';
 import '../controllers/wheel_input.dart';
+import '../engine/backends/artemis_v2_engine_runtime.dart';
 import '../engine/engine_runtime.dart';
 import '../engine/engine_runtime_factory.dart';
 import '../models/game_engine.dart';
@@ -149,6 +153,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   Timer? _profilerTimer;
   bool _profilerEnabled = false;
   bool _appActive = true;
+  bool _windowMinimized = false;
+  NSWindowDelegateHandle? _windowDelegate;
   bool _sessionReadyToRun = false;
   bool _gameLoopStarted = false;
   bool _ps5MenuOpen = false;
@@ -173,6 +179,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       onDialogRequested: _showEngineDialog,
       onWindowAction: _handleEngineWindowAction,
     );
+    if (_bridge is ArtemisV2EngineRuntime) {
+      _syncArtemisVisibility(WidgetsBinding.instance.lifecycleState);
+      _windowDelegate = WindowManipulator.addNSWindowDelegate(
+        _ArtemisPlayerWindowDelegate(_setWindowMinimized),
+      );
+    }
     _gameTicker = createTicker(_onGameTick);
     _bridge.media.fullscreenVideoBlocking.addListener(_syncGameTicker);
     _touchpadPointer = MobileTouchpadPointer(
@@ -227,6 +239,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    final artemisV2 = _bridge is ArtemisV2EngineRuntime;
+    if (artemisV2) _syncArtemisVisibility(state);
     // 生命周期 → core：驱动 [autosave allow=1]（切后台自动存档）+ 同步最小化位。
     switch (state) {
       case AppLifecycleState.resumed:
@@ -235,7 +249,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         if (widget.sessionState.isRunning) {
           _scheduleSharedTextureResize();
           _bridge.setWindowStateBits(minimized: false);
-          _bridge.notifyLifecycle(2); // 回前台
+          if (!artemisV2) _bridge.notifyLifecycle(2); // 回前台
         }
       case AppLifecycleState.paused:
       case AppLifecycleState.hidden:
@@ -243,17 +257,39 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         _syncGameTicker();
         _endTouchpadDrag();
         _bridge.setWindowStateBits(minimized: true);
-        _bridge.notifyLifecycle(1); // 切后台
+        if (!artemisV2) _bridge.notifyLifecycle(1); // 切后台
       case AppLifecycleState.inactive:
-        _appActive = false;
+        if (!artemisV2) _appActive = false;
         _syncGameTicker();
         _endTouchpadDrag();
       case AppLifecycleState.detached:
         _appActive = false;
         _syncGameTicker();
         _endTouchpadDrag();
-        _bridge.notifyLifecycle(0); // 退出
+        if (!artemisV2) _bridge.notifyLifecycle(0); // 退出
     }
+  }
+
+  void _syncArtemisVisibility(AppLifecycleState? state) {
+    final lifecycle = switch (state) {
+      AppLifecycleState.detached => 0,
+      AppLifecycleState.hidden || AppLifecycleState.paused => 1,
+      _ => 2,
+    };
+    _appActive = lifecycle == 2;
+    _bridge.notifyLifecycle(_windowMinimized && _appActive ? 1 : lifecycle);
+  }
+
+  void _setWindowMinimized(bool minimized) {
+    if (_closing || _windowMinimized == minimized) return;
+    _windowMinimized = minimized;
+    _syncArtemisVisibility(WidgetsBinding.instance.lifecycleState);
+    if (minimized) {
+      _endTouchpadDrag();
+    } else {
+      _scheduleSharedTextureResize();
+    }
+    _syncGameTicker();
   }
 
   @override
@@ -643,6 +679,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         _gameLoopStarted &&
         !_closing &&
         _appActive &&
+        !_windowMinimized &&
         _sessionReadyToRun &&
         !_ps5MenuOpen &&
         !_bridge.media.isFullscreenVideoBlocking;
@@ -659,6 +696,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
   void _onGameTick(Duration _) {
     if (_closing || !mounted) return;
+    final runtime = _bridge;
+    // A busy asynchronous presenter must leave its next deadline intact.
+    if (runtime is AsyncTextureRuntime && _frameInFlight) return;
     final nowUs = _frameClock.elapsedMicroseconds;
     if (nowUs < _nextFrameUs) return;
     final overdueUs = nowUs - _nextFrameUs;
@@ -679,11 +719,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
     _drainWheelInput();
 
-    final runtime = _bridge;
     if (runtime is AsyncTextureRuntime) {
-      if (!_frameInFlight && runtime.hasActiveSharedTexture) {
+      if (runtime.hasActiveSharedTexture) {
         _frameInFlight = true;
-        unawaited(_advanceTexture(runtime, nowUs));
+        unawaited(_advanceTexture(runtime, nowUs, dueTicks));
       }
       return;
     }
@@ -740,9 +779,21 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     }
   }
 
-  Future<void> _advanceTexture(AsyncTextureRuntime runtime, int nowUs) async {
+  Iterable<int> _dueFrameDeltas(int ticks) sync* {
+    for (var i = 0; i < ticks && _gameTicker.isActive; i++) {
+      yield _nextFrameDeltaMs();
+    }
+  }
+
+  Future<void> _advanceTexture(
+    AsyncTextureRuntime runtime,
+    int nowUs,
+    int dueTicks,
+  ) async {
     try {
-      final presented = await runtime.advanceTexture(_nextFrameDeltaMs());
+      final presented = await runtime.advanceTextureBatch(
+        _dueFrameDeltas(dueTicks),
+      );
       if (!mounted || _closing) return;
       if (runtime.isExitRequested()) {
         _closePlayer();
@@ -829,6 +880,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   void dispose() {
     _closing = true;
     unawaited(_releaseEngineWindow());
+    _windowDelegate?.removeFromHandler();
     WidgetsBinding.instance.removeObserver(this);
     _unlockOrientation();
     _bridge.media.fullscreenVideoBlocking.removeListener(_syncGameTicker);
@@ -1728,4 +1780,16 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     }
     return null;
   }
+}
+
+final class _ArtemisPlayerWindowDelegate extends NSWindowDelegate {
+  _ArtemisPlayerWindowDelegate(this.onMinimized);
+
+  final ValueChanged<bool> onMinimized;
+
+  @override
+  void windowDidMiniaturize() => onMinimized(true);
+
+  @override
+  void windowDidDeminiaturize() => onMinimized(false);
 }

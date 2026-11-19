@@ -1,0 +1,149 @@
+import 'dart:io';
+
+import 'package:art3m1s/models/game_entry.dart';
+import 'package:art3m1s/screens/player_screen.dart';
+import 'package:art3m1s/services/logger.dart';
+import 'package:art3m1s/shell/desktop_shell_mode.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:macos_window_utils/window_manipulator.dart';
+// ignore: depend_on_referenced_packages
+import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:window_manager/window_manager.dart';
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  const v2 = bool.fromEnvironment('ARTEMIS_V2');
+  if (!Platform.isMacOS || !v2) {
+    throw StateError('Requires a macOS desktop build with ARTEMIS_V2 enabled.');
+  }
+  final root = await Directory.systemTemp.createTemp('artemis-v2-window-');
+  try {
+    await _run(root);
+    stdout.writeln('Artemis v2 macOS window smoke passed');
+  } catch (error, stack) {
+    stderr.writeln('$error\n$stack');
+    for (final log in Log.entries.where((entry) => entry.level == 'E')) {
+      stderr.writeln(log.message);
+    }
+    exitCode = 1;
+  } finally {
+    await root.delete(recursive: true);
+  }
+  exit(exitCode);
+}
+
+Future<void> _run(Directory root) async {
+  final data = await Directory('${root.path}/data').create();
+  await File('${data.path}/.storage-layout-v2').writeAsString('2\n');
+  PathProviderPlatform.instance = _ProbePaths(data.path);
+  // ignore: invalid_use_of_visible_for_testing_member
+  SharedPreferences.setMockInitialValues({});
+  final game = await Directory('${root.path}/game').create();
+  await File(
+    '${game.path}/system.ini',
+  ).writeAsString('[WINDOWS]\nWIDTH=128\nHEIGHT=72\nBOOT=boot.iet\n');
+  await File('${game.path}/boot.iet').writeAsString('''
+*top
+[lyc id=1 width=128 height=72 color=ff112233]
+[flip]
+[exec command=fullscreen]
+[wait time=3000 input=0]
+[exec command=minimize]
+[wait time=1500 input=0]
+[save file=restored]
+[stop]
+''');
+
+  await windowManager.ensureInitialized();
+  await WindowManipulator.initialize(enableWindowDelegate: true);
+  final desktop = DesktopShellController();
+  try {
+    runApp(const SizedBox.shrink());
+    if (await windowManager.isMinimized()) await windowManager.restore();
+    await windowManager.show();
+    await windowManager.focus();
+    await _until('Flutter can draw the window', _isVisible);
+    await WidgetsBinding.instance.waitUntilFirstFrameRasterized.timeout(
+      const Duration(seconds: 9),
+    );
+    runApp(
+      ProviderScope(
+        child: DesktopShellScope(
+          controller: desktop,
+          child: MaterialApp(
+            home: PlayerScreen(
+              gameId: 'fixture',
+              projectPath: game.path,
+              source: GameSource.directory,
+              translationEnabled: false,
+              translationPatchPath: '',
+              environmentPatchEnabled: false,
+              addedAt: DateTime.fromMillisecondsSinceEpoch(0),
+            ),
+          ),
+        ),
+      ),
+    );
+    await _until('AppKit enters fullscreen', windowManager.isFullScreen);
+    if (desktop.mode != DesktopShellMode.standard) {
+      throw StateError('Script fullscreen changed the player shell.');
+    }
+    await _until('AppKit minimizes the window', windowManager.isMinimized);
+    final checkpoint = File('${data.path}/saves/fixture/save/restored');
+    await Future<void>.delayed(const Duration(milliseconds: 1800));
+    if (await checkpoint.exists()) {
+      throw StateError('The scene clock advanced while the window was hidden.');
+    }
+    await windowManager.restore();
+    await _until('AppKit restores the window', () async {
+      return !await windowManager.isMinimized();
+    });
+    await windowManager.setAlwaysOnTop(true);
+    await windowManager.show();
+    await _until('Flutter can draw the restored window', _isVisible);
+    await _until('the original scene resumes and saves', checkpoint.exists);
+  } finally {
+    if (await windowManager.isMinimized()) await windowManager.restore();
+    runApp(const SizedBox.shrink());
+    await WidgetsBinding.instance.endOfFrame;
+    desktop.dispose();
+  }
+}
+
+Future<bool> _isVisible() async {
+  if (!await windowManager.isVisible() || await windowManager.isMinimized()) {
+    return false;
+  }
+  return switch (WidgetsBinding.instance.lifecycleState) {
+    null || AppLifecycleState.inactive || AppLifecycleState.resumed => true,
+    _ => false,
+  };
+}
+
+Future<void> _until(String action, Future<bool> Function() ready) async {
+  final timer = Stopwatch()..start();
+  while (timer.elapsed < const Duration(seconds: 9)) {
+    if (await ready()) return;
+    await Future<void>.delayed(const Duration(milliseconds: 40));
+  }
+  throw StateError(
+    'Timed out waiting for $action (${WidgetsBinding.instance.lifecycleState}, '
+    'visible=${await windowManager.isVisible()}, '
+    'minimized=${await windowManager.isMinimized()}, '
+    'focused=${await windowManager.isFocused()}).',
+  );
+}
+
+final class _ProbePaths extends PathProviderPlatform {
+  _ProbePaths(this.path);
+
+  final String path;
+
+  @override
+  Future<String?> getApplicationSupportPath() async => path;
+
+  @override
+  Future<String?> getApplicationDocumentsPath() async => path;
+}

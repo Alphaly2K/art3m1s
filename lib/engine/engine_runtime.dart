@@ -227,7 +227,8 @@ abstract interface class EngineRuntime {
 
 /// A runtime whose native presentation is driven asynchronously by the player.
 abstract interface class AsyncTextureRuntime implements EngineRuntime {
-  Future<bool> advanceTexture(int deltaMs);
+  /// Advance the due logical frames and present the latest output once.
+  Future<bool> advanceTextureBatch(Iterable<int> frameDeltasMs);
 }
 
 /// No-op runtime used when a build has not installed a backend yet.

@@ -64,7 +64,10 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
   int? _textureID;
   int _surfaceRevision = 0;
   bool _environmentPatch = false;
+  bool _appBackgrounded = false;
   bool _closed = false;
+
+  bool get _canRun => !_closed && !_appBackgrounded && _residency.isRunning;
 
   @override
   bool get isInitialized => !_closed;
@@ -104,7 +107,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
       _textureID = null;
       await _session?.detachSurface();
     }
-    await media.setSuspended(!_residency.isRunning);
+    await media.setSuspended(!_canRun);
     return _residency;
   }
 
@@ -309,27 +312,41 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
   @override
   bool isExitRequested() => _state?.exitRequested ?? false;
 
+  Future<bool> advanceTexture(int deltaMs) => advanceTextureBatch([deltaMs]);
+
   @override
-  Future<bool> advanceTexture(int deltaMs) {
-    if (_closed || !_residency.isRunning || _session == null) {
+  Future<bool> advanceTextureBatch(Iterable<int> frameDeltasMs) {
+    if (!_canRun || _session == null) {
       return Future.value(false);
     }
-    return _advancing ??= _advance(_session!, deltaMs).whenComplete(() {
+    return _advancing ??= _advance(_session!, frameDeltasMs).whenComplete(() {
       _advancing = null;
     });
   }
 
-  Future<bool> _advance(ArtemisFlutterSession session, int deltaMs) async {
-    _nextClock(deltaMs);
-    await _submit(session, _inputs);
-    await _submit(session, _replies);
-    await _submitHttp(session);
-    await _submitTranslations(session);
-    await media.pollVideo(session);
-    await _submitMedia(session);
-    await _step(session);
-    return !_closed &&
-        _residency.isRunning &&
+  Future<bool> _advance(
+    ArtemisFlutterSession session,
+    Iterable<int> frameDeltasMs,
+  ) async {
+    var stepped = false;
+    for (final deltaMs in frameDeltasMs) {
+      if (!_canRun || isExitRequested()) break;
+      await _submit(session, _inputs);
+      await _submit(session, _replies);
+      await _submitHttp(session);
+      await _submitTranslations(session);
+      if (!_canRun) break;
+      await media.pollVideo(session);
+      await _submitMedia(session);
+      if (!_canRun) break;
+      _nextClock(deltaMs);
+      await _step(session);
+      stepped = true;
+      // A service can suspend execution on this frame across vsyncs.
+      if (_frameTime != null) break;
+    }
+    return stepped &&
+        _canRun &&
         _textureID != null &&
         await session.present() != null;
   }
@@ -643,7 +660,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
 
   void _input(int kind, Map<String, Object?> metadata) {
     final state = _state;
-    if (_closed || !_residency.isRunning || state == null) return;
+    if (!_canRun || state == null) return;
     _inputs.add(
       ArtemisFlutterMessage(
         domain: 2,
@@ -704,7 +721,16 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
 
   @override
   void notifyLifecycle(int state) {
-    if (state == 1) _input(4, const {});
+    if (_closed || state < 0 || state > 2) return;
+    final backgrounded = state != 2;
+    if (_appBackgrounded == backgrounded) return;
+    if (backgrounded) _input(4, const {});
+    _appBackgrounded = backgrounded;
+    unawaited(
+      media.setSuspended(!_canRun).catchError((Object error) {
+        Log.warn('[ArtemisV2] media lifecycle: $error');
+      }),
+    );
   }
 
   @override

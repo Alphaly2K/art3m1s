@@ -29,6 +29,10 @@ build/macos/Build/Products/Debug/art3m1s.app/Contents/MacOS/art3m1s
 需要 macOS 桌面、Metal 设备，以及 `PATH` 中支持 `libx264`、`wmv2`、`wmav2` 编码的 `ffmpeg`。
 无需提供游戏文件。
 
+验证脚本窗口操作时，将 `--target` 改为 `tool/integration_tests/artemis_v2_window_smoke.dart`。
+测试窗口会进入全屏、最小化并恢复，验证这些操作不切换播放器所在的 Shell，最小化期间脚本等待
+不推进，恢复后可从原场景存档。需要活跃的 macOS 桌面会话，无需游戏文件或 FFmpeg。
+
 验证 v1 和 v2 存档互读时，将 `--target` 改为
 `tool/integration_tests/artemis_save_interop_smoke.dart`。该入口自建项目和存档，验证非默认
 `SAVEPATH` 的系统存档与编号存档能在两版之间往返，以及旧预览目录仍可读写。
