@@ -158,6 +158,11 @@ void main() {
         () => volumes[loop]!.last == oldLevel * 0.5 &&
             volumes[next]!.last == nextLevel * 0.5,
       );
+      send({'op': 'volume', 'channel': 'master', 'level': 250});
+      await waitFor(
+        () => volumes[loop]!.last == oldLevel * 0.125 &&
+            volumes[next]!.last == nextLevel * 0.125,
+      );
       await host.setSuspended(false);
 
       for (final time in ['4000', '0']) {
@@ -240,8 +245,9 @@ void main() {
       host.setAvoidMuted(true);
       await waitFor(() => volumes[fresh]!.last == 0);
       send({'op': 'volume', 'channel': 'bgm', 'level': 500});
+      send({'op': 'volume', 'channel': 'master', 'level': 250});
       host.setAvoidMuted(false);
-      await waitFor(() => (volumes[fresh]!.last - 0.2).abs() < 0.0001);
+      await waitFor(() => (volumes[fresh]!.last - 0.05).abs() < 0.0001);
     } finally {
       resumeGate?.complete();
       await host.dispose();

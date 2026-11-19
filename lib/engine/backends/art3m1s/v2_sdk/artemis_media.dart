@@ -4,7 +4,7 @@ enum ArtemisPlaybackStatus { started, ended, failed, cancelled }
 
 enum ArtemisAudioChannel { bgm, se, voice }
 
-enum ArtemisVolumeChannel { bgm, se, video }
+enum ArtemisVolumeChannel { master, bgm, se, voice, video }
 
 enum ArtemisAudioAction { stop, gain, pan }
 

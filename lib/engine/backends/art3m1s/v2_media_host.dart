@@ -14,6 +14,7 @@ final class ArtemisV2MediaHost extends MediaBridge {
   final _work = <Future<void>>{};
   _V2VideoPlayback? _fullscreen;
   bool _muted = false;
+  double _scriptMasterVolume = 1;
 
   @override
   void handleEngineAudioCommand(EngineAudioCommand command) {
@@ -33,7 +34,7 @@ final class ArtemisV2MediaHost extends MediaBridge {
   }
 
   double _volumeScale(String channel) =>
-      _muted ? 0 : _effectiveVolume(channel, 1);
+      _muted ? 0 : _effectiveVolume(channel, _scriptMasterVolume);
 
   void _updateVolume([String? channel]) {
     final handles = {
@@ -63,8 +64,14 @@ final class ArtemisV2MediaHost extends MediaBridge {
       case ArtemisAudioPlay():
         _start(command, feedback);
       case ArtemisChannelVolume(:final channel, :final level):
-        _channelVolumes[channel.name] = level.clamp(0, 1000) / 1000;
-        _updateVolume(channel.name);
+        final scale = level.clamp(0, 1000) / 1000;
+        if (channel == ArtemisVolumeChannel.master) {
+          _scriptMasterVolume = scale;
+          _updateVolume();
+        } else {
+          _channelVolumes[channel.name] = scale;
+          _updateVolume(channel.name);
+        }
       case ArtemisAudioUpdate(
         :final action,
         :final ids,
@@ -365,14 +372,17 @@ final class ArtemisV2MediaHost extends MediaBridge {
   void reset() {
     _resetAudio();
     _stopVideos();
+    _scriptMasterVolume = 1;
+    for (final channel in ArtemisVolumeChannel.values) {
+      if (channel != ArtemisVolumeChannel.master) {
+        _channelVolumes.remove(channel.name);
+      }
+    }
   }
 
   Future<void> resetProject() async {
     reset();
     _muted = false;
-    for (final channel in ArtemisVolumeChannel.values) {
-      _channelVolumes.remove(channel.name);
-    }
     await _drainWork();
     _assetCache.clear();
     _videoAssets.clear();
