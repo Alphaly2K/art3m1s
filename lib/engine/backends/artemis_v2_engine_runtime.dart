@@ -779,7 +779,8 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
       final compiler = _hlslCompiler;
       final source = fileReply.blob;
       final key = event.metadata['key'];
-      if (session != null &&
+      if (!_closed &&
+          session != null &&
           compiler != null &&
           source != null &&
           event.domain == 3 &&
@@ -794,15 +795,15 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
           _seenHlsl.length < 256 &&
           _seenHlsl.add(sha256.convert(source))) {
         final artifact = await compiler.prepare(source);
-        if (_closed || !identical(_session, session)) return;
-        if (artifact != null) {
+        if (!identical(_session, session)) return;
+        if (!_closed && artifact != null) {
           try {
             await session.prepareHlsl(source, artifact);
           } on PlatformException catch (error) {
             Log.warn('[ArtemisV2] DXVK effect unavailable: ${error.code}');
           }
         }
-        if (_closed || !identical(_session, session)) return;
+        if (!identical(_session, session)) return;
       }
       _replies.add(event.reply(fileReply.metadata, blob: fileReply.blob));
       return;
@@ -1018,23 +1019,25 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
       }
       final state = _state;
       if (session != null && state?.phase == 2) {
-        for (var turn = 0; _httpRequest != null && turn < 8; turn++) {
-          _httpReply = _httpRequest!.reply({'status': 'cancelled'});
-          await _submitHttp(session);
-          _nextClock(0);
-          await _step(session);
-        }
         final message = ArtemisFlutterMessage(
           domain: 1,
           kind: 16,
           epoch: state!.epoch,
           metadata: const {},
         );
-        if (await session.submit([message])) {
-          for (var turn = 0; turn < 8 && _state?.phase != 4; turn++) {
-            _nextClock(0);
-            await _step(session);
+        var accepted = false;
+        for (var turn = 0; turn < 8 && _state?.phase != 4; turn++) {
+          if (!accepted) {
+            if (_dialog != null) submitDialog(false, '');
+            if (_httpRequest case final request?) {
+              _httpReply = request.reply({'status': 'cancelled'});
+              await _submitHttp(session);
+            }
+            await _submit(session, _replies);
+            accepted = await session.submit([message]);
           }
+          _nextClock(0);
+          await _step(session);
         }
       }
     } on Exception catch (error) {

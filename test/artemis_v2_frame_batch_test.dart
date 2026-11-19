@@ -10,7 +10,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   test(
-    'v2 retains the frame clock across IO and background autosave',
+    'v2 preserves frame timing and retries shutdown after pending IO',
     () async {
       const channel = MethodChannel('moe.alphaly.art3m1s/artemis_v2');
       final messenger =
@@ -28,6 +28,10 @@ void main() {
       var blocked = false;
       var holdSubmit = false;
       var writePending = false;
+      var exitWritePending = false;
+      var exitWriteReplied = false;
+      var shutdownAttempts = 0;
+      var closingSteps = 0;
       var closing = false;
       var presentations = 0;
       const state = {
@@ -46,8 +50,10 @@ void main() {
           case 'surface':
             return 0;
           case 'poll':
-            if (writePending) {
+            if (writePending || exitWritePending) {
+              final exitWrite = exitWritePending;
               writePending = false;
+              exitWritePending = false;
               return [
                 {
                   'owner': '1',
@@ -55,9 +61,14 @@ void main() {
                   'kind': 4,
                   'epoch': '1',
                   'sequence': '2',
-                  'request': '1',
+                  'request': exitWrite ? '2' : '1',
                   'metadata': Uint8List.fromList(
-                    utf8.encode('{"namespace":"save","key":"__autosave.dat"}'),
+                    utf8.encode(
+                      jsonEncode({
+                        'namespace': 'save',
+                        'key': exitWrite ? 'exit-pending' : '__autosave.dat',
+                      }),
+                    ),
                   ),
                   'blob': Uint8List.fromList(utf8.encode('snapshot')),
                 },
@@ -101,10 +112,11 @@ void main() {
               };
             }
             frames.add(frame);
+            final saving = closing && closingSteps++ == 0;
             return {
               ...state,
-              'phase': closing ? 4 : 2,
-              'waitFlags': blocked ? 1 : 0,
+              'phase': saving ? 3 : (closing ? 4 : 2),
+              'waitFlags': blocked || saving ? 1 : 0,
               'backpressured': false,
               'stepFlags': 0,
             };
@@ -117,8 +129,16 @@ void main() {
                 expect(jsonDecode(utf8.decode(wire['metadata'] as Uint8List)), {
                   'status': 'ok',
                 });
+                if (wire['request'] == '2') exitWriteReplied = true;
               }
-              if (kind == (1, 16)) closing = true;
+              if (kind == (1, 16)) {
+                shutdownAttempts++;
+                if (!exitWriteReplied) {
+                  exitWritePending = true;
+                  return false;
+                }
+                closing = true;
+              }
             }
             if (holdSubmit) {
               holdSubmit = false;
@@ -175,6 +195,16 @@ void main() {
         expect(submitted, [(2, 1), (3, 4), (2, 4)]);
         expect(
           File('${saves.path}/save/__autosave.dat').readAsStringSync(),
+          'snapshot',
+        );
+
+        await runtime.close();
+        expect(shutdownAttempts, 2);
+        expect(exitWriteReplied, isTrue);
+        expect(closing, isTrue);
+        expect(closingSteps, 2);
+        expect(
+          File('${saves.path}/save/exit-pending').readAsStringSync(),
           'snapshot',
         );
       } finally {
