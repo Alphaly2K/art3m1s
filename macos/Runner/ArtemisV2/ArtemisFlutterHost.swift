@@ -128,7 +128,7 @@ private enum ArtemisFlutterError: Error {
             } else {
                 source = AVVideoSource(url: url, loop: loop, suspended: session.videoSuspended, volume: Float(volume))
             }
-            session.videos[playback] = Video(epoch: epoch, fullscreen: args["fullscreen"] as? Bool == true, source: source)
+            session.videos[playback] = ArtemisFlutterVideo(epoch: epoch, fullscreen: args["fullscreen"] as? Bool == true, source: source)
             return nil
         case "videoClose":
             if let video = session.videos.removeValue(forKey: try number(args["playback"], as: UInt64.self)) {
@@ -237,33 +237,28 @@ private enum ArtemisFlutterError: Error {
                 session.videos.removeValue(forKey: id)?.close(registry)
                 continue
             }
-            if let terminal = video.terminalState {
+            if let terminal = video.terminalState(after: state.host_frame_id) {
                 events.append(["playback": String(id), "status": terminal])
                 session.videos.removeValue(forKey: id)?.close(registry)
                 continue
             }
-            guard let pixelBuffer = video.frame() else { continue }
-            let width = CVPixelBufferGetWidth(pixelBuffer), height = CVPixelBufferGetHeight(pixelBuffer)
+            guard !session.videoSuspended else { continue }
             var event: [String: Any] = ["playback": String(id), "status": "started"]
             if video.fullscreen {
+                guard let pixelBuffer = video.frame() else { continue }
                 video.texture.publish(pixelBuffer)
                 if video.textureID == nil { video.textureID = registry.register(video.texture) }
                 guard let textureID = video.textureID else { continue }
                 registry.textureFrameAvailable(textureID)
                 event["texture"] = textureID
-                event["width"] = width
-                event["height"] = height
+                event["width"] = CVPixelBufferGetWidth(pixelBuffer)
+                event["height"] = CVPixelBufferGetHeight(pixelBuffer)
             } else {
                 do {
-                    let frame = video.frameID + 1
-                    let metadata = try JSONSerialization.data(withJSONObject: [
-                        "playback_id": String(id), "frame_id": String(frame), "width": width, "height": height,
-                    ])
-                    guard try session.core.submit([ArtemisMacMessage(
-                        domain: UInt16(ArtSwiftMedia), kind: UInt32(ArtSwiftVideoFrame), epoch: video.epoch,
-                        metadata: metadata, blob: rgbaPixels(pixelBuffer, width: width, height: height)
-                    )]) else { continue }
-                    video.frameID = frame
+                    let delivered = try video.deliverLayerFrame(playbackID: id, hostFrameID: state.host_frame_id) {
+                        try session.core.submit([$0])
+                    }
+                    guard delivered else { continue }
                 } catch ArtemisMacError.status(_, let status, _) where status == ArtSwiftStale {
                     session.videos.removeValue(forKey: id)?.close(registry)
                     continue
@@ -305,7 +300,7 @@ private extension ArtemisFlutterHost {
         let core: ArtemisMacSession
         var texture: (id: Int64, texture: Texture)?
         var requests: [UInt64: ArtemisMacEvent] = [:]
-        var videos: [UInt64: Video] = [:]
+        var videos: [UInt64: ArtemisFlutterVideo] = [:]
         var videoSuspended = false
 
         init(_ core: ArtemisMacSession) { self.core = core }
@@ -330,14 +325,16 @@ private extension ArtemisFlutterHost {
     }
 }
 
-@MainActor private final class Video {
+@MainActor final class ArtemisFlutterVideo {
     let epoch: UInt64
     let fullscreen: Bool
-    let texture = VideoTexture()
+    fileprivate let texture = VideoTexture()
     var textureID: Int64?
-    var frameID: UInt64 = 0
     var started = false
     private let source: ArtemisVideoSource
+    private var frameID: UInt64 = 0
+    private var pendingLayerFrame: ArtemisMacMessage?
+    private var submittedOnHostFrame: UInt64?
 
     init(epoch: UInt64, fullscreen: Bool, source: ArtemisVideoSource) {
         self.epoch = epoch
@@ -345,13 +342,45 @@ private extension ArtemisFlutterHost {
         self.source = source
     }
 
-    var terminalState: String? { source.terminalState }
+    func terminalState(after hostFrameID: UInt64) -> String? {
+        let status = source.terminalState
+        if status == "ended", !fullscreen {
+            if pendingLayerFrame != nil { return nil }
+            // End clears the layer, so let Core apply the last submitted frame first.
+            if let submittedOnHostFrame, submittedOnHostFrame >= hostFrameID { return nil }
+        }
+        return status
+    }
+
+    func deliverLayerFrame(playbackID: UInt64, hostFrameID: UInt64,
+                           submit: (ArtemisMacMessage) throws -> Bool) throws -> Bool {
+        let message: ArtemisMacMessage
+        if let pending = pendingLayerFrame {
+            message = pending
+        } else {
+            guard source.terminalState == nil, let pixels = source.frame() else { return false }
+            let width = CVPixelBufferGetWidth(pixels), height = CVPixelBufferGetHeight(pixels)
+            let metadata = try JSONSerialization.data(withJSONObject: [
+                "playback_id": String(playbackID), "frame_id": String(frameID + 1), "width": width, "height": height,
+            ])
+            message = ArtemisMacMessage(domain: UInt16(ArtSwiftMedia), kind: UInt32(ArtSwiftVideoFrame), epoch: epoch,
+                                        metadata: metadata, blob: try rgbaPixels(pixels, width: width, height: height))
+            pendingLayerFrame = message
+        }
+        guard try submit(message) else { return false }
+        frameID += 1
+        submittedOnHostFrame = hostFrameID
+        pendingLayerFrame = nil
+        return true
+    }
+
     func frame() -> CVPixelBuffer? { source.frame() }
     func setVolume(_ volume: Float) { source.setVolume(volume) }
     func setSuspended(_ suspended: Bool) { source.setSuspended(suspended) }
 
     func close(_ registry: FlutterTextureRegistry) {
         source.close()
+        pendingLayerFrame = nil
         texture.publish(nil)
         if let textureID { registry.unregisterTexture(textureID) }
         textureID = nil

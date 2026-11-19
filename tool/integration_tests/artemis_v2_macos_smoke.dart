@@ -11,6 +11,7 @@ import 'package:art3m1s/engine/engine_runtime_factory.dart';
 import 'package:art3m1s/models/game_engine.dart';
 import 'package:art3m1s/models/translation_settings.dart';
 import 'package:art3m1s/services/text_translation_service.dart';
+import 'package:flutter/rendering.dart' show RenderRepaintBoundary;
 import 'package:flutter/widgets.dart';
 
 Future<void> main() async {
@@ -62,13 +63,17 @@ Future<void> _run(Directory root, HttpServer server) async {
     '$executable/libart3m1s_core.dylib',
   ).lookup<NativeFunction<Void Function()>>('art3m1s_get_api_v1');
   final game = Directory('${root.path}/game')..createSync();
-  final saves = Directory('${root.path}/saves')..createSync();
+  final gameSaves = Directory('${root.path}/saves');
+  final saves = Directory('${gameSaves.path}/Profiles/Game')
+    ..createSync(recursive: true);
   Directory('${saves.path}/protected').createSync();
   Directory('${saves.path}/protected.png').createSync();
   final thumbnail = File('${saves.path}/thumb.png')..writeAsStringSync('old');
   File(
     '${game.path}/system.ini',
-  ).writeAsStringSync('[WINDOWS]\nWIDTH=4\nHEIGHT=4\nBOOT=boot.iet\n');
+  ).writeAsStringSync(
+    '[WINDOWS]\nWIDTH=4\nHEIGHT=4\nBOOT=boot.iet\nSAVEPATH=C:\\Profiles\\Game\n',
+  );
   File('${game.path}/data1').writeAsStringSync('confirmed');
   File('${game.path}/tone.wav').writeAsBytesSync(_tone());
   final video = await Process.run('ffmpeg', [
@@ -143,7 +148,8 @@ Future<void> _run(Directory root, HttpServer server) async {
 [calllua function=check_video]
 [setonvideofinish id=3 label=legacy_video_ended call=1]
 [video id=3 file=legacy.wmv delaymargin=50]
-[wait time=450]
+[caption data=legacy_capture_ready]
+[@]
 [takess]
 [savess file=legacy_thumb width=2 height=2]
 [wait video=3]
@@ -187,9 +193,10 @@ current original
 function boot(e)
   count = (count or 0) + 1
   local payload = assert(e:file('data' .. count))
-  local f, reason = io.open('save/protected', 'w')
+  local save = e:var('s.savepath') .. '/'
+  local f, reason = io.open(save .. 'protected', 'w')
   assert(not f and string.find(reason, 'denied'))
-  f = assert(io.open('save/slot', 'w'))
+  f = assert(io.open(save .. 'slot', 'w'))
   f:write(payload)
   assert(f:close() and count == 1)
 end
@@ -276,19 +283,23 @@ __engine:setEventHandler{onEnterFrame='tick', onLoad='on_load'}
       environmentPatchEnabled: false,
       platform: 'WINDOWS',
     );
-    runtime.setSaveDir(saves.path);
+    runtime.setSaveDir(gameSaves.path);
     runtime.createRuntime(4, 4);
     if (!await runtime.loadProjectBytes(ini!)) {
       throw StateError('Cannot open v2 project.');
     }
     final texture = await runtime.enableSharedTexture();
     if (texture == null) throw StateError('No Flutter texture.');
+    final boundaryKey = GlobalKey();
     runApp(
       Center(
-        child: SizedBox(
-          width: 64,
-          height: 64,
-          child: Texture(textureId: texture),
+        child: RepaintBoundary(
+          key: boundaryKey,
+          child: SizedBox(
+            width: 64,
+            height: 64,
+            child: Texture(textureId: texture),
+          ),
         ),
       ),
     );
@@ -297,10 +308,19 @@ __engine:setEventHandler{onEnterFrame='tick', onLoad='on_load'}
     var skippedVideo = false;
     var skippedMenuVideo = false;
     var sentLateTranslation = false;
+    var requestedLegacyCapture = false;
     final deadline = Stopwatch()..start();
-    while (deadline.elapsed < const Duration(seconds: 12)) {
-      if (await runtime.advanceTexture(16)) presented = true;
+    while (deadline.elapsed < const Duration(seconds: 15)) {
+      final outputChanged = await runtime.advanceTexture(16);
+      if (outputChanged) presented = true;
       if (presented && runtime.windowTitle.value == 'ready') break;
+      if (outputChanged &&
+          !requestedLegacyCapture &&
+          runtime.windowTitle.value == 'legacy_capture_ready' &&
+          await _showingBlueVideo(boundaryKey)) {
+        runtime.feedClick();
+        requestedLegacyCapture = true;
+      }
       if (cancelStarted && !cancelled) {
         runtime.feedKey(65, true);
         cancelled = true;
@@ -395,6 +415,7 @@ __engine:setEventHandler{onEnterFrame='tick', onLoad='on_load'}
       );
     }
     if (!presented ||
+        !requestedLegacyCapture ||
         !skippedVideo ||
         !skippedMenuVideo ||
         runtime.media.videoPlayback.value != null ||
@@ -505,6 +526,23 @@ Uint8List _tone() {
   return data.buffer.asUint8List();
 }
 
+Future<bool> _showingBlueVideo(GlobalKey key) async {
+  await WidgetsBinding.instance.endOfFrame.timeout(const Duration(seconds: 2));
+  final boundary =
+      key.currentContext!.findRenderObject()! as RenderRepaintBoundary;
+  final image = await boundary.toImage(pixelRatio: 0.125);
+  try {
+    final pixels = (await image.toByteData())!.buffer.asUint8List();
+    final center = (image.height ~/ 2 * image.width + image.width ~/ 2) * 4;
+    return _isBlue(pixels, center);
+  } finally {
+    image.dispose();
+  }
+}
+
+bool _isBlue(Uint8List rgba, int i) =>
+    rgba[i] <= 8 && rgba[i + 1] <= 8 && rgba[i + 2] >= 245;
+
 Future<void> _checkThumbnail(
   File file, {
   int height = 3,
@@ -520,7 +558,7 @@ Future<void> _checkThumbnail(
       final rgba = (await image.toByteData())!.buffer.asUint8List();
       for (var i = 0; i < rgba.length; i += 4) {
         final correct = blue
-            ? rgba[i] <= 8 && rgba[i + 1] <= 8 && rgba[i + 2] >= 245
+            ? _isBlue(rgba, i)
             : rgba[i] == 0 && rgba[i + 1] == 255 && rgba[i + 2] == 0;
         if (!correct || rgba[i + 3] != 255) {
           throw StateError('The saved screenshot is not the captured scene.');
