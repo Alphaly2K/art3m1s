@@ -1148,15 +1148,27 @@ final class _AudioRamp {
   final _done = Completer<void>();
   Timer? _timer;
   int _step = 0;
+  bool _applying = false;
 
   Future<void> get done => _done.future;
 
   void resume() {
     if (_done.isCompleted || _timer != null) return;
-    _timer = Timer.periodic(_interval, (_) {
-      unawaited(_apply(++_step / _steps));
+    _timer = Timer.periodic(_interval, (_) => unawaited(_advance()));
+  }
+
+  Future<void> _advance() async {
+    if (_applying || _done.isCompleted) return;
+    _applying = true;
+    try {
+      await _apply(++_step / _steps);
       if (_step == _steps) finish();
-    });
+    } catch (error, stack) {
+      pause();
+      if (!_done.isCompleted) _done.completeError(error, stack);
+    } finally {
+      _applying = false;
+    }
   }
 
   void pause() {

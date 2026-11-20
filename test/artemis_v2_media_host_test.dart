@@ -24,6 +24,12 @@ void main() {
     Completer<void>? stopGate;
     final stopping = Completer<void>();
     var failNextResume = false;
+    String? fadePlayer;
+    final volumeSent = Completer<void>();
+    final allowVolume = Completer<void>();
+    final fadeStopping = Completer<void>();
+    final allowFadeStop = Completer<void>();
+    String? rejectedPanPlayer;
 
     Future<void> waitFor(bool Function() ready) async {
       if (!ready()) {
@@ -82,6 +88,9 @@ void main() {
             await resumeGate?.future;
           case 'pause':
             paused.add(id);
+          case 'stop' when id == fadePlayer:
+            if (!fadeStopping.isCompleted) fadeStopping.complete();
+            await allowFadeStop.future;
           case 'stop' when stopGate != null && !stopping.isCompleted:
             stopping.complete();
             await stopGate.future;
@@ -89,9 +98,17 @@ void main() {
             disposed.add(id);
             changes.add(null);
           case 'setVolume':
-            (volumes[id] ??= []).add(call.arguments['volume'] as double);
+            final volume = call.arguments['volume'] as double;
+            (volumes[id] ??= []).add(volume);
+            if (id == fadePlayer && volume == 0) {
+              if (!volumeSent.isCompleted) volumeSent.complete();
+              await allowVolume.future;
+            }
             changes.add(null);
           case 'setBalance':
+            if (id == rejectedPanPlayer) {
+              throw PlatformException(code: 'pan_failed');
+            }
             (balances[id] ??= []).add(call.arguments['balance'] as double);
             changes.add(null);
         }
@@ -204,8 +221,9 @@ void main() {
           'time_ms': time,
         });
       }
-      expect(feedback.last, ('2', ArtemisPlaybackStatus.cancelled));
-      await waitFor(() => disposed.isNotEmpty);
+      await waitFor(
+        () => feedback.contains(('2', ArtemisPlaybackStatus.cancelled)),
+      );
       expect(disposed, [next]);
 
       await host.setSuspended(true);
@@ -319,7 +337,10 @@ void main() {
       );
       final failedSound = resumed.last;
       await audioFailure(failedSound);
-      await waitFor(() => disposed.contains(failedSound));
+      await waitFor(
+        () => feedback.contains(('7', ArtemisPlaybackStatus.failed)),
+      );
+      expect(disposed, contains(failedSound));
       expect(feedback.where((entry) => entry.$1 == '7'), [
         ('7', ArtemisPlaybackStatus.started),
         ('7', ArtemisPlaybackStatus.failed),
@@ -342,7 +363,56 @@ void main() {
         ('8', ArtemisPlaybackStatus.started),
         ('8', ArtemisPlaybackStatus.failed),
       ]);
+
+      play('9');
+      await waitFor(
+        () => feedback.contains(('9', ArtemisPlaybackStatus.started)),
+      );
+      fadePlayer = resumed.last;
+      send({
+        'op': 'stop',
+        'playback_ids': ['9'],
+        'time_ms': '33',
+      });
+      await volumeSent.future.timeout(const Duration(seconds: 2));
+      await Future<void>.delayed(Duration.zero);
+      expect(fadeStopping.isCompleted, isFalse);
+      expect(feedback.where((entry) => entry.$1 == '9'), [
+        ('9', ArtemisPlaybackStatus.started),
+      ]);
+      allowVolume.complete();
+      await fadeStopping.future.timeout(const Duration(seconds: 2));
+      expect(feedback.where((entry) => entry.$1 == '9'), [
+        ('9', ArtemisPlaybackStatus.started),
+      ]);
+      allowFadeStop.complete();
+      await waitFor(
+        () => feedback.contains(('9', ArtemisPlaybackStatus.cancelled)),
+      );
+      expect(disposed, contains(fadePlayer));
+
+      play('10');
+      await waitFor(
+        () => feedback.contains(('10', ArtemisPlaybackStatus.started)),
+      );
+      rejectedPanPlayer = resumed.last;
+      send({
+        'op': 'pan',
+        'playback_ids': ['10'],
+        'value': 1,
+        'time_ms': '33',
+      });
+      await waitFor(
+        () => feedback.contains(('10', ArtemisPlaybackStatus.failed)),
+      );
+      expect(disposed, contains(rejectedPanPlayer));
+      expect(feedback.where((entry) => entry.$1 == '10'), [
+        ('10', ArtemisPlaybackStatus.started),
+        ('10', ArtemisPlaybackStatus.failed),
+      ]);
     } finally {
+      if (!allowVolume.isCompleted) allowVolume.complete();
+      if (!allowFadeStop.isCompleted) allowFadeStop.complete();
       if (stopGate?.isCompleted == false) stopGate!.complete();
       resumeGate?.complete();
       await host.dispose();

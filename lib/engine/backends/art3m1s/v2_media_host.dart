@@ -14,6 +14,7 @@ final class ArtemisV2MediaHost extends MediaBridge {
   final _work = <Future<void>>{};
   final _audioReleases = <Future<void>>{};
   Future<void>? _audioReset;
+  int _audioGeneration = 0;
   _V2VideoPlayback? _fullscreen;
   bool _muted = false;
   double _scriptMasterVolume = 1;
@@ -94,12 +95,14 @@ final class ArtemisV2MediaHost extends MediaBridge {
               final handle = track.handle;
               if (handle != null) {
                 handle.gain = track.gain;
-                _run(handle.fadeTo(track.gain, timeMs));
+                _runAudio(track, handle.fadeTo(track.gain, timeMs));
               }
             case ArtemisAudioAction.pan:
               track.pan = _pan(value);
               final handle = track.handle;
-              if (handle != null) _run(handle.panTo(track.pan, timeMs));
+              if (handle != null) {
+                _runAudio(track, handle.panTo(track.pan, timeMs));
+              }
           }
         }
       case ArtemisMediaStopAll(:final audio, :final fadeMs):
@@ -326,7 +329,9 @@ final class ArtemisV2MediaHost extends MediaBridge {
       if (!_current(track) || track.stopping) return;
       track.ready = true;
       if (!_suspended) _started(track);
-      if (play.fadeMs > 0) _run(handle.fadeTo(track.gain, play.fadeMs));
+      if (play.fadeMs > 0) {
+        _runAudio(track, handle.fadeTo(track.gain, play.fadeMs));
+      }
       await retirePrevious(play.crossfade ? play.fadeMs : 0);
     } catch (_) {
       _finish(track, ArtemisPlaybackStatus.failed);
@@ -356,10 +361,10 @@ final class ArtemisV2MediaHost extends MediaBridge {
     if (!track.ready || handle == null || fadeMs <= 0) {
       _finish(track, ArtemisPlaybackStatus.cancelled);
     } else {
-      _run(
-        handle.fadeTo(0, fadeMs).whenComplete(() {
-          _finish(track, ArtemisPlaybackStatus.cancelled);
-        }),
+      _runAudio(
+        track,
+        handle.fadeTo(0, fadeMs),
+        onSuccess: ArtemisPlaybackStatus.cancelled,
       );
     }
   }
@@ -378,8 +383,36 @@ final class ArtemisV2MediaHost extends MediaBridge {
     if (!_current(track)) return;
     _playbacks.remove(track.play.id);
     final handle = track.handle;
-    if (handle != null) _releaseAudio(handle);
-    track.feedback(track.play.id, status);
+    if (handle == null) {
+      track.feedback(track.play.id, status);
+      return;
+    }
+    final generation = _audioGeneration;
+    _run(
+      _releaseAudio(handle).then((_) {
+        if (generation == _audioGeneration) {
+          track.feedback(track.play.id, status);
+        }
+      }),
+    );
+  }
+
+  void _runAudio(
+    _V2AudioPlayback track,
+    Future<void> operation, {
+    ArtemisPlaybackStatus? onSuccess,
+  }) {
+    _run(
+      operation.then(
+        (_) {
+          if (onSuccess != null) _finish(track, onSuccess);
+        },
+        onError: (Object error, StackTrace stack) {
+          _finish(track, ArtemisPlaybackStatus.failed);
+          Error.throwWithStackTrace(error, stack);
+        },
+      ),
+    );
   }
 
   @override
@@ -431,6 +464,7 @@ final class ArtemisV2MediaHost extends MediaBridge {
   }
 
   void _resetAudio() {
+    _audioGeneration++;
     final handles = {
       ..._fading.keys,
       ..._playbacks.values.map((track) => track.handle).nonNulls,
