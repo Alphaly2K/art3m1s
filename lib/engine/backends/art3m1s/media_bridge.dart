@@ -940,10 +940,11 @@ class _AudioHandle {
   }
 
   Future<void> _handleCompletion() async {
-    if (_disposed || _completed) return;
+    if (_disposed || _completed || _loopSegmentStarted) return;
     if (loop && loopFile == null) return;
     _primaryRequested = false;
-    if (loop && !_loopSegmentStarted) {
+    _resumePrimaryAfterSuspend = false;
+    if (loop) {
       final next = loopFile;
       if (next == null) return;
       _loopSegmentStarted = true;

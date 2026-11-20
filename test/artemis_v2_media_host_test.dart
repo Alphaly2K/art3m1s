@@ -182,13 +182,21 @@ void main() {
         () => feedback.contains(('1', ArtemisPlaybackStatus.started)),
       );
       final intro = resumed.single;
+      await host.setSuspended(true);
+      expect(paused, [intro]);
       await audioEvent(intro, {'event': 'audio.onComplete'});
+      await Future<void>.delayed(Duration.zero);
+      expect(resumed, [intro]);
+      await host.setSuspended(false);
       await waitFor(() => resumed.length >= 2);
       expect(resumed, hasLength(2));
       final loop = resumed.last;
       expect(loop, isNot(intro));
       await audioEvent(loop, {'event': 'audio.onComplete'});
+      await audioEvent(intro, {'event': 'audio.onComplete'});
       await audioFailure(intro);
+      await Future<void>.delayed(Duration.zero);
+      expect(disposed, isEmpty);
       expect(feedback, [('1', ArtemisPlaybackStatus.started)]);
 
       play('2', replaces: '1');
