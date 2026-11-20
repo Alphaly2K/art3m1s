@@ -59,6 +59,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
   InputGatePolicy _inputGate = InputGatePolicy.full;
   Future<bool>? _advancing;
   Future<void>? _backgroundAutosave;
+  Future<void>? _projectRelease;
   Future<void>? _closing;
   DateTime? _frameTime;
   Uint8List? _font;
@@ -427,9 +428,16 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     return !_closed;
   }
 
-  Future<void> _releaseProjectSession() async {
+  Future<void> _releaseProjectSession() {
+    if (_projectRelease case final releasing?) return releasing;
     final previous = _session;
-    if (previous == null) return;
+    if (previous == null) return Future.value();
+    return _projectRelease = _release(previous).whenComplete(() {
+      _projectRelease = null;
+    });
+  }
+
+  Future<void> _release(ArtemisFlutterSession previous) async {
     await _advancing;
     await _backgroundAutosave;
     if (_closed || !identical(_session, previous)) return;
@@ -480,7 +488,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
 
   @override
   Future<bool> advanceTextureBatch(Iterable<int> frameDeltasMs) {
-    if (!_canRun || _session == null) {
+    if (!_canRun || _session == null || _projectRelease != null) {
       return Future.value(false);
     }
     if (_backgroundAutosave case final pending?) {
@@ -1019,6 +1027,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     final session = _session;
     try {
       try {
+        await _projectRelease;
         await _advancing;
         await _backgroundAutosave;
       } on Exception {
