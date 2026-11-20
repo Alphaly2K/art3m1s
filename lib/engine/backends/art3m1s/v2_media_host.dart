@@ -165,12 +165,26 @@ final class ArtemisV2MediaHost extends MediaBridge {
   }
 
   Future<void> pollVideo(ArtemisFlutterSession session) async {
-    if (_videos.isEmpty) return;
-    for (final event in await session.pollVideos()) {
-      final track = _videos[event.id];
+    final polling = {
+      for (final track in _videos.values)
+        if (identical(track.session, session) && !track.skipping)
+          track.play.id: track,
+    };
+    if (polling.isEmpty) return;
+    final events = await session.pollVideos().onError<Exception>((error, _) {
+      Log.warn('[ArtemisV2] video poll: $error');
+      for (final track in polling.values) {
+        if (!track.skipping) {
+          _closeVideo(track, status: ArtemisPlaybackStatus.failed);
+        }
+      }
+      return const [];
+    });
+    for (final event in events) {
+      final track = polling[event.id];
       if (track == null ||
           track.skipping ||
-          !identical(track.session, session)) {
+          !identical(_videos[event.id], track)) {
         continue;
       }
       if (event.status != ArtemisPlaybackStatus.started) {

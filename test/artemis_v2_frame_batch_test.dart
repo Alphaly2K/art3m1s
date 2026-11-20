@@ -567,117 +567,150 @@ void main() {
     },
   );
 
-  test(
-    'v2 presents a video frame before applying its terminal status',
-    () async {
-      const channel = MethodChannel('moe.alphaly.art3m1s/artemis_v2');
-      final messenger =
-          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
-      final saves = Directory.systemTemp.createTempSync('artemis-video-batch-');
-      final runtime = ArtemisV2EngineRuntime()..setSaveDir(saves.path);
-      final videoOpened = Completer<void>();
-      final calls = <String>[];
-      const playback = '9223372036854775809';
-      const state = {
-        'session': '1',
-        'epoch': '1',
-        'width': 4,
-        'height': 4,
-        'phase': 1,
-        'waitFlags': 0,
-        'exitRequested': false,
-      };
-      var opening = true;
-      var videoStarted = false;
-      var steps = 0;
-      Map<String, Object?> event(
-        int domain,
-        int kind,
-        Map<String, Object?> metadata,
-      ) => {
-        'owner': '1',
-        'domain': domain,
-        'kind': kind,
-        'epoch': '1',
-        'sequence': '$domain',
-        'request': '0',
-        'metadata': Uint8List.fromList(utf8.encode(jsonEncode(metadata))),
-        'blob': Uint8List(0),
-      };
-      messenger.setMockMethodCallHandler(channel, (call) async {
-        switch (call.method) {
-          case 'open':
-            return state;
-          case 'surface':
-            return 0;
-          case 'poll':
-            if (!opening) return <Object>[];
-            opening = false;
-            return [
-              event(1, 1, {'save_path': 'save'}),
-              event(5, 2, {
-                'op': 'play',
-                'playback_id': playback,
-                'key': 'clip.mp4',
-                'loop': false,
-                'skip': 0,
-              }),
-            ];
-          case 'videoOpen':
-            videoOpened.complete();
-            return null;
-          case 'videoPoll':
-            final started = !videoStarted;
-            videoStarted = true;
-            return [
-              {
-                'playback': playback,
-                'status': started ? 'started' : 'ended',
-                if (started) ...{'texture': 1, 'width': 4, 'height': 4},
-              },
-            ];
-          case 'submit':
-            for (final message in call.arguments['batch'] as List) {
-              final wire = message as Map;
-              final data = jsonDecode(
-                utf8.decode(wire['metadata'] as Uint8List),
-              );
-              expect(data['playback_id'], playback);
-              calls.add(data['status'] as String);
-            }
-            return true;
-          case 'step':
-            steps++;
-            return {...state, 'backpressured': false, 'stepFlags': 0};
-          case 'present':
-            calls.add('present');
-            return '1';
-          case 'videoSuspend' || 'close':
-            return null;
-          default:
-            throw StateError('Unexpected method: ${call.method}');
+  for (final pollFails in [false, true]) {
+    test(
+      pollFails
+          ? 'v2 continues to step after a native video poll fails'
+          : 'v2 presents a video frame before applying its terminal status',
+      () async {
+        const channel = MethodChannel('moe.alphaly.art3m1s/artemis_v2');
+        final messenger =
+            TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+        final saves = Directory.systemTemp.createTempSync(
+          'artemis-video-batch-',
+        );
+        final runtime = ArtemisV2EngineRuntime()..setSaveDir(saves.path);
+        final videoOpened = Completer<void>();
+        final calls = <String>[];
+        final closedVideos = <String>[];
+        const playback = '9223372036854775809';
+        const state = {
+          'session': '1',
+          'epoch': '1',
+          'width': 4,
+          'height': 4,
+          'phase': 1,
+          'waitFlags': 0,
+          'exitRequested': false,
+        };
+        var opening = true;
+        var videoStarted = false;
+        var steps = 0;
+        var videoPolls = 0;
+        Map<String, Object?> event(
+          int domain,
+          int kind,
+          Map<String, Object?> metadata,
+        ) => {
+          'owner': '1',
+          'domain': domain,
+          'kind': kind,
+          'epoch': '1',
+          'sequence': '$domain',
+          'request': '0',
+          'metadata': Uint8List.fromList(utf8.encode(jsonEncode(metadata))),
+          'blob': Uint8List(0),
+        };
+        messenger.setMockMethodCallHandler(channel, (call) async {
+          switch (call.method) {
+            case 'open':
+              return state;
+            case 'surface':
+              return 0;
+            case 'poll':
+              if (!opening) return <Object>[];
+              opening = false;
+              return [
+                event(1, 1, {'save_path': 'save'}),
+                event(5, 2, {
+                  'op': 'play',
+                  'playback_id': playback,
+                  'key': 'clip.mp4',
+                  'loop': false,
+                  'skip': 0,
+                }),
+              ];
+            case 'videoOpen':
+              videoOpened.complete();
+              return null;
+            case 'videoPoll':
+              videoPolls++;
+              if (videoStarted && pollFails) {
+                throw PlatformException(code: 'video_poll_failed');
+              }
+              final started = !videoStarted;
+              videoStarted = true;
+              return [
+                {
+                  'playback': playback,
+                  'status': started ? 'started' : 'ended',
+                  if (started) ...{'texture': 1, 'width': 4, 'height': 4},
+                },
+              ];
+            case 'videoClose':
+              closedVideos.add(call.arguments['playback'] as String);
+              return null;
+            case 'submit':
+              for (final message in call.arguments['batch'] as List) {
+                final wire = message as Map;
+                final data = jsonDecode(
+                  utf8.decode(wire['metadata'] as Uint8List),
+                );
+                expect(data['playback_id'], playback);
+                calls.add(data['status'] as String);
+              }
+              return true;
+            case 'step':
+              steps++;
+              return {...state, 'backpressured': false, 'stepFlags': 0};
+            case 'present':
+              calls.add('present');
+              return '1';
+            case 'videoSuspend' || 'close':
+              return null;
+            default:
+              throw StateError('Unexpected method: ${call.method}');
+          }
+        });
+        try {
+          runtime.media.configureAssetReader((_) => Uint8List(1));
+          expect(await runtime.loadProjectBytes(Uint8List(0)), isTrue);
+          expect(await runtime.enableSharedTexture(), 0);
+          await videoOpened.future.timeout(const Duration(seconds: 2));
+
+          await runtime.advanceTextureBatch([16, 17, 17]);
+          expect(calls, ['started', 'present']);
+          expect(steps, 3);
+          expect(runtime.media.videoPlayback.value, isNotNull);
+
+          await runtime.advanceTextureBatch([16]);
+          expect(calls, [
+            'started',
+            'present',
+            pollFails ? 'failed' : 'ended',
+            'present',
+          ]);
+          expect(steps, 4);
+          expect(runtime.media.videoPlayback.value, isNull);
+          expect(closedVideos, pollFails ? [playback] : isEmpty);
+          if (pollFails) {
+            await runtime.advanceTextureBatch([16]);
+            expect(calls, [
+              'started',
+              'present',
+              'failed',
+              'present',
+              'present',
+            ]);
+            expect(steps, 5);
+            expect(videoPolls, 2);
+          }
+        } finally {
+          await runtime.close();
+          messenger.setMockMethodCallHandler(channel, null);
+          saves.deleteSync(recursive: true);
         }
-      });
-      try {
-        runtime.media.configureAssetReader((_) => Uint8List(1));
-        expect(await runtime.loadProjectBytes(Uint8List(0)), isTrue);
-        expect(await runtime.enableSharedTexture(), 0);
-        await videoOpened.future.timeout(const Duration(seconds: 2));
-
-        await runtime.advanceTextureBatch([16, 17, 17]);
-        expect(calls, ['started', 'present']);
-        expect(steps, 3);
-        expect(runtime.media.videoPlayback.value, isNotNull);
-
-        await runtime.advanceTextureBatch([16]);
-        expect(calls, ['started', 'present', 'ended', 'present']);
-        expect(steps, 4);
-        expect(runtime.media.videoPlayback.value, isNull);
-      } finally {
-        await runtime.close();
-        messenger.setMockMethodCallHandler(channel, null);
-        saves.deleteSync(recursive: true);
-      }
-    },
-  );
+      },
+    );
+  }
 }
