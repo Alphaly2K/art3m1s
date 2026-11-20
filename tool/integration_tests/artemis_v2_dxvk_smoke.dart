@@ -94,6 +94,7 @@ void main() { gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0); }
       List<int> expected, {
       Future<void> Function()? beforeStep,
       bool effect = true,
+      String shaderFile = 'paint.hlsl',
       int glslLayers = 0,
       bool measure = false,
       int layers = 1,
@@ -120,7 +121,7 @@ void main() { gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0); }
       }
       File('${game.path}/boot.iet').writeAsStringSync('''
 *top
-${effect ? '[lyshader id=paint file=paint.hlsl]' : ''}
+${effect ? '[lyshader id=paint file=$shaderFile]' : ''}
 $scene
 [flip]
 ${measure ? '' : '[takess]\n[savess file=$tag]'}
@@ -225,10 +226,12 @@ ${measure ? _motion : '[stop]'}
           ? _legacyShader('float3(fore.b, fore.r, fore.g)')
           : 'float4 main() : SV_Target { return float4(0, 1, 0, 1); }';
       final dynamicSource = utf8.encode('$dynamicShader\n// dynamic $token');
+      final dynamicFile = File('${game.path}/paint.txt')..writeAsBytesSync([]);
       shader.writeAsBytesSync([]);
       await checkProject(
         'dynamic',
         [0, 255, 0, 255],
+        shaderFile: 'paint.txt',
         beforeStep: () async {
           if (!warm && await cachedEffect(dynamicSource) != null) {
             throw StateError('Dynamic ADE2 was present before the asset read.');
@@ -236,12 +239,13 @@ ${measure ? _motion : '[stop]'}
           stdout.writeln(
             'Project opened before the shader asset was available',
           );
-          shader.writeAsBytesSync(dynamicSource);
+          dynamicFile.writeAsBytesSync(dynamicSource);
         },
       );
       if (await cachedEffect(dynamicSource) == null) {
         throw StateError('No ADE2 was stored for the dynamic shader.');
       }
+      dynamicFile.deleteSync();
 
       final retrySource = utf8.encode('$dynamicShader\n// retry $token');
       shader.writeAsBytesSync(retrySource);

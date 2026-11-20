@@ -837,6 +837,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
       final compiler = _hlslCompiler;
       final source = fileReply.blob;
       final key = event.metadata['key'];
+      final language = event.metadata['shader_language'];
       if (_acceptsSceneServices &&
           session != null &&
           compiler != null &&
@@ -847,7 +848,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
           event.metadata['offset'] == '0' &&
           fileReply.metadata['eof'] == true &&
           key is String &&
-          _isHlsl(key) &&
+          (language == 'hlsl' || (language == null && _isHlsl(key))) &&
           source.isNotEmpty &&
           source.length <= ArtemisHlslCompiler.maxSourceBytes &&
           _handledHlsl.length < 256 &&
