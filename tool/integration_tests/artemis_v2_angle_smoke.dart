@@ -27,6 +27,7 @@ Future<void> main() async {
 Future<void> _run(Directory root) async {
   final game = Directory('${root.path}/game')..createSync();
   final saves = Directory('${root.path}/saves')..createSync();
+  final runtimeOnly = Platform.environment['ARTEMIS_ANGLE_TEST_RUNTIME'] == '1';
   File(
     '${game.path}/system.ini',
   ).writeAsStringSync('[IOS]\nWIDTH=4\nHEIGHT=4\nBOOT=boot.iet\n');
@@ -45,7 +46,8 @@ Future<void> _run(Directory root) async {
 [caption data=ready]
 [stop]
 ''');
-  File('${game.path}/paint.frag').writeAsStringSync('''
+  void writeShaders() {
+    File('${game.path}/paint.frag').writeAsStringSync('''
 precision mediump float;
 varying vec2 resultCoord;
 uniform sampler2D textureFore;
@@ -55,13 +57,18 @@ void main() {
   gl_FragColor = color;
 }
 ''');
-  File('${game.path}/green.frag').writeAsStringSync('''
+    File('${game.path}/green.frag').writeAsStringSync('''
 precision mediump float;
 void main() { gl_FragColor = vec4(0.0, 1.0, 0.0, 1.0); }
 ''');
-  File('${game.path}/paint.hlsl').writeAsStringSync('''
+  }
+
+  if (!runtimeOnly) {
+    writeShaders();
+    File('${game.path}/paint.hlsl').writeAsStringSync('''
 float4 main() : SV_Target { return float4(1.0, 0.0, 0.0, 1.0); }
 ''');
+  }
   final runtime = EngineRuntimeFactory.create(engine: GameEngineKind.art3m1s);
   if (runtime is! ArtemisV2EngineRuntime) {
     throw StateError('Build with --dart-define=ARTEMIS_V2=true.');
@@ -69,8 +76,8 @@ float4 main() : SV_Target { return float4(1.0, 0.0, 0.0, 1.0); }
   try {
     await runtime.initialize();
     final ini = await runtime.prepareProject(
-      projectPath: game.path,
-      isArchive: false,
+      projectPath: runtimeOnly ? '${game.path}/root.pfs' : game.path,
+      isArchive: runtimeOnly,
       environmentPatchEnabled: false,
       platform: 'IOS',
     );
@@ -79,6 +86,7 @@ float4 main() : SV_Target { return float4(1.0, 0.0, 0.0, 1.0); }
     if (ini == null || !await runtime.loadProjectBytes(ini, platform: 'IOS')) {
       throw StateError('ANGLE project failed to open.');
     }
+    if (runtimeOnly) writeShaders();
     final texture = await runtime.enableSharedTexture();
     if (texture == null) throw StateError('No Flutter texture.');
     final boundaryKey = GlobalKey();
