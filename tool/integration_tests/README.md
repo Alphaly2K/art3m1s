@@ -51,3 +51,9 @@ build/macos/Build/Products/Debug/art3m1s.app/Contents/MacOS/art3m1s
 用 `--release` 构建并同时设置 `ARTEMIS_DXVK_TEST_1080P=1` 和 `ARTEMIS_DXVK_TEST_MIXED=1`，可对照
 纯 DXVK 和分别叠加一层、四层 GLSL 的 1080p 帧耗时。探针丢弃前 20 帧，报告后续 120 帧的中位数
 和 P95，并检查每层效果的颜色累加。
+
+验证原始归档中的着色器时，将 `--target` 改为
+`tool/integration_tests/artemis_v2_archive_shader_smoke.dart`，保留 ANGLE、DXVK 和编译器。
+运行时用 `ARTEMIS_SHADER_TEST_ARCHIVE` 指定可使用的 PFS 单卷归档，用 `ARTEMIS_SHADER_TEST_HLSL`
+和 `ARTEMIS_SHADER_TEST_GLSL` 指定归档内实现反色的两个项目资源键。探针复制归档到临时目录，
+使用合成场景检查两种效果同帧绘制的窗口纹理和脚本截图。此检查不进入默认测试范围。
