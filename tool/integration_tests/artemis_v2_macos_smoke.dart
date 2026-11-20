@@ -136,6 +136,7 @@ Future<void> _run(Directory root, HttpServer server) async {
   await _writePf6(archive, {
     layerClip: await looseLayerClip.readAsBytes(),
     'range.bin': range,
+    'checks/runtime.lua': Uint8List.fromList(utf8.encode("return 'data'")),
   });
   await looseLayerClip.delete();
   final vfs = ProjectVfs.openArchive(archive.path);
@@ -223,7 +224,7 @@ current original
 [lua]
 function boot(e)
   count = (count or 0) + 1
-  local payload = assert(e:file('data' .. count))
+  local payload = assert(e:file(require('checks.runtime') .. count))
   local save = e:var('s.savepath') .. '/'
   local f, reason = io.open(save .. 'protected', 'w')
   assert(not f and string.find(reason, 'denied'))
