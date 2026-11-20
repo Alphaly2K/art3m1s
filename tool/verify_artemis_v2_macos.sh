@@ -77,7 +77,7 @@ if [[ -n ${ARTEMIS_V2_DXVK_RUNTIME_DIR:-} || -e "$frameworks/$dxvk_bridge" ||
       libdxvk_dxgi.0.dylib libMoltenVK.dylib libSDL3.0.dylib; do
     verify_binary "$frameworks/$name"
   done
-  for name in DXVK.txt MoltenVK.txt SDL3.txt; do
+  for name in DXVK.txt MoltenVK.txt SDL3.txt dxbc-spirv.txt libdisplay-info.txt; do
     [[ -s "$resources/ArtemisDXVK-Licenses/$name" ]] || fail "missing DXVK dependency notice $name"
   done
   verify_exports "$frameworks/$dxvk_bridge" \

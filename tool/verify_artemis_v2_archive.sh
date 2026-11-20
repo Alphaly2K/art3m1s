@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# != 2 ]]; then
-  printf '%s\n' 'Usage: verify_artemis_v2_archive.sh PREVIEW_ZIP CORE_SRC' >&2
+if [[ $# -lt 2 || $# -gt 3 || ( $# == 3 && $3 != --compile-only ) ]]; then
+  printf '%s\n' 'Usage: verify_artemis_v2_archive.sh PREVIEW_ZIP CORE_SRC [--compile-only]' >&2
   exit 2
 fi
 
@@ -25,5 +25,9 @@ bash "$tool_dir/verify_artemis_v2_macos.sh" "$app"
 "$scratch/artemis-v2-smoke"
 bash "$2/scripts/test-host-v2-media.sh" --bundle "$app"
 if [[ -x "$mac/artemis-hlsl-compile" ]]; then
-  bash "$2/scripts/test-host-dxvk-native.sh" --bundle "$app"
+  probe=--bundle
+  if [[ ${3:-} == --compile-only ]]; then
+    probe=--bundle-compile
+  fi
+  bash "$2/scripts/test-host-dxvk-native.sh" "$probe" "$app"
 fi
