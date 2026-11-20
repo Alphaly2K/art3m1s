@@ -332,6 +332,7 @@ final class ArtemisV2MediaHost extends MediaBridge {
       final loopFile = loopKey == null ? null : await _audioAsset(loopKey);
       if (!_current(track)) return;
 
+      var preparationFailed = false;
       final handle = await _AudioHandle.create(
         id: play.scriptId,
         file: file,
@@ -341,7 +342,13 @@ final class ArtemisV2MediaHost extends MediaBridge {
         pan: track.pan,
         loop: play.loop,
         suspendWithSession: true,
-        onFailed: () => _finish(track, ArtemisPlaybackStatus.failed),
+        onFailed: () {
+          if (track.handle == null) {
+            preparationFailed = true;
+          } else {
+            _finish(track, ArtemisPlaybackStatus.failed);
+          }
+        },
         onCompleted: (_) {
           if (!_current(track)) return;
           if (!track.stopping) _started(track);
@@ -359,6 +366,10 @@ final class ArtemisV2MediaHost extends MediaBridge {
       }
       // Commands may arrive while the asset or player is opening.
       track.handle = handle;
+      if (preparationFailed) {
+        _finish(track, ArtemisPlaybackStatus.failed);
+        return;
+      }
       handle.gain = track.gain;
       await handle.setVolumeScale(_volumeScale(handle.channel));
       await handle.setPan(track.pan);

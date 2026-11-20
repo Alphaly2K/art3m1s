@@ -22,6 +22,9 @@ void main() {
     final changes = StreamController<void>.broadcast();
     Completer<void>? resumeGate;
     Completer<void>? stopGate;
+    final sourceFailed = Completer<void>();
+    final allowFailedSource = Completer<void>();
+    var failOpeningSource = false;
     final stopping = Completer<void>();
     var failNextResume = false;
     String? fadePlayer;
@@ -79,6 +82,12 @@ void main() {
           case 'setSourceUrl':
             assets.add(File(call.arguments['url'] as String));
             await audioEvent(id, {'event': 'audio.onPrepared', 'value': true});
+            if (failOpeningSource) {
+              failOpeningSource = false;
+              await audioFailure(id);
+              sourceFailed.complete();
+              await allowFailedSource.future;
+            }
           case 'resume':
             resumed.add(id);
             changes.add(null);
@@ -456,9 +465,26 @@ void main() {
             feedback.contains(('13', ArtemisPlaybackStatus.started)),
       );
       expect(reads['shared.wav'], 1);
+
+      final releasedBeforeOpening = disposed.length;
+      failOpeningSource = true;
+      send(playCommand('14', channel: 'se'));
+      await sourceFailed.future.timeout(const Duration(seconds: 2));
+      await Future<void>.delayed(Duration.zero);
+      expect(feedback.where((entry) => entry.$1 == '14'), isEmpty);
+      expect(disposed.length, releasedBeforeOpening);
+      allowFailedSource.complete();
+      await waitFor(
+        () => feedback.contains(('14', ArtemisPlaybackStatus.failed)),
+      );
+      expect(disposed.length, releasedBeforeOpening + 1);
+      expect(feedback.where((entry) => entry.$1 == '14'), [
+        ('14', ArtemisPlaybackStatus.failed),
+      ]);
     } finally {
       if (!allowVolume.isCompleted) allowVolume.complete();
       if (!allowFadeStop.isCompleted) allowFadeStop.complete();
+      if (!allowFailedSource.isCompleted) allowFailedSource.complete();
       if (stopGate?.isCompleted == false) stopGate!.complete();
       resumeGate?.complete();
       await host.dispose();
