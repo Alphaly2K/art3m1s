@@ -69,9 +69,7 @@ Future<void> _run(Directory root, HttpServer server) async {
   Directory('${saves.path}/protected').createSync();
   Directory('${saves.path}/protected.png').createSync();
   final thumbnail = File('${saves.path}/thumb.png')..writeAsStringSync('old');
-  File(
-    '${game.path}/system.ini',
-  ).writeAsStringSync(
+  File('${game.path}/system.ini').writeAsStringSync(
     '[WINDOWS]\nWIDTH=4\nHEIGHT=4\nBOOT=boot.iet\nSAVEPATH=C:\\Profiles\\Game\n',
   );
   File('${game.path}/data1').writeAsStringSync('confirmed');
@@ -176,6 +174,8 @@ current original
 [wait time=750 input=0]
 [save file=translations]
 [caption data=ready]
+[@]
+[video file=video.mp4 loop=1 skip=0]
 [stop]
 *sound_ended
 [calllua function=sound_ended]
@@ -471,7 +471,32 @@ __engine:setEventHandler{onEnterFrame='tick', onLoad='on_load'}
       throw StateError('Texture did not detach.');
     }
     await runtime.setSessionState(EngineSessionState.active);
+    runtime.feedClick();
+    deadline.reset();
+    while (deadline.elapsed < const Duration(seconds: 4) &&
+        runtime.media.videoPlayback.value == null) {
+      await runtime.advanceTexture(16);
+      await Future<void>.delayed(const Duration(milliseconds: 16));
+    }
+    final activeVideo = runtime.media.videoPlayback.value;
+    if (activeVideo == null || activeVideo.view is! Texture) {
+      throw StateError(
+        'Could not start the video before replacing the project.',
+      );
+    }
+    runApp(
+      Center(
+        child: RepaintBoundary(
+          key: boundaryKey,
+          child: SizedBox(width: 64, height: 64, child: activeVideo.view),
+        ),
+      ),
+    );
+    if (!await _showingBlueVideo(boundaryKey)) {
+      throw StateError('The active video did not reach the Flutter texture.');
+    }
     final invalid = Directory('${root.path}/replacement')..createSync();
+    final replacementSaves = Directory('${root.path}/replacement-saves');
     File('${invalid.path}/system.ini').writeAsBytesSync(ini);
     File('${invalid.path}/video.mp4').writeAsStringSync('invalid video');
     File('${invalid.path}/boot.iet').writeAsStringSync('''
@@ -486,6 +511,10 @@ __engine:setEventHandler{onEnterFrame='tick', onLoad='on_load'}
       environmentPatchEnabled: false,
       platform: 'WINDOWS',
     );
+    if (runtime.media.videoPlayback.value != null) {
+      throw StateError('Project replacement left the old video active.');
+    }
+    runtime.setSaveDir(replacementSaves.path);
     if (!await runtime.loadProjectBytes(replacement!)) {
       throw StateError('Could not replace the project.');
     }
@@ -500,6 +529,15 @@ __engine:setEventHandler{onEnterFrame='tick', onLoad='on_load'}
     }
     if (runtime.windowTitle.value != 'replaced') {
       throw StateError('Video failure did not resume the replacement script.');
+    }
+    await runtime.close();
+    for (final name in ['saveg.dat', 'system.dat']) {
+      final saved = File('${replacementSaves.path}/Profiles/Game/$name');
+      if (!saved.existsSync() || saved.lengthSync() == 0) {
+        throw StateError(
+          'The replacement project did not write $name on exit.',
+        );
+      }
     }
   } finally {
     await runtime.close();
