@@ -279,10 +279,18 @@ void main() {
       await suspending;
       expect(paused, contains(active));
       expect(feedback, isNot(contains(('3', ArtemisPlaybackStatus.started))));
-      await host.setSuspended(false);
-      await waitFor(
-        () => feedback.contains(('3', ArtemisPlaybackStatus.started)),
-      );
+      final resume = resumeGate = Completer<void>();
+      final resuming = host.setSuspended(false);
+      await waitFor(() => resumed.length >= beforeOpening + 2);
+      final repeatedResume = host.setSuspended(false);
+      await Future<void>.delayed(Duration.zero);
+      expect(feedback, isNot(contains(('3', ArtemisPlaybackStatus.started))));
+      resumeGate = null;
+      resume.complete();
+      await Future.wait([resuming, repeatedResume]);
+      expect(feedback.where((event) => event.$1 == '3'), [
+        ('3', ArtemisPlaybackStatus.started),
+      ]);
       expect(resumed.skip(beforeOpening), [active, active]);
       send({
         'op': 'pan',

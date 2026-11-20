@@ -856,6 +856,7 @@ class _AudioHandle {
   _AudioRamp? _fade;
   _AudioRamp? _pan;
   Future<void>? _playbackChange;
+  Future<void>? _hostSuspensionChange;
   StreamSubscription<void>? _completionSubscription;
   StreamSubscription<audio.AudioEvent>? _loopSubscription;
   bool _completed = false;
@@ -1002,7 +1003,11 @@ class _AudioHandle {
   }
 
   Future<void> setHostSuspended(bool suspended) async {
-    if (_disposed || _hostSuspended == suspended) return;
+    if (_disposed) return;
+    if (_hostSuspended == suspended) {
+      await _hostSuspensionChange;
+      return;
+    }
     _hostSuspended = suspended;
     if (suspendWithSession) {
       if (suspended) {
@@ -1013,7 +1018,16 @@ class _AudioHandle {
         _pan?.resume();
       }
     }
-    await _changePlayback(() => _setPlayersSuspended(suspended));
+    final change = _hostSuspensionChange = _changePlayback(
+      () => _setPlayersSuspended(suspended),
+    );
+    try {
+      await change;
+    } finally {
+      if (identical(_hostSuspensionChange, change)) {
+        _hostSuspensionChange = null;
+      }
+    }
   }
 
   Future<void> _changePlayback(Future<void> Function() operation) {
