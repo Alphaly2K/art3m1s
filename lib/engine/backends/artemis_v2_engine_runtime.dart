@@ -50,9 +50,8 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
   ArtemisFlutterSession? _session;
   Future<ArtemisHlslCompiler?>? _hlslCompilerDiscovery;
   ArtemisHlslCompiler? _hlslCompiler;
-  // A source prepared at startup or already attempted during play.
-  final _handledHlsl = <Digest>{};
-  int _runtimeHlslAttempts = 0;
+  final _preparedHlsl = <Digest>{};
+  final _attemptedRuntimeHlsl = <(String, Digest)>{};
   ArtemisFlutterState? _state;
   ArtemisFlutterEvent? _dialog;
   ArtemisFlutterEvent? _httpRequest;
@@ -335,10 +334,13 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     Uint8List source,
   ) async {
     final digest = sha256.convert(source);
-    if (!_handledHlsl.add(digest)) return;
-    _runtimeHlslAttempts++;
-    Uint8List? artifact;
+    if (_preparedHlsl.contains(digest) ||
+        _attemptedRuntimeHlsl.length >= _maxRuntimeHlslAttempts) {
+      return;
+    }
     final path = ProjectVfs.normalizeRelativePath(key);
+    if (!_attemptedRuntimeHlsl.add((path ?? key, digest))) return;
+    Uint8List? artifact;
     if (path != null) {
       try {
         artifact = _vfs?.readFile(
@@ -352,14 +354,18 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     if (artifact != null &&
         artifact.isNotEmpty &&
         await _registerHlsl(session, source, artifact)) {
+      if (identical(_session, session)) _preparedHlsl.add(digest);
       return;
     }
-    await _hlslCompiler?.prepare(
+    final prepared = await _hlslCompiler?.prepare(
       source,
       rejectedArtifact: artifact,
       isCurrent: () => _acceptsSceneServices && identical(_session, session),
       register: (artifact) => _registerHlsl(session, source, artifact),
     );
+    if (prepared != null && identical(_session, session)) {
+      _preparedHlsl.add(digest);
+    }
   }
 
   Future<bool> _registerHlsl(
@@ -530,7 +536,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
       );
       _session = opened.session;
       _hlslCompiler = opened.session.usesDxvk ? compiler : null;
-      _handledHlsl.addAll(preparedHlsl);
+      _preparedHlsl.addAll(preparedHlsl);
       _updateState(opened.state);
       for (final event in events) {
         await _event(event);
@@ -541,8 +547,8 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
       _files = null;
       _session = null;
       _hlslCompiler = null;
-      _handledHlsl.clear();
-      _runtimeHlslAttempts = 0;
+      _preparedHlsl.clear();
+      _attemptedRuntimeHlsl.clear();
       await opened.session.close();
       return false;
     }
@@ -589,8 +595,8 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     }
     _session = null;
     _hlslCompiler = null;
-    _handledHlsl.clear();
-    _runtimeHlslAttempts = 0;
+    _preparedHlsl.clear();
+    _attemptedRuntimeHlsl.clear();
     _mediaFeedback.clear();
     _translations.clear();
     _inputs.clear();
@@ -971,8 +977,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
           key is String &&
           (language == 'hlsl' || (language == null && _isHlsl(key))) &&
           source.isNotEmpty &&
-          source.length <= ArtemisHlslCompiler.maxSourceBytes &&
-          _runtimeHlslAttempts < _maxRuntimeHlslAttempts) {
+          source.length <= ArtemisHlslCompiler.maxSourceBytes) {
         await _prepareRuntimeHlsl(session, key, source);
         if (!identical(_session, session)) return;
       }

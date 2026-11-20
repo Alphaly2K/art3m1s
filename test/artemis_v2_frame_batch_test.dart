@@ -92,10 +92,13 @@ void main() {
       File('${project.path}/$key').writeAsBytesSync(bytes);
       sidecar(key, bytes).writeAsStringSync('prewarmed ADE2');
     }
+    const rejectedKey = 'late-rejected.txt';
     const key = 'late.txt';
+    const reads = [rejectedKey, rejectedKey, key, key, rejectedKey];
     final source = utf8.encode('HLSL read after prewarm');
     final artifact = utf8.encode('runtime ADE2');
-    var prepared = 0;
+    final rejectedArtifact = utf8.encode('rejected ADE2');
+    final prepared = <List<int>>[];
     Map<String, Object> event(
       int sequence,
       int domain,
@@ -119,6 +122,8 @@ void main() {
           expect(call.arguments['hlslEffects'], hasLength(256));
           File('${project.path}/$key').writeAsBytesSync(source);
           sidecar(key, source).writeAsBytesSync(artifact);
+          File('${project.path}/$rejectedKey').writeAsBytesSync(source);
+          sidecar(rejectedKey, source).writeAsBytesSync(rejectedArtifact);
           return {
             'session': '1',
             'epoch': '1',
@@ -133,13 +138,13 @@ void main() {
         case 'poll':
           return [
             event(1, 1, 1, {'save_path': 'save'}),
-            for (var i = 0; i < 2; i++) ...[
+            for (var i = 0; i < reads.length; i++) ...[
               event(2 + 2 * i, 3, 1, {
-                'key': key,
+                'key': reads[i],
                 'namespace': 'asset',
               }, request: '${1 + 2 * i}'),
               event(3 + 2 * i, 3, 2, {
-                'key': key,
+                'key': reads[i],
                 'namespace': 'asset',
                 'revision': '${1 + i}',
                 'offset': '0',
@@ -150,8 +155,11 @@ void main() {
           ];
         case 'prepareHlsl':
           expect(call.arguments['source'], source);
-          expect(call.arguments['artifact'], artifact);
-          prepared++;
+          final input = call.arguments['artifact'] as Uint8List;
+          prepared.add(input);
+          if (utf8.decode(input) == 'rejected ADE2') {
+            throw PlatformException(code: 'invalid_ade2');
+          }
           return null;
         case 'close':
           return null;
@@ -167,7 +175,7 @@ void main() {
         platform: 'WINDOWS',
       );
       expect(await runtime.loadProjectBytes(ini!), isTrue);
-      expect(prepared, 1);
+      expect(prepared, [rejectedArtifact, artifact]);
     } finally {
       await runtime.close();
       messenger.setMockMethodCallHandler(channel, null);
