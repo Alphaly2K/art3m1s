@@ -23,3 +23,4 @@ bash "$tool_dir/verify_artemis_v2_macos.sh" "$app"
   "$2/tools/host-smoke/artemis_v2.c" -L"$mac" -lart3m1s_artemis_core \
   -Wl,-rpath,"$mac" -o "$scratch/artemis-v2-smoke"
 "$scratch/artemis-v2-smoke"
+bash "$2/scripts/test-host-v2-media.sh" --bundle "$app"

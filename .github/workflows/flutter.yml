@@ -190,6 +190,7 @@ jobs:
         if: ${{ inputs.artemis_v2 }}
         working-directory: art3m1s
         run: |
+          if ! command -v ffmpeg >/dev/null; then brew install ffmpeg; fi
           bash tool/verify_artemis_v2_archive.sh \
             build/Art3m1s-macos-arm64-artemis-v2.zip "${{ github.workspace }}/art3m1s-core"
       - name: Upload macOS Artemis v2 preview
