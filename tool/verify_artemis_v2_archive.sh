@@ -24,3 +24,6 @@ bash "$tool_dir/verify_artemis_v2_macos.sh" "$app"
   -Wl,-rpath,"$mac" -o "$scratch/artemis-v2-smoke"
 "$scratch/artemis-v2-smoke"
 bash "$2/scripts/test-host-v2-media.sh" --bundle "$app"
+if [[ -x "$mac/artemis-hlsl-compile" ]]; then
+  bash "$2/scripts/test-host-dxvk-native.sh" --bundle "$app"
+fi
