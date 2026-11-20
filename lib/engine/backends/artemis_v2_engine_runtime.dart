@@ -59,7 +59,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
   InputGatePolicy _inputGate = InputGatePolicy.full;
   Future<bool>? _advancing;
   Future<void>? _backgroundAutosave;
-  Future<void>? _projectRelease;
+  Future<void>? _projectChange;
   Future<void>? _closing;
   DateTime? _frameTime;
   Uint8List? _font;
@@ -128,7 +128,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     required bool isArchive,
     required bool environmentPatchEnabled,
     required String platform,
-  }) async {
+  }) => _changeProject(() async {
     if (_closed) return null;
     await _releaseProjectSession();
     if (_closed) return null;
@@ -144,7 +144,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
       _vfs = open(ProjectCharset.detect(ini, platform));
     }
     return ini;
-  }
+  });
 
   Uint8List? _asset(String key) {
     final virtual = _environmentPatch
@@ -322,7 +322,9 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
   Future<bool> loadProjectBytes(
     Uint8List iniContent, {
     String platform = 'WINDOWS',
-  }) async {
+  }) => _changeProject(() => _loadProjectBytes(iniContent, platform));
+
+  Future<bool> _loadProjectBytes(Uint8List iniContent, String platform) async {
     final saveDir = _saveDir;
     if (_closed || saveDir == null) return false;
     await _releaseProjectSession();
@@ -428,16 +430,23 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     return !_closed;
   }
 
-  Future<void> _releaseProjectSession() {
-    if (_projectRelease case final releasing?) return releasing;
-    final previous = _session;
-    if (previous == null) return Future.value();
-    return _projectRelease = _release(previous).whenComplete(() {
-      _projectRelease = null;
-    });
+  Future<T> _changeProject<T>(Future<T> Function() change) async {
+    final previous = _projectChange;
+    final settled = Completer<void>();
+    final pending = settled.future;
+    _projectChange = pending;
+    try {
+      await previous;
+      return await change();
+    } finally {
+      if (identical(_projectChange, pending)) _projectChange = null;
+      settled.complete();
+    }
   }
 
-  Future<void> _release(ArtemisFlutterSession previous) async {
+  Future<void> _releaseProjectSession() async {
+    final previous = _session;
+    if (previous == null) return;
     await _advancing;
     await _backgroundAutosave;
     if (_closed || !identical(_session, previous)) return;
@@ -488,7 +497,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
 
   @override
   Future<bool> advanceTextureBatch(Iterable<int> frameDeltasMs) {
-    if (!_canRun || _session == null || _projectRelease != null) {
+    if (!_canRun || _session == null || _projectChange != null) {
       return Future.value(false);
     }
     if (_backgroundAutosave case final pending?) {
@@ -1024,10 +1033,10 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
   }
 
   Future<void> _shutdown() async {
+    await _projectChange;
     final session = _session;
     try {
       try {
-        await _projectRelease;
         await _advancing;
         await _backgroundAutosave;
       } on Exception {

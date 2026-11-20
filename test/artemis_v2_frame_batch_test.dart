@@ -10,82 +10,123 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('v2 waits for the old native session before opening another', () async {
-    const channel = MethodChannel('moe.alphaly.art3m1s/artemis_v2');
-    final messenger =
-        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
-    final project = Directory.systemTemp.createTempSync('artemis-replace-');
-    final runtime = ArtemisV2EngineRuntime()..setSaveDir(project.path);
-    final closeStarted = Completer<void>();
-    final allowClose = Completer<void>();
-    var opened = 0;
-    const ini = '[WINDOWS]\nWIDTH=4\nHEIGHT=4\n';
-    File('${project.path}/system.ini').writeAsStringSync(ini);
-    messenger.setMockMethodCallHandler(channel, (call) async {
-      switch (call.method) {
-        case 'open':
-          return {
-            'session': '${++opened}',
-            'epoch': '1',
-            'width': 4,
-            'height': 4,
-            'phase': 1,
-            'waitFlags': 0,
-            'exitRequested': false,
-          };
-        case 'poll':
-          return [
-            {
-              'owner': call.arguments['session'],
-              'domain': 1,
-              'kind': 1,
-              'epoch': '1',
-              'sequence': '1',
-              'request': '0',
-              'metadata': Uint8List.fromList(
-                utf8.encode('{"save_path":"save"}'),
-              ),
-              'blob': Uint8List(0),
-            },
-          ];
-        case 'close':
-          if (call.arguments['session'] == '1') {
-            closeStarted.complete();
-            await allowClose.future;
+  for (final exitDuringOpen in [false, true]) {
+    test(
+      exitDuringOpen
+          ? 'v2 exit waits for the pending native open to be cleaned up'
+          : 'v2 serializes project changes through native close and open',
+      () async {
+        const channel = MethodChannel('moe.alphaly.art3m1s/artemis_v2');
+        final messenger =
+            TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+        final project = Directory.systemTemp.createTempSync('artemis-replace-');
+        final runtime = ArtemisV2EngineRuntime()..setSaveDir(project.path);
+        final closeStarted = Completer<void>();
+        final allowClose = Completer<void>();
+        final openStarted = Completer<void>();
+        final allowOpen = Completer<void>();
+        final closedSessions = <String>[];
+        var opened = 0;
+        const ini = '[WINDOWS]\nWIDTH=4\nHEIGHT=4\n';
+        File('${project.path}/system.ini').writeAsStringSync(ini);
+        messenger.setMockMethodCallHandler(channel, (call) async {
+          switch (call.method) {
+            case 'open':
+              final id = ++opened;
+              if (id == 2) {
+                openStarted.complete();
+                await allowOpen.future;
+              }
+              return {
+                'session': '$id',
+                'epoch': '1',
+                'width': 4,
+                'height': 4,
+                'phase': 1,
+                'waitFlags': 0,
+                'exitRequested': false,
+              };
+            case 'poll':
+              return [
+                {
+                  'owner': call.arguments['session'],
+                  'domain': 1,
+                  'kind': 1,
+                  'epoch': '1',
+                  'sequence': '1',
+                  'request': '0',
+                  'metadata': Uint8List.fromList(
+                    utf8.encode('{"save_path":"save"}'),
+                  ),
+                  'blob': Uint8List(0),
+                },
+              ];
+            case 'close':
+              final session = call.arguments['session'] as String;
+              if (session == '1') {
+                closeStarted.complete();
+                await allowClose.future;
+              }
+              closedSessions.add(session);
+              return null;
+            default:
+              throw StateError('Unexpected method: ${call.method}');
           }
-          return null;
-        default:
-          throw StateError('Unexpected method: ${call.method}');
-      }
-    });
-    Future<Uint8List?>? preparing;
-    Future<bool>? loading;
-    try {
-      final bytes = Uint8List.fromList(utf8.encode(ini));
-      expect(await runtime.loadProjectBytes(bytes), isTrue);
-      preparing = runtime.prepareProject(
-        projectPath: project.path,
-        isArchive: false,
-        environmentPatchEnabled: false,
-        platform: 'WINDOWS',
-      );
-      await closeStarted.future.timeout(const Duration(seconds: 2));
-      loading = runtime.loadProjectBytes(bytes);
-      await Future<void>.delayed(Duration.zero);
-      expect(opened, 1);
-      allowClose.complete();
-      expect(await preparing, bytes);
-      expect(await loading, isTrue);
-      expect(opened, 2);
-    } finally {
-      if (!allowClose.isCompleted) allowClose.complete();
-      await preparing;
-      await loading;
-      await runtime.close();
-      messenger.setMockMethodCallHandler(channel, null);
-      project.deleteSync(recursive: true);
-    }
-  });
+        });
+        Future<Uint8List?>? preparing;
+        Future<bool>? loading;
+        Future<bool>? nextLoad;
+        Future<void>? closing;
+        try {
+          final bytes = Uint8List.fromList(utf8.encode(ini));
+          expect(await runtime.loadProjectBytes(bytes), isTrue);
+          preparing = runtime.prepareProject(
+            projectPath: project.path,
+            isArchive: false,
+            environmentPatchEnabled: false,
+            platform: 'WINDOWS',
+          );
+          await closeStarted.future.timeout(const Duration(seconds: 2));
+          loading = runtime.loadProjectBytes(bytes);
+          await Future<void>.delayed(Duration.zero);
+          expect(opened, 1);
+          allowClose.complete();
+          expect(await preparing, bytes);
+          await openStarted.future.timeout(const Duration(seconds: 2));
+          var shutdownFinished = false;
+          if (exitDuringOpen) {
+            closing = runtime.close().then<void>((_) {
+              shutdownFinished = true;
+            });
+          } else {
+            nextLoad = runtime.loadProjectBytes(bytes);
+          }
+          await Future<void>.delayed(Duration.zero);
+          expect(opened, 2);
+          expect(shutdownFinished, isFalse);
+          expect(closedSessions, ['1']);
+          allowOpen.complete();
+          expect(await loading, !exitDuringOpen);
+          if (exitDuringOpen) {
+            await closing;
+          } else {
+            expect(await nextLoad, isTrue);
+            expect(opened, 3);
+          }
+          expect(closedSessions, ['1', '2']);
+        } finally {
+          if (!allowClose.isCompleted) allowClose.complete();
+          if (!allowOpen.isCompleted) allowOpen.complete();
+          await preparing;
+          await loading;
+          await nextLoad;
+          await runtime.close();
+          messenger.setMockMethodCallHandler(channel, null);
+          project.deleteSync(recursive: true);
+        }
+      },
+    );
+  }
 
   test(
     'v2 preserves frame timing and retries shutdown after pending IO',
