@@ -138,8 +138,12 @@ void main() {
       platform: 'windows',
       hostCaps: 4,
     );
+    final reads = <String, int>{};
     final host = ArtemisV2MediaHost()
-      ..configureAssetReader((_) => Uint8List.fromList('RIFF'.codeUnits));
+      ..configureAssetReader((key) {
+        reads.update(key, (count) => count + 1, ifAbsent: () => 1);
+        return Uint8List.fromList('RIFF'.codeUnits);
+      });
     final feedback = <(String, ArtemisPlaybackStatus)>[];
     void send(Map<String, Object?> data) {
       host.handle(
@@ -442,6 +446,16 @@ void main() {
         ('11', ArtemisPlaybackStatus.started),
         ('11', ArtemisPlaybackStatus.failed),
       ]);
+
+      for (final id in ['12', '13']) {
+        send(playCommand(id, channel: 'se')..['key'] = 'shared.wav');
+      }
+      await waitFor(
+        () =>
+            feedback.contains(('12', ArtemisPlaybackStatus.started)) &&
+            feedback.contains(('13', ArtemisPlaybackStatus.started)),
+      );
+      expect(reads['shared.wav'], 1);
     } finally {
       if (!allowVolume.isCompleted) allowVolume.complete();
       if (!allowFadeStop.isCompleted) allowFadeStop.complete();

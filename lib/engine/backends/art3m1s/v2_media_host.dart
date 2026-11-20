@@ -18,6 +18,7 @@ final class ArtemisV2MediaHost extends MediaBridge {
   int _videoAssetGeneration = 0;
   final _playbacks = <String, _V2AudioPlayback>{};
   final _videos = <String, _V2VideoPlayback>{};
+  final _pendingAudioAssets = <String, Future<File?>>{};
   final _videoAssets = <String, Future<File>>{};
   final _fading = <_AudioHandle, Object>{};
   final _work = <Future<void>>{};
@@ -300,6 +301,15 @@ final class ArtemisV2MediaHost extends MediaBridge {
     _run(_open(track, previousHandle));
   }
 
+  Future<File?> _audioAsset(String key) =>
+      _pendingAudioAssets.putIfAbsent(key, () async {
+        try {
+          return await _resolveAsset({'file': key}, projectOnly: true);
+        } finally {
+          _pendingAudioAssets.remove(key);
+        }
+      });
+
   Future<void> _open(_V2AudioPlayback track, _AudioHandle? previous) async {
     final play = track.play;
     final previousTicket = _fading[previous];
@@ -312,16 +322,14 @@ final class ArtemisV2MediaHost extends MediaBridge {
 
     try {
       if (!play.crossfade) await retirePrevious(0);
-      final file = await _resolveAsset({'file': play.key}, projectOnly: true);
+      final file = await _audioAsset(play.key);
       if (!_current(track)) return;
       if (file == null) {
         _finish(track, ArtemisPlaybackStatus.failed);
         return;
       }
       final loopKey = play.loopKey;
-      final loopFile = loopKey == null
-          ? null
-          : await _resolveAsset({'file': loopKey}, projectOnly: true);
+      final loopFile = loopKey == null ? null : await _audioAsset(loopKey);
       if (!_current(track)) return;
 
       final handle = await _AudioHandle.create(
