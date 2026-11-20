@@ -36,6 +36,16 @@ verify_binary() {
   done < <(printf '%s\n' "$loads" | awk '/^[[:space:]]/ { sub(/^[[:space:]]+/, ""); sub(/ \(compatibility version.*$/, ""); print }')
 }
 
+verify_exports() {
+  local binary=$1 available symbol
+  shift
+  available=$(/usr/bin/nm -arch "$arch" -gUj "$binary")
+  for symbol in "$@"; do
+    [[ $'\n'"$available"$'\n' == *$'\n_'"$symbol"$'\n'* ]] ||
+      fail "${binary##*/} is missing export $symbol"
+  done
+}
+
 for name in libart3m1s_artemis_core.dylib libart3m1s_artemis_metal_host.dylib \
     libart3m1s_artemis_media_host.dylib libEGL.dylib libGLESv2.dylib; do
   verify_binary "$mac/$name"
@@ -47,18 +57,40 @@ done
 
 exports=$(/usr/bin/nm -arch "$arch" -gUj "$mac/libart3m1s_artemis_core.dylib")
 [[ "$exports" == _art3m1s_get_api_v2 ]] || fail 'expected only art3m1s_get_api_v2 from Core'
+verify_exports "$mac/libart3m1s_artemis_media_host.dylib" art3m1s_artemis_media_get_api_v1
 
-if [[ -n ${ARTEMIS_V2_DXVK_RUNTIME_DIR:-} ]]; then
-  for name in libart3m1s_artemis_dxvk_host.dylib libdxvk_d3d11.0.dylib \
+metal_exports=(
+  art3m1s_metal_host_v1_create art3m1s_metal_host_v1_destroy
+  art3m1s_metal_host_v1_set_surface art3m1s_metal_host_v1_present art3m1s_metal_host_v1_capture
+  art3m1s_metal_host_v1_create_angle art3m1s_metal_host_v1_prepare_glsl art3m1s_metal_host_v1_set_glsl_cache
+)
+compiler_present=
+if [[ -n ${ARTEMIS_V2_HLSL_COMPILER_DIR:-} || -e "$mac/artemis-hlsl-compile" ||
+    -e "$resources/ArtemisHLSL" ]]; then
+  compiler_present=1
+fi
+
+dxvk_bridge=libart3m1s_artemis_dxvk_host.dylib
+if [[ -n ${ARTEMIS_V2_DXVK_RUNTIME_DIR:-} || -e "$frameworks/$dxvk_bridge" ||
+    -e "$resources/ArtemisDXVK-Licenses" || -n $compiler_present ]]; then
+  for name in "$dxvk_bridge" libdxvk_d3d11.0.dylib \
       libdxvk_dxgi.0.dylib libMoltenVK.dylib libSDL3.0.dylib; do
     verify_binary "$frameworks/$name"
   done
   for name in DXVK.txt MoltenVK.txt SDL3.txt; do
     [[ -s "$resources/ArtemisDXVK-Licenses/$name" ]] || fail "missing DXVK dependency notice $name"
   done
+  verify_exports "$frameworks/$dxvk_bridge" \
+    art_dxvk_context_create art_dxvk_context_destroy art_dxvk_context_metal_device \
+    art_dxvk_program_create art_dxvk_program_destroy \
+    art_dxvk_targets_create art_dxvk_targets_destroy art_dxvk_draw
+  metal_exports+=(
+    art3m1s_metal_host_v1_create_dxvk art3m1s_metal_host_v1_create_mixed art3m1s_metal_host_v1_prepare_ade2
+  )
 fi
+verify_exports "$mac/libart3m1s_artemis_metal_host.dylib" "${metal_exports[@]}"
 
-if [[ -n ${ARTEMIS_V2_HLSL_COMPILER_DIR:-} ]]; then
+if [[ -n $compiler_present ]]; then
   for name in artemis-hlsl-compile libvkd3d-utils.1.dylib libvkd3d-shader.1.dylib libvkd3d.1.dylib; do
     verify_binary "$mac/$name"
   done
