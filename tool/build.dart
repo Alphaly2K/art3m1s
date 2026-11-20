@@ -1,8 +1,13 @@
 import 'dart:io';
 
 Future<void> main(List<String> arguments) async {
-  final options = BuildOptions.parse(arguments);
   final project = File.fromUri(Platform.script).parent.parent.absolute;
+  if (arguments case ['--check-artemis-v2-bindings']) {
+    _checkArtemisV2Bindings(project, _findCore(project));
+    stdout.writeln('Artemis v2 bindings match CORE_SRC.');
+    return;
+  }
+  final options = BuildOptions.parse(arguments);
   final core = _findCore(project);
   final pfs = Directory(
     Platform.environment['PFS_SRC'] ?? '${core.path}/crates/pfs-upk-rust',
@@ -156,7 +161,8 @@ final class BuildOptions {
           stdout.writeln(
             'Usage: dart run tool/build.dart '
             '[all|ios|ios-obsolete|macos|android|windows|linux] '
-            '[--release|--profile|--debug] [--device-only] [--sign-only] [--krkr] [--siglus] [--artemis-v2]',
+            '[--release|--profile|--debug] [--device-only] [--sign-only] [--krkr] [--siglus] [--artemis-v2]\n'
+            '       dart run tool/build.dart --check-artemis-v2-bindings',
           );
           exit(0);
         default:
@@ -635,23 +641,34 @@ Directory _macosApp(Directory project, String profile) {
 }
 
 void _checkArtemisV2Bindings(Directory project, Directory core) {
-  const copies = {
+  const nativeCopies = {
     'art3m1s_core_v2.draft.h': 'doc/abi',
     'art3m1s_metal_host_v1.h': 'doc/abi',
     'art3m1s_media_host_v1.h': 'doc/abi',
     'ArtemisHostBridge.h': 'tools/host-bindings/swift',
     'ArtemisMacSession.swift': 'tools/host-bindings/swift',
     'ArtemisLegacyMedia.swift': 'tools/host-bindings/swift',
+    'ArtemisFlutterHost.swift': 'tools/host-bindings/swift',
   };
-  for (final MapEntry(key: name, value: source) in copies.entries) {
-    final canonical = File('${core.path}/$source/$name');
-    final bundled = File('${project.path}/macos/Runner/ArtemisV2/$name');
+  const dartCopies = {
+    'artemis_flutter_session.dart': 'tools/host-bindings/flutter',
+    'artemis_media.dart': 'tools/host-bindings/dart/lib',
+  };
+  final copies = {
+    for (final entry in nativeCopies.entries)
+      'macos/Runner/ArtemisV2/${entry.key}': '${entry.value}/${entry.key}',
+    for (final entry in dartCopies.entries)
+      'lib/engine/backends/art3m1s/v2_sdk/${entry.key}':
+          '${entry.value}/${entry.key}',
+  };
+  for (final MapEntry(key: destination, value: source) in copies.entries) {
+    final canonical = File('${core.path}/$source');
+    final bundled = File('${project.path}/$destination');
     if (!canonical.existsSync() ||
         !bundled.existsSync() ||
         canonical.readAsStringSync() != bundled.readAsStringSync()) {
       throw UsageException(
-        'Artemis v2 binding mismatch: macos/Runner/ArtemisV2/$name must '
-        'match $source/$name from CORE_SRC',
+        'Artemis v2 binding mismatch: $destination must match $source from CORE_SRC',
       );
     }
   }
