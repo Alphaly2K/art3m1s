@@ -239,7 +239,7 @@ void main() {
     }
   });
 
-  test('v2 logs Lua print bytes only for the current epoch', () async {
+  test('v2 logs only current Lua output and persistence failures', () async {
     const channel = MethodChannel('moe.alphaly.art3m1s/artemis_v2');
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
@@ -284,6 +284,31 @@ void main() {
           ),
           event(domain: 7, kind: 2, epoch: '1', sequence: '2', blob: [97]),
           event(domain: 7, kind: 2, epoch: '2', sequence: '3', blob: [98, 255]),
+          event(
+            domain: 1,
+            kind: 5,
+            epoch: '1',
+            sequence: '4',
+            metadata:
+                '{"operation":"autosave","status":"failed",'
+                '"reason":"io_error","files_written":1}',
+          ),
+          event(
+            domain: 1,
+            kind: 5,
+            epoch: '2',
+            sequence: '5',
+            metadata:
+                '{"operation":"autosave","status":"failed",'
+                '"reason":"denied","files_written":2}',
+          ),
+          event(
+            domain: 1,
+            kind: 5,
+            epoch: '2',
+            sequence: '6',
+            metadata: '{"operation":"autosave","status":"written"}',
+          ),
         ],
         'close' => null,
         _ => throw StateError('Unexpected method: ${call.method}'),
@@ -299,6 +324,15 @@ void main() {
             .map((entry) => entry.message)
             .where((message) => message.startsWith('[ArtemisV2] [Lua] ')),
         ['[ArtemisV2] [Lua] b\uFFFD'],
+      );
+      expect(
+        Log.entries
+            .skip(start)
+            .map((entry) => entry.message)
+            .where(
+              (message) => message.startsWith('[ArtemisV2] Automatic save'),
+            ),
+        ['[ArtemisV2] Automatic save failed: denied (2 files written)'],
       );
     } finally {
       Log.setDebugEnabled(debug);

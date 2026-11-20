@@ -991,6 +991,25 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
           '(${event.metadata['files_written']} files written)',
         );
       }
+    } else if (event.domain == 1 &&
+        event.kind == 5 &&
+        event.epoch == _state?.epoch &&
+        !event.requiresReply &&
+        event.metadata['status'] == 'failed') {
+      final operation = switch (event.metadata['operation']) {
+        'autosave' => 'Automatic save',
+        'save' => 'Save',
+        'load' => 'Load',
+        _ => null,
+      };
+      if (operation != null) {
+        final files = event.metadata['files_written'];
+        final progress = files is int ? ' ($files files written)' : '';
+        Log.warn(
+          '[ArtemisV2] $operation failed: '
+          '${event.metadata['reason']}$progress',
+        );
+      }
     } else if (event.domain == 4 && event.kind == 5 && event.requiresReply) {
       _startHttp(event);
     } else if (event.domain == 4 && event.kind == 6) {
