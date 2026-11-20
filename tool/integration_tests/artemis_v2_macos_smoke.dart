@@ -120,6 +120,11 @@ Future<void> _run(Directory root, HttpServer server) async {
       'Cannot generate legacy video fixture: ${legacyVideo.stderr}',
     );
   }
+  final theoraFixture = Platform.environment['ARTEMIS_V2_THEORA_FIXTURE'];
+  final layerClip = theoraFixture == null ? 'legacy.wmv' : 'legacy.ogv';
+  if (theoraFixture != null) {
+    await File(theoraFixture).copy('${game.path}/$layerClip');
+  }
   File('${game.path}/boot.iet').writeAsStringSync('''
 *top
 [calllua function=boot]
@@ -145,7 +150,7 @@ Future<void> _run(Directory root, HttpServer server) async {
 [wait video=2]
 [calllua function=check_video]
 [setonvideofinish id=3 label=legacy_video_ended call=1]
-[video id=3 file=legacy.wmv delaymargin=50]
+[video id=3 file=$layerClip delaymargin=50]
 [caption data=legacy_capture_ready]
 [@]
 [takess]
@@ -231,7 +236,7 @@ function legacy_video_ended(e)
   legacy_completed = (legacy_completed or 0) + 1
 end
 function check_legacy_video(e)
-  assert(legacy_completed == 1, 'Host WMV did not complete naturally')
+  assert(legacy_completed == 1, 'Host legacy video did not complete naturally')
 end
 function restored_ended(e)
   restored_completed = (restored_completed or 0) + 1
