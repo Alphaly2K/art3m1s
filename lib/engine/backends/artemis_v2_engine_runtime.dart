@@ -180,12 +180,14 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
   List<({Uint8List source, Uint8List artifact})> _cachedHlslEffects(
     ProjectVfs files,
     List<String> paths,
+    Stopwatch budget,
   ) {
     final entryPattern = RegExp(r'^(.+)\.([a-f0-9]{64})\.ade2$');
     final effects = <({Uint8List source, Uint8List artifact})>[];
     final seen = <String>{};
     var size = 0;
     for (final path in paths.where(_isAde2Path)) {
+      if (budget.elapsed >= _hlslPrewarmTime) break;
       final entry = entryPattern.firstMatch(path.substring(_ade2Folder.length));
       if (entry == null || seen.contains(entry[2])) continue;
       try {
@@ -227,7 +229,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     ArtemisHlslCompiler? compiler,
     Stopwatch budget,
   ) async {
-    final effects = _cachedHlslEffects(files, paths);
+    final effects = _cachedHlslEffects(files, paths, budget);
     if (compiler == null) return effects;
     final attempted = {
       for (final effect in effects) sha256.convert(effect.source),
@@ -364,7 +366,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     final sources = <Uint8List>[];
     final seen = <Digest>{};
     var size = 0;
-    for (final path in paths) {
+    for (final path in paths.take(256)) {
       try {
         final source = _asset(path);
         if (source == null ||
@@ -376,7 +378,6 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
         if (!seen.add(sha256.convert(source))) continue;
         sources.add(source);
         size += source.length;
-        if (sources.length == 256) break;
       } on FileSystemException {
         continue;
       }

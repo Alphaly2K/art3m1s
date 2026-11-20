@@ -239,7 +239,9 @@ private final class ArtemisMacLifetime {
         guard !sources.isEmpty,
               let prepare = try? native.metalLibrary.symbol("art3m1s_metal_host_v1_prepare_glsl", as: ArtSwiftPrepareGlsl.self)
         else { return }
+        let deadline = ProcessInfo.processInfo.systemUptime + 5
         for source in sources {
+            if ProcessInfo.processInfo.systemUptime >= deadline { break }
             _ = withBytes(source) { prepare(native.renderer, $0) }
         }
     }
