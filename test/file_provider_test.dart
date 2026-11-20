@@ -4,6 +4,8 @@ import 'dart:typed_data';
 
 import 'package:art3m1s/engine/backends/art3m1s/file_provider.dart';
 import 'package:art3m1s/engine/backends/art3m1s/project_asset_store.dart';
+import 'package:art3m1s/engine/backends/art3m1s/project_vfs.dart';
+import 'package:art3m1s/engine/backends/art3m1s/v2_sdk/artemis_file_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// 最小 PF6 归档，用于验证解包目录与分卷的叠加优先级。
@@ -106,6 +108,29 @@ void main() {
       String.fromCharCodes(patched!),
       contains('environment compatibility patch'),
     );
+  });
+
+  test('shader stat passes its byte budget to the project resource reader', () {
+    File('${project.path}/system/effect.frag').writeAsStringSync('shader');
+    final files = ProjectVfs.openDirectory(project.path);
+    addTearDown(files.close);
+    final service = ArtemisFileService.assetsOnly(
+      readAsset: (key, {maxBytes}) {
+        final bytes = files.readFile(key, maxBytes: maxBytes);
+        return bytes == null ? null : (bytes: bytes, modified: null);
+      },
+    );
+    addTearDown(service.close);
+    service.handle(ArtemisFileEvent(1, 1, 1, false, const {}, Uint8List(0)));
+    ArtemisFileReply? stat(String limit) => service.handle(
+      ArtemisFileEvent(3, 1, 1, true, {
+        'namespace': 'asset',
+        'key': 'system/effect.frag',
+        'max_read_bytes': limit,
+      }, Uint8List(0)),
+    );
+    expect(stat('5')?.metadata, {'status': 'ok', 'found': false});
+    expect(stat('6')?.metadata['size'], '6');
   });
 
   test('listArchiveCandidates keeps split volumes and skips AppleDouble', () {

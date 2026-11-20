@@ -24,8 +24,8 @@ Future<String?> probeArtemisV2Caption({
     files = project.files;
     final ini = project.ini;
     if (ini == null || ini.isEmpty) return null;
-    Uint8List? readAsset(String key) =>
-        project.files.readAsset(key, environmentPatchEnabled: true);
+    Uint8List? readAsset(String key, {int? maxBytes}) => project.files
+        .readAsset(key, environmentPatchEnabled: true, maxBytes: maxBytes);
     try {
       final title = CaptionTableProbe.find(
         paths: files.listFiles(extension: '.tbl'),
@@ -45,8 +45,8 @@ Future<String?> probeArtemisV2Caption({
     );
     session = opened.session;
     service = ArtemisFileService.assetsOnly(
-      readAsset: (key) {
-        final bytes = readAsset(key);
+      readAsset: (key, {maxBytes}) {
+        final bytes = readAsset(key, maxBytes: maxBytes);
         return bytes == null ? null : (bytes: bytes, modified: null);
       },
     );

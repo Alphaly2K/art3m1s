@@ -34,9 +34,13 @@ const _statKind = 1,
     _abortKind = 6;
 
 /// Resolve a normalized asset key and its optional modification time in the
-/// Host's existing resource layers.
+/// Host's existing resource layers. Return null when the winning asset
+/// cannot be read within [maxBytes].
 typedef ArtemisReadAsset =
-    ({Uint8List bytes, DateTime? modified})? Function(String key);
+    ({Uint8List bytes, DateTime? modified})? Function(
+      String key, {
+      int? maxBytes,
+    });
 
 /// File service for one Artemis session. Pass in its events in poll order,
 /// including session changes. The caller submits replies and retries them
@@ -153,9 +157,13 @@ final class ArtemisFileService {
     Uint8List? bytes;
     DateTime? modified;
     if (namespace == 'asset') {
-      final asset = readAsset(key);
+      final budget = event.metadata['max_read_bytes'];
+      final maxBytes = budget == null ? null : _decimal(budget, _maxFileSize);
+      final asset = readAsset(key, maxBytes: maxBytes);
       if (asset != null) {
-        if (asset.bytes.length > _maxFileSize) throw const _IoFailure('denied');
+        if (asset.bytes.length > (maxBytes ?? _maxFileSize)) {
+          throw const _IoFailure('denied');
+        }
         bytes = Uint8List.fromList(asset.bytes);
         modified = asset.modified;
       }
