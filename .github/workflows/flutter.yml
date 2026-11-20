@@ -70,7 +70,43 @@ jobs:
             exit 1
           fi
       - name: Test Flutter Host
-        run: flutter test
+        run: |
+          report="$RUNNER_TEMP/flutter-tests.json"
+          if ! flutter test --no-pub --file-reporter "json:$report"; then
+            python3 - "$report" <<'PYTHON'
+          import json
+          from pathlib import Path
+          import re
+          import subprocess
+          import sys
+
+          report = Path(sys.argv[1])
+          tracked = set(subprocess.check_output(['git', 'ls-files', 'test'], text=True).splitlines())
+          suites, tests, failed = {}, {}, set()
+          if report.is_file():
+              for line in report.read_text().splitlines():
+                  event = json.loads(line)
+                  if event['type'] == 'suite':
+                      suites[event['suite']['id']] = event['suite'].get('path')
+                  elif event['type'] == 'testStart':
+                      tests[event['test']['id']] = event['test']['suiteID']
+                  elif event['type'] == 'testDone' and event['result'] != 'success':
+                      failed.add(event['testID'])
+
+          paths = {suites.get(tests.get(test)) for test in failed}
+          for path in sorted(p for p in paths if p):
+              relative = Path(path)
+              if relative.is_absolute():
+                  try:
+                      relative = relative.relative_to(Path.cwd())
+                  except ValueError:
+                      continue
+              name = relative.as_posix()
+              if name in tracked and re.fullmatch(r'test/[a-zA-Z0-9_/]+_test\.dart', name):
+                  print(f'::error file={name}::Tests failed in {name}')
+          PYTHON
+            exit 1
+          fi
 
   android:
     runs-on: ubuntu-latest
