@@ -838,6 +838,7 @@ class _AudioHandle {
     required this.gain,
     required this.pan,
     required this.onCompleted,
+    required this.onFailed,
     required this.suspendWithSession,
   });
 
@@ -848,6 +849,7 @@ class _AudioHandle {
   final bool loop;
   final File? loopFile;
   final void Function(String? id) onCompleted;
+  final void Function()? onFailed;
   final bool suspendWithSession;
   double gain;
   double pan;
@@ -855,6 +857,7 @@ class _AudioHandle {
   _AudioRamp? _pan;
   Future<void>? _playbackChange;
   StreamSubscription<void>? _completionSubscription;
+  StreamSubscription<audio.AudioEvent>? _loopSubscription;
   bool _completed = false;
   bool _loopSegmentStarted = false;
   bool _hostSuspended = false;
@@ -876,6 +879,7 @@ class _AudioHandle {
     required double pan,
     required bool loop,
     required void Function(String? id) onCompleted,
+    void Function()? onFailed,
     bool suspendWithSession = false,
   }) async {
     assert(file != null || bytes != null);
@@ -891,11 +895,24 @@ class _AudioHandle {
       gain: gain,
       pan: pan,
       onCompleted: onCompleted,
+      onFailed: onFailed,
       suspendWithSession: suspendWithSession,
     );
-    handle._completionSubscription = player.onPlayerComplete.listen((_) {
-      unawaited(handle._handleCompletion());
-    });
+    void onError(Object _) => handle._complete(failed: true);
+    void onPrimaryError(Object error) {
+      if (!handle._loopSegmentStarted) onError(error);
+    }
+
+    handle._completionSubscription = player.onPlayerComplete.listen(
+      (_) => unawaited(handle._handleCompletion()),
+      onError: onFailed == null ? null : onPrimaryError,
+    );
+    if (onFailed != null) {
+      handle._loopSubscription = loopPlayer?.eventStream.listen(
+        null,
+        onError: onError,
+      );
+    }
     try {
       if (loopPlayer != null) {
         // Prepare the B segment on its own player before A starts. Advancing
@@ -933,7 +950,7 @@ class _AudioHandle {
       try {
         final nextPlayer = loopPlayer;
         if (nextPlayer == null) {
-          await _complete();
+          _complete(failed: true);
           return;
         }
         await _changePlayback(() async {
@@ -950,17 +967,21 @@ class _AudioHandle {
           '[MediaBridge] BGM B 段播放失败: ${next.path}: '
           '$error\n$stackTrace',
         );
-        await _complete();
+        _complete(failed: true);
       }
       return;
     }
-    await _complete();
+    _complete();
   }
 
-  Future<void> _complete() async {
+  void _complete({bool failed = false}) {
     if (_disposed || _completed) return;
     _completed = true;
-    onCompleted(id);
+    if (failed && onFailed != null) {
+      onFailed!();
+    } else {
+      onCompleted(id);
+    }
   }
 
   Future<void> play() => _changePlayback(() async {
@@ -1107,6 +1128,8 @@ class _AudioHandle {
     _pan = null;
     await _completionSubscription?.cancel();
     _completionSubscription = null;
+    await _loopSubscription?.cancel();
+    _loopSubscription = null;
     await _playbackChange;
     await Future.wait([
       player.dispose(),

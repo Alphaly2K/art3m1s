@@ -23,6 +23,7 @@ void main() {
     Completer<void>? resumeGate;
     Completer<void>? stopGate;
     final stopping = Completer<void>();
+    var failNextResume = false;
 
     Future<void> waitFor(bool Function() ready) async {
       if (!ready()) {
@@ -36,6 +37,16 @@ void main() {
       await messenger.handlePlatformMessage(
         'xyz.luan/audioplayers/events/$id',
         const StandardMethodCodec().encodeSuccessEnvelope(event),
+        null,
+      );
+    }
+
+    Future<void> audioFailure(String id) async {
+      await messenger.handlePlatformMessage(
+        'xyz.luan/audioplayers/events/$id',
+        const StandardMethodCodec().encodeErrorEnvelope(
+          code: 'audio_output_failed',
+        ),
         null,
       );
     }
@@ -64,6 +75,10 @@ void main() {
           case 'resume':
             resumed.add(id);
             changes.add(null);
+            if (failNextResume) {
+              failNextResume = false;
+              throw PlatformException(code: 'audio_output_failed');
+            }
             await resumeGate?.future;
           case 'pause':
             paused.add(id);
@@ -153,6 +168,8 @@ void main() {
       final loop = resumed.last;
       expect(loop, isNot(intro));
       await audioEvent(loop, {'event': 'audio.onComplete'});
+      await audioFailure(intro);
+      expect(feedback, [('1', ArtemisPlaybackStatus.started)]);
 
       play('2', replaces: '1');
       await waitFor(
@@ -295,6 +312,36 @@ void main() {
       );
       expect(resumed.length, beforeRestore + 2);
       expect(disposed, contains(fresh));
+
+      play('7');
+      await waitFor(
+        () => feedback.contains(('7', ArtemisPlaybackStatus.started)),
+      );
+      final failedSound = resumed.last;
+      await audioFailure(failedSound);
+      await waitFor(() => disposed.contains(failedSound));
+      expect(feedback.where((entry) => entry.$1 == '7'), [
+        ('7', ArtemisPlaybackStatus.started),
+        ('7', ArtemisPlaybackStatus.failed),
+      ]);
+
+      play('8', loopKey: 'loop.wav');
+      await waitFor(
+        () => feedback.contains(('8', ArtemisPlaybackStatus.started)),
+      );
+      final failedIntro = resumed.last;
+      failNextResume = true;
+      await audioEvent(failedIntro, {'event': 'audio.onComplete'});
+      await waitFor(
+        () => feedback.any(
+          (entry) =>
+              entry.$1 == '8' && entry.$2 != ArtemisPlaybackStatus.started,
+        ),
+      );
+      expect(feedback.where((entry) => entry.$1 == '8'), [
+        ('8', ArtemisPlaybackStatus.started),
+        ('8', ArtemisPlaybackStatus.failed),
+      ]);
     } finally {
       if (stopGate?.isCompleted == false) stopGate!.complete();
       resumeGate?.complete();

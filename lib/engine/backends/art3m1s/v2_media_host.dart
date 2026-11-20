@@ -284,6 +284,7 @@ final class ArtemisV2MediaHost extends MediaBridge {
         pan: track.pan,
         loop: play.loop,
         suspendWithSession: true,
+        onFailed: () => _finish(track, ArtemisPlaybackStatus.failed),
         onCompleted: (_) {
           if (!_current(track)) return;
           if (!track.stopping) _started(track);
