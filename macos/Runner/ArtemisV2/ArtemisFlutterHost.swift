@@ -74,13 +74,16 @@ private enum ArtemisFlutterError: Error {
             guard let ini = bytes(args["ini"]),
                   let platform = args["platform"] as? String else { throw ArtemisFlutterError.invalidArguments }
             let caps = try number(args["hostCaps"], as: UInt64.self)
-            let headless = args["renderer"] as? String == "none"
-            var angle: String?
-            switch args["renderer"] as? String {
-            case nil, "metal", "none": angle = nil
+            let renderer = args["renderer"] as? String
+            let headless = renderer == "none"
+            let requestedMixed = !headless && args["mixedShaders"] as? Bool == true
+            let prefersAngle = renderer == "angle"
+            switch renderer {
+            case nil, "metal", "none": break
             case "angle":
-                guard let angleDirectory else { throw ArtemisMacError.loader("ANGLE is unavailable") }
-                angle = angleDirectory
+                guard requestedMixed || angleDirectory != nil else {
+                    throw ArtemisMacError.loader("ANGLE is unavailable")
+                }
             default: throw ArtemisFlutterError.invalidArguments
             }
             let screenshots = args["screenshots"] as? Bool ?? false
@@ -90,59 +93,55 @@ private enum ArtemisFlutterError: Error {
                                       screenshots: screenshots, randomSeed: randomSeed,
                                       angleDirectory: angle, dxvkDirectory: dxvk)
             }
-            var dxvk: ArtemisMacSession?
-            var mixed = false
-            var preparedHlsl: [Int] = []
             let effects = args["hlslEffects"] as? [[String: Any]] ?? []
             let hlslOnDemand = args["hlslOnDemand"] as? Bool ?? (args["compileHlsl"] as? Bool == true)
-            let requestedMixed = !headless && args["mixedShaders"] as? Bool == true
-            if !headless, angle == nil || requestedMixed, let dxvkDirectory, hlslOnDemand || !effects.isEmpty {
+            let canTryDXVK = !headless && (!prefersAngle || requestedMixed) && (hlslOnDemand || !effects.isEmpty)
+            let dxvk = canTryDXVK ? dxvkDirectory : nil
+            var candidates: [(angle: String?, dxvk: String?)] = []
+            if requestedMixed, let angleDirectory, let dxvk {
+                candidates.append((angleDirectory, dxvk))
+            }
+            if requestedMixed, prefersAngle, let angleDirectory {
+                candidates.append((angleDirectory, nil))
+            }
+            if let dxvk { candidates.append((nil, dxvk)) }
+            if requestedMixed, !prefersAngle, let angleDirectory {
+                candidates.append((angleDirectory, nil))
+            }
+
+            var selected: ArtemisMacSession?
+            var usesAngle = prefersAngle && !requestedMixed
+            var usesDXVK = false
+            var preparedHlsl: [Int] = []
+            for candidate in candidates {
                 do {
-                    let candidate: ArtemisMacSession
-                    var candidateMixed = false
-                    if requestedMixed, let angleDirectory {
-                        do {
-                            candidate = try openRenderer(angle: angleDirectory, dxvk: dxvkDirectory)
-                            candidateMixed = true
-                        } catch {
-                            if angle != nil { throw error }
-                            NSLog("Artemis mixed renderer unavailable: %@", String(describing: error))
-                            candidate = try openRenderer(dxvk: dxvkDirectory)
+                    let session = try openRenderer(angle: candidate.angle, dxvk: candidate.dxvk)
+                    if candidate.dxvk != nil {
+                        for (index, effect) in effects.prefix(256).enumerated() {
+                            guard let source = bytes(effect["source"]), let artifact = bytes(effect["artifact"]) else { continue }
+                            do {
+                                try session.prepareADE2(source: source, artifact: artifact)
+                                preparedHlsl.append(index)
+                            } catch {
+                                NSLog("Artemis DXVK effect unavailable: %@", String(describing: error))
+                            }
                         }
-                    } else {
-                        candidate = try openRenderer(dxvk: dxvkDirectory)
-                    }
-                    for (index, effect) in effects.prefix(256).enumerated() {
-                        guard let source = bytes(effect["source"]), let artifact = bytes(effect["artifact"]) else { continue }
-                        do {
-                            try candidate.prepareADE2(source: source, artifact: artifact)
-                            preparedHlsl.append(index)
-                        } catch {
-                            NSLog("Artemis DXVK effect unavailable: %@", String(describing: error))
+                        if preparedHlsl.isEmpty && !hlslOnDemand {
+                            try session.close()
+                            continue
                         }
                     }
-                    if !preparedHlsl.isEmpty || hlslOnDemand {
-                        dxvk = candidate
-                        mixed = candidateMixed
-                    } else {
-                        try candidate.close()
-                    }
+                    selected = session
+                    usesAngle = candidate.angle != nil
+                    usesDXVK = candidate.dxvk != nil
+                    break
                 } catch {
-                    NSLog("Artemis DXVK unavailable: %@", String(describing: error))
+                    NSLog("Artemis shader renderer unavailable: %@", String(describing: error))
                 }
             }
-            var fallback: ArtemisMacSession?
-            if dxvk == nil, angle == nil, requestedMixed, let angleDirectory {
-                do {
-                    fallback = try openRenderer(angle: angleDirectory)
-                    angle = angleDirectory
-                } catch {
-                    NSLog("Artemis ANGLE unavailable: %@", String(describing: error))
-                }
-            }
-            let core = try dxvk ?? fallback ?? openRenderer(angle: angle)
+            let core = try selected ?? openRenderer(angle: usesAngle ? angleDirectory : nil)
             do {
-                if mixed || (dxvk == nil && angle != nil) {
+                if usesAngle {
                     let sources = (args["glslSources"] as? [Any] ?? []).prefix(256).compactMap(bytes)
                     let cacheDirectory = Bundle.main.bundleIdentifier.flatMap { identifier in
                         FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
@@ -155,7 +154,7 @@ private enum ArtemisFlutterError: Error {
                 let id = UUID().uuidString
                 var result = try state(core)
                 result["session"] = id
-                result["dxvk"] = dxvk != nil
+                result["dxvk"] = usesDXVK
                 result["preparedHlsl"] = preparedHlsl
                 sessions[id] = Session(core)
                 return result
