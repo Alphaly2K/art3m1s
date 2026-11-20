@@ -231,6 +231,28 @@ ${measure ? _motion : '[stop]'}
       if (await cachedEffect(dynamicSource) == null) {
         throw StateError('No ADE2 was stored for the dynamic shader.');
       }
+
+      final retrySource = utf8.encode('$dynamicShader\n// retry $token');
+      shader.writeAsBytesSync(retrySource);
+      final packaged = File(
+        '${game.path}/artemis-shaders/ade2/paint.hlsl.'
+        '${sha256.convert(retrySource)}.ade2',
+      );
+      packaged.parent.createSync(recursive: true);
+      packaged.writeAsStringSync('invalid ADE2');
+      await checkProject(
+        'retry',
+        [0, 255, 0, 255],
+        beforeStep: () async {
+          if (!warm && await cachedEffect(retrySource) != null) {
+            throw StateError('Retry ADE2 was present before the asset read.');
+          }
+        },
+      );
+      if (await cachedEffect(retrySource) == null) {
+        throw StateError('No ADE2 was stored after the startup rejection.');
+      }
+      packaged.deleteSync();
       shader.writeAsBytesSync(source);
     }
     await checkProject('cached', [0, 0, 255, 255]);

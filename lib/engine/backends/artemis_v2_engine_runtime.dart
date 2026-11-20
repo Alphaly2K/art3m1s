@@ -49,7 +49,8 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
   ArtemisFlutterSession? _session;
   Future<ArtemisHlslCompiler?>? _hlslCompilerDiscovery;
   ArtemisHlslCompiler? _hlslCompiler;
-  Set<Digest> _seenHlsl = {};
+  // A source prepared at startup or already attempted during play.
+  final _handledHlsl = <Digest>{};
   ArtemisFlutterState? _state;
   ArtemisFlutterEvent? _dialog;
   ArtemisFlutterEvent? _httpRequest;
@@ -211,11 +212,12 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     ProjectVfs files,
     List<String> paths,
     ArtemisHlslCompiler? compiler,
-    Set<Digest> seen,
   ) async {
     final effects = _cachedHlslEffects(files, paths);
-    seen.addAll(effects.map((effect) => sha256.convert(effect.source)));
     if (compiler == null) return effects;
+    final attempted = {
+      for (final effect in effects) sha256.convert(effect.source),
+    };
     var size = effects.fold(
       0,
       (size, effect) => size + effect.source.length + effect.artifact.length,
@@ -224,7 +226,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     for (final path in paths.where(_isHlsl)) {
       if (_closed ||
           !identical(_vfs, files) ||
-          seen.length >= 256 ||
+          attempted.length >= 256 ||
           budget.elapsed >= const Duration(seconds: 5)) {
         break;
       }
@@ -240,14 +242,12 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
         continue;
       }
       final digest = sha256.convert(source);
-      if (seen.contains(digest)) continue;
+      if (!attempted.add(digest)) continue;
       final artifact = await compiler.prepare(source);
-      if (artifact != null &&
+      if (artifact == null ||
           size + source.length + artifact.length > 16 * 1024 * 1024) {
         continue;
       }
-      seen.add(digest);
-      if (artifact == null) continue;
       size += source.length + artifact.length;
       effects.add((source: source, artifact: artifact));
     }
@@ -346,10 +346,9 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
         ? null
         : await (_hlslCompilerDiscovery ??= ArtemisHlslCompiler.bundled());
     if (_closed || !identical(files, _vfs)) return false;
-    final seenHlsl = <Digest>{};
     final hlslEffects = angle || files == null
         ? const <({Uint8List source, Uint8List artifact})>[]
-        : await _prepareHlslEffects(files, paths, compiler, seenHlsl);
+        : await _prepareHlslEffects(files, paths, compiler);
     if (_closed || !identical(files, _vfs)) return false;
     final opened = await ArtemisFlutterSession.open(
       ini: iniContent,
@@ -400,7 +399,11 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
       );
       _session = opened.session;
       _hlslCompiler = opened.session.usesDxvk ? compiler : null;
-      _seenHlsl = seenHlsl;
+      _handledHlsl.addAll([
+        for (final (index, effect) in hlslEffects.indexed)
+          if (opened.preparedHlsl.contains(index))
+            sha256.convert(effect.source),
+      ]);
       _updateState(opened.state);
       for (final event in events) {
         await _event(event);
@@ -411,7 +414,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
       _files = null;
       _session = null;
       _hlslCompiler = null;
-      _seenHlsl = {};
+      _handledHlsl.clear();
       await opened.session.close();
       return false;
     }
@@ -453,7 +456,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     if (_closed || !identical(_session, previous)) return;
     _session = null;
     _hlslCompiler = null;
-    _seenHlsl = {};
+    _handledHlsl.clear();
     _mediaFeedback.clear();
     _translations.clear();
     _inputs.clear();
@@ -824,8 +827,8 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
           _isHlsl(key) &&
           source.isNotEmpty &&
           source.length <= ArtemisHlslCompiler.maxSourceBytes &&
-          _seenHlsl.length < 256 &&
-          _seenHlsl.add(sha256.convert(source))) {
+          _handledHlsl.length < 256 &&
+          _handledHlsl.add(sha256.convert(source))) {
         final artifact = await compiler.prepare(source);
         if (!identical(_session, session)) return;
         if (!_closed && artifact != null) {

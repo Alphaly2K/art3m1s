@@ -40,3 +40,9 @@ build/macos/Build/Products/Debug/art3m1s.app/Contents/MacOS/art3m1s
 验证 v1 和 v2 存档互读时，将 `--target` 改为
 `tool/integration_tests/artemis_save_interop_smoke.dart`。该入口自建项目和存档，验证非默认
 `SAVEPATH` 的系统存档与编号存档能在两版之间往返，以及旧预览目录仍可读写。
+
+验证 HLSL 时，将 `--target` 改为 `tool/integration_tests/artemis_v2_dxvk_smoke.dart`，构建时
+同时设置 `ARTEMIS_V2_DXVK_RUNTIME_DIR` 和 `ARTEMIS_V2_HLSL_COMPILER_DIR`，指向渲染运行时和
+编译器的打包目录。在 macOS 桌面运行应用时设置 `ARTEMIS_DXVK_TEST_CACHE_TOKEN` 为一个新的
+字母数字标识；再用同一标识和 `ARTEMIS_DXVK_TEST_WARM=1` 运行一次，验证缓存复用。测试使用
+合成项目，检查首帧前预热、启动缓存被拒绝后的首次读取恢复、Flutter 纹理像素和脚本截图。

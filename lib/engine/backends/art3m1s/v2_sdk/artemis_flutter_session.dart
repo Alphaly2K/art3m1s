@@ -126,7 +126,13 @@ final class ArtemisFlutterSession {
   final bool usesDxvk;
   bool _closed = false;
 
-  static Future<({ArtemisFlutterSession session, ArtemisFlutterState state})>
+  static Future<
+    ({
+      ArtemisFlutterSession session,
+      ArtemisFlutterState state,
+      Set<int> preparedHlsl,
+    })
+  >
   open({
     required Uint8List ini,
     required String platform,
@@ -158,7 +164,12 @@ final class ArtemisFlutterSession {
       result['dxvk'] == true,
     );
     try {
-      return (session: session, state: _state(result));
+      return (
+        session: session,
+        state: _state(result),
+        preparedHlsl:
+            (result['preparedHlsl'] as List?)?.cast<int>().toSet() ?? const {},
+      );
     } catch (_) {
       await session.close();
       rethrow;

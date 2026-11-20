@@ -84,23 +84,23 @@ private enum ArtemisFlutterError: Error {
             }
             let screenshots = args["screenshots"] as? Bool ?? false
             var dxvk: ArtemisMacSession?
+            var preparedHlsl: [Int] = []
             let effects = args["hlslEffects"] as? [[String: Any]] ?? []
             let compileHlsl = args["compileHlsl"] as? Bool == true
             if angle == nil, let dxvkDirectory, compileHlsl || !effects.isEmpty {
                 do {
                     let candidate = try ArtemisMacSession(corePath: corePath, metalPath: metalPath, hostCaps: caps,
                                                           screenshots: screenshots, dxvkDirectory: dxvkDirectory)
-                    var prepared = false
-                    for effect in effects.prefix(256) {
+                    for (index, effect) in effects.prefix(256).enumerated() {
                         guard let source = bytes(effect["source"]), let artifact = bytes(effect["artifact"]) else { continue }
                         do {
                             try candidate.prepareADE2(source: source, artifact: artifact)
-                            prepared = true
+                            preparedHlsl.append(index)
                         } catch {
                             NSLog("Artemis DXVK effect unavailable: %@", String(describing: error))
                         }
                     }
-                    if prepared || compileHlsl {
+                    if !preparedHlsl.isEmpty || compileHlsl {
                         dxvk = candidate
                     } else {
                         try candidate.close()
@@ -126,6 +126,7 @@ private enum ArtemisFlutterError: Error {
                 var result = try state(core)
                 result["session"] = id
                 result["dxvk"] = dxvk != nil
+                result["preparedHlsl"] = preparedHlsl
                 sessions[id] = Session(core)
                 return result
             } catch {
