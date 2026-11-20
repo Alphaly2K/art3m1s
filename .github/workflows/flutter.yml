@@ -22,6 +22,11 @@ env:
 jobs:
   test:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: art3m1s
+    env:
+      CORE_SRC: ${{ github.workspace }}/art3m1s-core
     steps:
       - name: Checkout art3m1s-core
         uses: actions/checkout@v4
@@ -49,14 +54,12 @@ jobs:
         with:
           channel: stable
           cache: true
-      - name: Analyze and test
-        working-directory: art3m1s
-        env:
-          CORE_SRC: ${{ github.workspace }}/art3m1s-core
-        run: |
-          flutter pub get
-          flutter analyze
-          flutter test
+      - name: Resolve Flutter packages
+        run: flutter pub get
+      - name: Analyze Flutter Host
+        run: flutter analyze
+      - name: Test Flutter Host
+        run: flutter test
 
   android:
     runs-on: ubuntu-latest
