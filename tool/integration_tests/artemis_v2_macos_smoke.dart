@@ -5,12 +5,14 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'package:art3m1s/engine/backends/art3m1s/project_vfs.dart';
 import 'package:art3m1s/engine/backends/artemis_v2_engine_runtime.dart';
 import 'package:art3m1s/engine/engine_runtime.dart';
 import 'package:art3m1s/engine/engine_runtime_factory.dart';
 import 'package:art3m1s/models/game_engine.dart';
 import 'package:art3m1s/models/translation_settings.dart';
 import 'package:art3m1s/services/text_translation_service.dart';
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/rendering.dart' show RenderRepaintBoundary;
 import 'package:flutter/widgets.dart';
 
@@ -124,6 +126,30 @@ Future<void> _run(Directory root, HttpServer server) async {
   final layerClip = theoraFixture == null ? 'legacy.wmv' : 'legacy.ogv';
   if (theoraFixture != null) {
     await File(theoraFixture).copy('${game.path}/$layerClip');
+  }
+  final looseLayerClip = File('${game.path}/$layerClip');
+  final range = Uint8List(2 * 1024 * 1024 + 257);
+  for (var i = 0; i < range.length; i++) {
+    range[i] = (i * 31 + (i >> 20) * 11) & 0xff;
+  }
+  final archive = File('${game.path}/root.pfs');
+  await _writePf6(archive, {
+    layerClip: await looseLayerClip.readAsBytes(),
+    'range.bin': range,
+  });
+  await looseLayerClip.delete();
+  final vfs = ProjectVfs.openArchive(archive.path);
+  try {
+    final copied = await vfs.copyFile(
+      'range.bin',
+      File('${root.path}/range.bin'),
+      () => true,
+    );
+    if (copied == null || !listEquals(await copied.readAsBytes(), range)) {
+      throw StateError('The archived asset was changed during chunked copy.');
+    }
+  } finally {
+    vfs.close();
   }
   File('${game.path}/boot.iet').writeAsStringSync('''
 *top
@@ -567,6 +593,42 @@ Uint8List _tone() {
   data.setUint32(36, 0x64617461); // data
   data.setUint32(40, samples * 2, Endian.little);
   return data.buffer.asUint8List();
+}
+
+Future<void> _writePf6(File archive, Map<String, Uint8List> files) async {
+  final names = files.keys.map(ascii.encode).toList();
+  final entriesBytes = names.fold<int>(
+    0,
+    (size, name) => size + 16 + name.length,
+  );
+  final trailerBytes = 4 + 8 * (files.length + 1) + 4;
+  final indexBytes = 4 + entriesBytes + trailerBytes;
+  final header = BytesBuilder()..add(ascii.encode('pf6'));
+  void addU32(int value) {
+    final bytes = ByteData(4)..setUint32(0, value, Endian.little);
+    header.add(bytes.buffer.asUint8List());
+  }
+
+  addU32(indexBytes);
+  addU32(files.length);
+  var offset = 7 + indexBytes;
+  for (final (index, data) in files.values.indexed) {
+    addU32(names[index].length);
+    header.add(names[index]);
+    addU32(0);
+    addU32(offset);
+    addU32(data.length);
+    offset += data.length;
+  }
+  addU32(files.length + 1);
+  header.add(Uint8List(8 * (files.length + 1)));
+  addU32(7 + 4 + entriesBytes);
+  final sink = archive.openWrite();
+  sink.add(header.takeBytes());
+  for (final data in files.values) {
+    sink.add(data);
+  }
+  await sink.close();
 }
 
 Future<bool> _showingBlueVideo(GlobalKey key) async {

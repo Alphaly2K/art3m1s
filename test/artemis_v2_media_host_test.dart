@@ -488,17 +488,38 @@ void main() {
       platform: 'windows',
       hostCaps: ArtemisMediaCommand.capability,
     );
-    final host = ArtemisV2MediaHost();
+    var copyCount = 0;
+    var sourceByte = 0;
+    final copyInProgress = Completer<File>();
+    final continueCopy = Completer<void>();
+    final host = ArtemisV2MediaHost(
+      writeVideoAsset: (key, destination, isCurrent) async {
+        copyCount++;
+        await destination.writeAsBytes([sourceByte]);
+        if (key == 'pending.wmv') {
+          copyInProgress.complete(destination);
+          await continueCopy.future;
+          expect(isCurrent(), isFalse);
+          return null;
+        }
+        return destination;
+      },
+    );
     final feedback = <(String, ArtemisPlaybackStatus)>[];
-    void play(String id, int byte, {required int skip}) {
-      host.configureAssetReader((_) => Uint8List.fromList([byte]));
+    void play(
+      String id,
+      int byte, {
+      required int skip,
+      String key = 'clip.wmv',
+    }) {
+      sourceByte = byte;
       host.handle(
         opened.session,
         opened.state.epoch,
         ArtemisMediaCommand.decode(5, 2, {
           'op': 'play',
           'playback_id': id,
-          'key': 'clip.wmv',
+          'key': key,
           'loop': false,
           'skip': skip,
         })!,
@@ -581,7 +602,19 @@ void main() {
       final second = await openedVideo.future.timeout(timeout);
       expect(await second.readAsBytes(), [2]);
       expect(openVolumes, [0.4, 0.4, 1.0]);
+      expect(copyCount, 2);
+
+      openedVideo = Completer<File>();
+      play('4', 3, skip: 0, key: 'pending.wmv');
+      final partial = await copyInProgress.future.timeout(timeout);
+      final cancelling = host.resetProject();
+      continueCopy.complete();
+      await cancelling.timeout(timeout);
+      expect(await partial.exists(), isFalse);
+      expect(openedVideo.isCompleted, isFalse);
+      expect(feedback.map((event) => event.$1), isNot(contains('4')));
     } finally {
+      if (!continueCopy.isCompleted) continueCopy.complete();
       if (!allowClose.isCompleted) allowClose.complete();
       await host.dispose();
       await opened.session.close();

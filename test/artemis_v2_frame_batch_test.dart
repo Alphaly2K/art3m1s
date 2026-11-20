@@ -921,8 +921,15 @@ void main() {
           }
         });
         try {
-          runtime.media.configureAssetReader((_) => Uint8List(1));
-          expect(await runtime.loadProjectBytes(Uint8List(0)), isTrue);
+          File('${saves.path}/system.ini').writeAsStringSync('[WINDOWS]\n');
+          File('${saves.path}/clip.mp4').writeAsBytesSync([1]);
+          final ini = await runtime.prepareProject(
+            projectPath: saves.path,
+            isArchive: false,
+            environmentPatchEnabled: false,
+            platform: 'WINDOWS',
+          );
+          expect(await runtime.loadProjectBytes(ini!), isTrue);
           expect(await runtime.enableSharedTexture(), 0);
           await videoOpened.future.timeout(const Duration(seconds: 2));
 

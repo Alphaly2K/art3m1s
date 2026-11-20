@@ -328,6 +328,62 @@ final class ProjectVfs {
     return null;
   }
 
+  /// The caller owns the temporary destination, including any incomplete copy.
+  Future<File?> copyFile(
+    String path,
+    File destination,
+    bool Function() isCurrent,
+  ) async {
+    final normalized = normalizeRelativePath(path);
+    if (normalized == null) return null;
+    final key = normalized.toLowerCase();
+    for (var index = 0; index < _layers.length && isCurrent(); index++) {
+      final entry = _layers[index].lookup(key, normalized);
+      if (entry == null) continue;
+      if (entry.file case final file?) {
+        if (file.existsSync()) return file.copy(destination.path);
+      } else {
+        final copied = await _copyArchiveFile(entry, destination, isCurrent);
+        if (copied != null) return copied;
+      }
+    }
+    return null;
+  }
+
+  Future<File?> _copyArchiveFile(
+    VfsEntry entry,
+    File destination,
+    bool Function() isCurrent,
+  ) async {
+    final archive = entry.archive!;
+    final entryPath = entry.entryPath!;
+    const chunkBytes = 1024 * 1024;
+    final output = await destination.open(mode: FileMode.write);
+    final buffer = malloc.allocate<Uint8>(chunkBytes);
+    final bytes = buffer.asTypedList(chunkBytes);
+    try {
+      for (var offset = 0; offset < entry.size;) {
+        // A previous write can yield to project shutdown and close the archive.
+        if (_layers.isEmpty || !isCurrent()) return null;
+        final count = (entry.size - offset).clamp(0, chunkBytes);
+        final read = PfsVfsLayer._bridge.read(
+          archive,
+          entryPath,
+          offset,
+          buffer,
+          count,
+        );
+        if (read != count) return null;
+        await output.writeFrom(bytes, 0, read);
+        offset += read;
+      }
+      return _layers.isNotEmpty && isCurrent() ? destination : null;
+    } finally {
+      malloc.free(buffer);
+      await output.close();
+    }
+  }
+
   /// 索引中可见的路径（去重后按层优先级合并）。
   List<String> listFiles({String? extension}) {
     final suffix = extension?.toLowerCase();

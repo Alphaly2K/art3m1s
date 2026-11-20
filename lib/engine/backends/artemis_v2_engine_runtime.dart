@@ -39,8 +39,9 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
   final _unsupportedShaderLanguages = <String>{};
   final _translations = <ArtemisFlutterEvent, ArtemisFlutterMessage?>{};
   final _http = ScriptHttpClient();
-  late final ArtemisV2MediaHost _media = ArtemisV2MediaHost()
-    ..configureAssetReader(_asset);
+  late final ArtemisV2MediaHost _media = ArtemisV2MediaHost(
+    writeVideoAsset: _writeVideoAsset,
+  )..configureAssetReader(_asset);
 
   @override
   ArtemisV2MediaHost get media => _media;
@@ -167,6 +168,22 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
             EnvironmentPatch.canTransform(key)
         ? EnvironmentPatch.transform(key, bytes)
         : bytes;
+  }
+
+  Future<File?> _writeVideoAsset(
+    String key,
+    File destination,
+    bool Function() isCurrent,
+  ) async {
+    if (_environmentPatch) {
+      final virtual = EnvironmentPatch.virtualFile(key);
+      if (virtual != null) return destination.writeAsBytes(virtual);
+      if (EnvironmentPatch.canTransform(key)) {
+        final bytes = _asset(key);
+        return bytes == null ? null : destination.writeAsBytes(bytes);
+      }
+    }
+    return _vfs?.copyFile(key, destination, isCurrent);
   }
 
   static const _ade2Folder = 'artemis-shaders/ade2/';

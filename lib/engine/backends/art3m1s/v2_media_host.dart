@@ -3,10 +3,19 @@ part of 'media_bridge.dart';
 typedef _PlaybackFeedback =
     void Function(String id, ArtemisPlaybackStatus status);
 
+typedef ArtemisVideoAssetWriter =
+    Future<File?> Function(
+      String key,
+      File destination,
+      bool Function() isCurrent,
+    );
+
 final class ArtemisV2MediaHost extends MediaBridge {
-  ArtemisV2MediaHost()
+  ArtemisV2MediaHost({this.writeVideoAsset})
     : super(onVideoFinished: (_) {}, onSoundFinished: (_) {});
 
+  final ArtemisVideoAssetWriter? writeVideoAsset;
+  int _videoAssetGeneration = 0;
   final _playbacks = <String, _V2AudioPlayback>{};
   final _videos = <String, _V2VideoPlayback>{};
   final _videoAssets = <String, Future<File>>{};
@@ -133,17 +142,17 @@ final class ArtemisV2MediaHost extends MediaBridge {
 
   Future<void> _openVideo(_V2VideoPlayback track, String epoch) async {
     final play = track.play;
-    final pending = _videoAssets.putIfAbsent(play.key, () async {
-      final bytes = _assetReader?.call(play.key);
-      if (bytes == null) throw StateError('Missing video asset');
-      final directory = await _projectCacheDir.create(recursive: true);
-      final file = File(
-        '${directory.path}/video_${_stableId(play.key)}${_extension(play.key)}',
-      );
-      return file.writeAsBytes(bytes);
-    });
+    final pending = _videoAssets.putIfAbsent(
+      play.key,
+      () => _materializeVideo(play.key),
+    );
     try {
-      final asset = await pending;
+      final asset = await pending.onError<Object>((error, stack) {
+        if (identical(_videoAssets[play.key], pending)) {
+          _videoAssets.remove(play.key);
+        }
+        Error.throwWithStackTrace(error, stack);
+      });
       if (!_videoIsActive(track)) return;
       await track.session.suspendVideos(_suspended);
       if (!_videoIsActive(track)) return;
@@ -157,10 +166,34 @@ final class ArtemisV2MediaHost extends MediaBridge {
         await track.session.closeVideo(play.id);
       }
     } catch (_) {
-      if (identical(_videoAssets[play.key], pending)) {
-        _videoAssets.remove(play.key);
-      }
+      if (!_videoIsActive(track)) return;
       await _closeVideoThenReport(track, ArtemisPlaybackStatus.failed);
+      rethrow;
+    }
+  }
+
+  Future<File> _materializeVideo(String key) async {
+    final generation = _videoAssetGeneration;
+    bool isCurrent() => generation == _videoAssetGeneration;
+    final cache = await _projectCacheDir.create(recursive: true);
+    final directory = await cache.createTemp('video-');
+    try {
+      if (!isCurrent()) throw StateError('Video preparation cancelled');
+      final file = File('${directory.path}/clip${_extension(key)}');
+      final writer = writeVideoAsset;
+      if (writer != null) {
+        if (await writer(key, file, isCurrent) == null) {
+          throw StateError('Could not copy video asset');
+        }
+      } else {
+        final bytes = _assetReader?.call(key);
+        if (bytes == null) throw StateError('Missing video asset');
+        await file.writeAsBytes(bytes);
+      }
+      if (!isCurrent()) throw StateError('Video preparation cancelled');
+      return file;
+    } catch (_) {
+      await directory.delete(recursive: true);
       rethrow;
     }
   }
@@ -453,6 +486,7 @@ final class ArtemisV2MediaHost extends MediaBridge {
   }
 
   Future<void> resetProject() async {
+    _videoAssetGeneration++;
     reset();
     _muted = false;
     await _drainWork();
@@ -515,6 +549,7 @@ final class ArtemisV2MediaHost extends MediaBridge {
 
   @override
   Future<void> dispose() async {
+    _videoAssetGeneration++;
     reset();
     await _drainWork();
     await super.dispose();
