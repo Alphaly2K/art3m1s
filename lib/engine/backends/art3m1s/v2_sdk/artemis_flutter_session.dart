@@ -144,6 +144,7 @@ final class ArtemisFlutterSession {
     List<({Uint8List source, Uint8List artifact})> hlslEffects = const [],
     List<Uint8List> glslSources = const [],
     bool compileHlsl = false,
+    bool hlslOnDemand = false,
   }) async {
     final result = (await _channel.invokeMapMethod<Object?, Object?>('open', {
       'ini': ini,
@@ -156,6 +157,7 @@ final class ArtemisFlutterSession {
         'glslSources': glslSources,
       'screenshots': screenshots,
       if ((!angle || mixedShaders) && compileHlsl) 'compileHlsl': true,
+      if ((!angle || mixedShaders) && hlslOnDemand) 'hlslOnDemand': true,
       if ((!angle || mixedShaders) && hlslEffects.isNotEmpty)
         'hlslEffects': [
           for (final effect in hlslEffects)

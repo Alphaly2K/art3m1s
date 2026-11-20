@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:art3m1s/engine/backends/artemis_v2_engine_runtime.dart';
 import 'package:art3m1s/services/logger.dart';
+import 'package:crypto/crypto.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -67,6 +68,106 @@ void main() {
       expect(await runtime.loadProjectBytes(bytes!), isTrue);
       expect(options?['mixedShaders'], isTrue);
       expect(options?['glslSources'], [utf8.encode(glsl)]);
+    } finally {
+      await runtime.close();
+      messenger.setMockMethodCallHandler(channel, null);
+      project.deleteSync(recursive: true);
+    }
+  });
+
+  test('v2 loads a runtime ADE2 after filling the startup budget', () async {
+    const channel = MethodChannel('moe.alphaly.art3m1s/artemis_v2');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final project = Directory.systemTemp.createTempSync('artemis-sidecars-');
+    final runtime = ArtemisV2EngineRuntime()..setSaveDir(project.path);
+    File('${project.path}/system.ini').writeAsStringSync('[WINDOWS]\n');
+    final sidecars = Directory('${project.path}/artemis-shaders/ade2')
+      ..createSync(recursive: true);
+    File sidecar(String key, List<int> source) =>
+        File('${sidecars.path}/$key.${sha256.convert(source)}.ade2');
+    for (var index = 0; index < 256; index++) {
+      final key = 'prewarm-$index.hlsl';
+      final bytes = utf8.encode('warmup $index');
+      File('${project.path}/$key').writeAsBytesSync(bytes);
+      sidecar(key, bytes).writeAsStringSync('prewarmed ADE2');
+    }
+    const key = 'late.txt';
+    final source = utf8.encode('HLSL read after prewarm');
+    final artifact = utf8.encode('runtime ADE2');
+    var prepared = 0;
+    Map<String, Object> event(
+      int sequence,
+      int domain,
+      int kind,
+      Map<String, String> metadata, {
+      String request = '0',
+    }) => {
+      'owner': '1',
+      'domain': domain,
+      'kind': kind,
+      'epoch': '1',
+      'sequence': '$sequence',
+      'request': request,
+      'metadata': Uint8List.fromList(utf8.encode(jsonEncode(metadata))),
+      'blob': Uint8List(0),
+    };
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      switch (call.method) {
+        case 'open':
+          expect(call.arguments['hlslOnDemand'], isTrue);
+          expect(call.arguments['hlslEffects'], hasLength(256));
+          File('${project.path}/$key').writeAsBytesSync(source);
+          sidecar(key, source).writeAsBytesSync(artifact);
+          return {
+            'session': '1',
+            'epoch': '1',
+            'width': 4,
+            'height': 4,
+            'phase': 1,
+            'waitFlags': 0,
+            'exitRequested': false,
+            'dxvk': true,
+            'preparedHlsl': List.generate(256, (index) => index),
+          };
+        case 'poll':
+          return [
+            event(1, 1, 1, {'save_path': 'save'}),
+            for (var i = 0; i < 2; i++) ...[
+              event(2 + 2 * i, 3, 1, {
+                'key': key,
+                'namespace': 'asset',
+              }, request: '${1 + 2 * i}'),
+              event(3 + 2 * i, 3, 2, {
+                'key': key,
+                'namespace': 'asset',
+                'revision': '${1 + i}',
+                'offset': '0',
+                'length': '${source.length}',
+                'shader_language': 'hlsl',
+              }, request: '${2 + 2 * i}'),
+            ],
+          ];
+        case 'prepareHlsl':
+          expect(call.arguments['source'], source);
+          expect(call.arguments['artifact'], artifact);
+          prepared++;
+          return null;
+        case 'close':
+          return null;
+        default:
+          throw StateError('Unexpected method: ${call.method}');
+      }
+    });
+    try {
+      final ini = await runtime.prepareProject(
+        projectPath: '${project.path}/root.pfs',
+        isArchive: true,
+        environmentPatchEnabled: false,
+        platform: 'WINDOWS',
+      );
+      expect(await runtime.loadProjectBytes(ini!), isTrue);
+      expect(prepared, 1);
     } finally {
       await runtime.close();
       messenger.setMockMethodCallHandler(channel, null);

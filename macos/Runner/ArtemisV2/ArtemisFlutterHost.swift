@@ -88,9 +88,9 @@ private enum ArtemisFlutterError: Error {
             var mixed = false
             var preparedHlsl: [Int] = []
             let effects = args["hlslEffects"] as? [[String: Any]] ?? []
-            let compileHlsl = args["compileHlsl"] as? Bool == true
+            let hlslOnDemand = args["hlslOnDemand"] as? Bool ?? (args["compileHlsl"] as? Bool == true)
             let requestedMixed = args["mixedShaders"] as? Bool == true
-            if angle == nil || requestedMixed, let dxvkDirectory, compileHlsl || !effects.isEmpty {
+            if angle == nil || requestedMixed, let dxvkDirectory, hlslOnDemand || !effects.isEmpty {
                 do {
                     func openDXVK(angle: String? = nil) throws -> ArtemisMacSession {
                         try ArtemisMacSession(corePath: corePath, metalPath: metalPath, hostCaps: caps,
@@ -120,7 +120,7 @@ private enum ArtemisFlutterError: Error {
                             NSLog("Artemis DXVK effect unavailable: %@", String(describing: error))
                         }
                     }
-                    if !preparedHlsl.isEmpty || compileHlsl {
+                    if !preparedHlsl.isEmpty || hlslOnDemand {
                         dxvk = candidate
                         mixed = candidateMixed
                     } else {

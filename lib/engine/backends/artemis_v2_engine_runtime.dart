@@ -51,6 +51,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
   ArtemisHlslCompiler? _hlslCompiler;
   // A source prepared at startup or already attempted during play.
   final _handledHlsl = <Digest>{};
+  int _runtimeHlslAttempts = 0;
   ArtemisFlutterState? _state;
   ArtemisFlutterEvent? _dialog;
   ArtemisFlutterEvent? _httpRequest;
@@ -171,6 +172,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
   static const _ade2Folder = 'artemis-shaders/ade2/';
   static const _maxHlslPrewarmBytes = 16 * 1024 * 1024;
   static const _hlslPrewarmTime = Duration(seconds: 5);
+  static const _maxRuntimeHlslAttempts = 256;
 
   static bool _isAde2Path(String path) =>
       path.startsWith(_ade2Folder) && path.endsWith('.ade2');
@@ -194,7 +196,10 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
             sha256.convert(source).toString() != entry[2]) {
           continue;
         }
-        final artifact = files.readFile(path);
+        final artifact = files.readFile(
+          path,
+          maxBytes: _maxHlslPrewarmBytes - size - source.length,
+        );
         if (artifact == null ||
             artifact.isEmpty ||
             size + source.length + artifact.length > _maxHlslPrewarmBytes) {
@@ -303,6 +308,39 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
       }
     }
     return prepared;
+  }
+
+  Future<void> _prepareRuntimeHlsl(
+    ArtemisFlutterSession session,
+    String key,
+    Uint8List source,
+  ) async {
+    final digest = sha256.convert(source);
+    if (!_handledHlsl.add(digest)) return;
+    _runtimeHlslAttempts++;
+    Uint8List? artifact;
+    final path = ProjectVfs.normalizeRelativePath(key);
+    if (path != null) {
+      try {
+        artifact = _vfs?.readFile(
+          '$_ade2Folder$path.$digest.ade2',
+          maxBytes: ArtemisHlslCompiler.maxArtifactBytes,
+        );
+      } on FileSystemException {
+        // An unreadable sidecar can be replaced by the compiler.
+      }
+    }
+    if (artifact != null &&
+        artifact.isNotEmpty &&
+        await _registerHlsl(session, source, artifact)) {
+      return;
+    }
+    await _hlslCompiler?.prepare(
+      source,
+      rejectedArtifact: artifact,
+      isCurrent: () => _acceptsSceneServices && identical(_session, session),
+      register: (artifact) => _registerHlsl(session, source, artifact),
+    );
   }
 
   Future<bool> _registerHlsl(
@@ -431,7 +469,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
       angle: angle,
       mixedShaders: mixedShaders,
       hlslEffects: hlslEffects,
-      compileHlsl: compiler != null,
+      hlslOnDemand: !_preferAngle && files != null,
       glslSources: _knownGlslSources(glsl),
     );
     try {
@@ -486,6 +524,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
       _session = null;
       _hlslCompiler = null;
       _handledHlsl.clear();
+      _runtimeHlslAttempts = 0;
       await opened.session.close();
       return false;
     }
@@ -533,6 +572,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     _session = null;
     _hlslCompiler = null;
     _handledHlsl.clear();
+    _runtimeHlslAttempts = 0;
     _mediaFeedback.clear();
     _translations.clear();
     _inputs.clear();
@@ -898,13 +938,12 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     );
     if (fileReply != null) {
       final session = _session;
-      final compiler = _hlslCompiler;
       final source = fileReply.blob;
       final key = event.metadata['key'];
       final language = event.metadata['shader_language'];
       if (_acceptsSceneServices &&
           session != null &&
-          compiler != null &&
+          session.usesDxvk &&
           source != null &&
           event.domain == 3 &&
           event.kind == 2 &&
@@ -915,14 +954,8 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
           (language == 'hlsl' || (language == null && _isHlsl(key))) &&
           source.isNotEmpty &&
           source.length <= ArtemisHlslCompiler.maxSourceBytes &&
-          _handledHlsl.length < 256 &&
-          _handledHlsl.add(sha256.convert(source))) {
-        await compiler.prepare(
-          source,
-          isCurrent: () =>
-              _acceptsSceneServices && identical(_session, session),
-          register: (artifact) => _registerHlsl(session, source, artifact),
-        );
+          _runtimeHlslAttempts < _maxRuntimeHlslAttempts) {
+        await _prepareRuntimeHlsl(session, key, source);
         if (!identical(_session, session)) return;
       }
       _replies.add(event.reply(fileReply.metadata, blob: fileReply.blob));

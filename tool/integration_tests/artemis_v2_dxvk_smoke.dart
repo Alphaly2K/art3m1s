@@ -269,6 +269,32 @@ ${measure ? _motion : '[stop]'}
       }
       dynamicFile.deleteSync();
 
+      if (!warm) {
+        final lateSource = utf8.encode('$dynamicShader\n// packaged $token');
+        final lateFile = File('${game.path}/late.txt');
+        final lateArtifact = File(
+          '${game.path}/artemis-shaders/ade2/late.txt.'
+          '${sha256.convert(lateSource)}.ade2',
+        );
+        final artifact = (await dynamicEntry.readAsBytes()).sublist(32);
+        await checkProject(
+          'dynamic-packaged',
+          [0, 255, 0, 255],
+          liveSidecars: true,
+          shaderFile: 'late.txt',
+          beforeStep: () async {
+            lateFile.writeAsBytesSync(lateSource);
+            lateArtifact.parent.createSync(recursive: true);
+            lateArtifact.writeAsBytesSync(artifact);
+          },
+        );
+        if (await cachedEffect(lateSource) != null) {
+          throw StateError('The late packaged effect was recompiled.');
+        }
+        lateFile.deleteSync();
+        lateArtifact.deleteSync();
+      }
+
       final retrySource = utf8.encode('$dynamicShader\n// retry $token');
       shader.writeAsBytesSync(retrySource);
       final packaged = File(
