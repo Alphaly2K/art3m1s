@@ -10,6 +10,70 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test('v2 prewarms shader sidecars when opening an archive project', () async {
+    const channel = MethodChannel('moe.alphaly.art3m1s/artemis_v2');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final project = Directory.systemTemp.createTempSync('artemis-sidecars-');
+    final runtime = ArtemisV2EngineRuntime()..setSaveDir(project.path);
+    const ini = '[WINDOWS]\nWIDTH=4\nHEIGHT=4\n';
+    const glsl = 'void main() { gl_FragColor = vec4(1.0); }';
+    File('${project.path}/system.ini').writeAsStringSync(ini);
+    final patches = Directory('${project.path}/Patches')..createSync();
+    File('${patches.path}/Paint.FRAG').writeAsStringSync(glsl);
+    File('${patches.path}/Effect.FX').writeAsStringSync('test HLSL source');
+    Map<Object?, Object?>? options;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      switch (call.method) {
+        case 'open':
+          options = call.arguments as Map<Object?, Object?>;
+          return {
+            'session': '1',
+            'epoch': '1',
+            'width': 4,
+            'height': 4,
+            'phase': 1,
+            'waitFlags': 0,
+            'exitRequested': false,
+          };
+        case 'poll':
+          return [
+            {
+              'owner': '1',
+              'domain': 1,
+              'kind': 1,
+              'epoch': '1',
+              'sequence': '1',
+              'request': '0',
+              'metadata': Uint8List.fromList(
+                utf8.encode('{"save_path":"save"}'),
+              ),
+              'blob': Uint8List(0),
+            },
+          ];
+        case 'close':
+          return null;
+        default:
+          throw StateError('Unexpected method: ${call.method}');
+      }
+    });
+    try {
+      final bytes = await runtime.prepareProject(
+        projectPath: '${project.path}/root.pfs',
+        isArchive: true,
+        environmentPatchEnabled: false,
+        platform: 'WINDOWS',
+      );
+      expect(await runtime.loadProjectBytes(bytes!), isTrue);
+      expect(options?['mixedShaders'], isTrue);
+      expect(options?['glslSources'], [utf8.encode(glsl)]);
+    } finally {
+      await runtime.close();
+      messenger.setMockMethodCallHandler(channel, null);
+      project.deleteSync(recursive: true);
+    }
+  });
+
   test('v2 warns once per unsupported shader language', () async {
     const channel = MethodChannel('moe.alphaly.art3m1s/artemis_v2');
     final messenger =

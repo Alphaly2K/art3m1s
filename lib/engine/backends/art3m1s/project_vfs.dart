@@ -29,7 +29,7 @@ final class VfsEntry {
 abstract interface class VfsLayer {
   VfsEntry? lookup(String key, String path);
 
-  /// 参与 [ProjectVfs.listFiles] 的归一化键。sidecar 层不参与列表。
+  /// 参与 [ProjectVfs.listFiles] 的归一化键。
   Iterable<String> get indexedPaths;
 
   void close();
@@ -39,21 +39,27 @@ abstract interface class VfsLayer {
 ///
 /// * 解包工程用 [DirectoryVfsLayer.indexed]：打开时建一次索引，会话内视为只读。
 /// * 归档工程的同级散装文件用 [DirectoryVfsLayer.live]：逐次探测，命中即覆盖
-///   归档条目（与 core 的 sidecar 语义一致），但不参与 `listFiles`。
+///   归档条目。需要枚举时可在首次列出资源时建立索引。
 final class DirectoryVfsLayer implements VfsLayer {
   factory DirectoryVfsLayer.indexed(String root) {
     final result = _indexDirectory(root);
     return DirectoryVfsLayer._(root, result.files, result.failed);
   }
 
-  factory DirectoryVfsLayer.live(String root) =>
-      DirectoryVfsLayer._(root, null, true);
+  factory DirectoryVfsLayer.live(String root, {bool indexOnList = false}) =>
+      DirectoryVfsLayer._(root, null, true, indexOnList);
 
-  DirectoryVfsLayer._(this._root, this._snapshot, this._liveFallback);
+  DirectoryVfsLayer._(
+    this._root,
+    this._snapshot,
+    this._liveFallback, [
+    this._indexOnList = false,
+  ]);
 
   final String _root;
-  final Map<String, File>? _snapshot;
   final bool _liveFallback;
+  final bool _indexOnList;
+  Map<String, File>? _snapshot;
 
   static ({Map<String, File> files, bool failed}) _indexDirectory(String root) {
     final index = <String, File>{};
@@ -79,20 +85,26 @@ final class DirectoryVfsLayer implements VfsLayer {
 
   @override
   VfsEntry? lookup(String key, String path) {
-    final snapshot = _snapshot;
-    if (snapshot != null && !_liveFallback) {
-      final file = snapshot[key];
-      return file == null ? null : VfsEntry.file(file);
+    final indexed = _snapshot?[key];
+    if (!_liveFallback) {
+      return indexed == null ? null : VfsEntry.file(indexed);
     }
     final file = File(
       '$_root${Platform.pathSeparator}'
       '${path.replaceAll('/', Platform.pathSeparator)}',
     );
-    return file.existsSync() ? VfsEntry.file(file) : null;
+    if (file.existsSync()) return VfsEntry.file(file);
+    if (_indexOnList && indexed != null && indexed.existsSync()) {
+      return VfsEntry.file(indexed);
+    }
+    return null;
   }
 
   @override
-  Iterable<String> get indexedPaths => _snapshot?.keys ?? const <String>[];
+  Iterable<String> get indexedPaths {
+    if (_indexOnList) _snapshot ??= _indexDirectory(_root).files;
+    return _snapshot?.keys ?? const <String>[];
+  }
 
   @override
   void close() {}
@@ -253,9 +265,12 @@ final class ProjectVfs {
   static ProjectVfs openArchive(
     String archivePath, {
     String charset = 'Shift_JIS',
+    bool indexSidecars = false,
   }) {
     final parent = File(archivePath).parent.path;
-    final layers = <VfsLayer>[DirectoryVfsLayer.live(parent)];
+    final layers = <VfsLayer>[
+      DirectoryVfsLayer.live(parent, indexOnList: indexSidecars),
+    ];
     final candidates = listArchiveCandidatesIn(parent);
     for (final candidate in candidates.reversed) {
       final layer = PfsVfsLayer.open(candidate, charset: charset);

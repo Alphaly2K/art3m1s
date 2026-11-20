@@ -135,7 +135,11 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     await _releaseProjectSession();
     if (_closed) return null;
     ProjectVfs open(String charset) => isArchive
-        ? ProjectVfs.openArchive(projectPath, charset: charset)
+        ? ProjectVfs.openArchive(
+            projectPath,
+            charset: charset,
+            indexSidecars: true,
+          )
         : ProjectVfs.openDirectory(projectPath, charset: charset);
     _vfs?.close();
     _vfs = open('Shift_JIS');
