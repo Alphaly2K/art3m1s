@@ -10,6 +10,62 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test('v2 warns once per unsupported shader language', () async {
+    const channel = MethodChannel('moe.alphaly.art3m1s/artemis_v2');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final saves = Directory.systemTemp.createTempSync('artemis-shader-diag-');
+    final runtime = ArtemisV2EngineRuntime()..setSaveDir(saves.path);
+    Map<String, Object?> event(int domain, int sequence, String metadata) => {
+      'owner': '1',
+      'domain': domain,
+      'kind': 1,
+      'epoch': '1',
+      'sequence': '$sequence',
+      'request': '0',
+      'metadata': Uint8List.fromList(utf8.encode(metadata)),
+      'blob': Uint8List(0),
+    };
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      return switch (call.method) {
+        'open' => {
+          'session': '1',
+          'epoch': '1',
+          'width': 4,
+          'height': 4,
+          'phase': 1,
+          'waitFlags': 0,
+          'exitRequested': false,
+        },
+        'poll' => [
+          event(1, 1, '{"save_path":"save"}'),
+          event(7, 2, '{"language":"hlsl","id":"a","key":"a.hlsl"}'),
+          event(7, 3, '{"language":"hlsl","id":"b","key":"b.hlsl"}'),
+          event(7, 4, '{"language":"glsl","id":"c","key":"c.frag"}'),
+        ],
+        'close' => null,
+        _ => throw StateError('Unexpected method: ${call.method}'),
+      };
+    });
+    try {
+      final start = Log.entries.length;
+      expect(await runtime.loadProjectBytes(Uint8List(0)), isTrue);
+      final warnings = Log.entries.skip(start).map((entry) => entry.message);
+      expect(
+        warnings.where((text) => text.contains('support HLSL effects')),
+        hasLength(1),
+      );
+      expect(
+        warnings.where((text) => text.contains('support GLSL effects')),
+        hasLength(1),
+      );
+    } finally {
+      await runtime.close();
+      messenger.setMockMethodCallHandler(channel, null);
+      saves.deleteSync(recursive: true);
+    }
+  });
+
   for (final exitDuringOpen in [false, true]) {
     test(
       exitDuringOpen

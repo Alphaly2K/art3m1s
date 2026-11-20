@@ -36,6 +36,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
   final _inputs = <ArtemisFlutterMessage>[];
   final _replies = <ArtemisFlutterMessage>[];
   final _mediaFeedback = <ArtemisFlutterMessage>[];
+  final _unsupportedShaderLanguages = <String>{};
   final _translations = <ArtemisFlutterEvent, ArtemisFlutterMessage?>{};
   final _http = ScriptHttpClient();
   late final ArtemisV2MediaHost _media = ArtemisV2MediaHost()
@@ -599,6 +600,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
 
   void _updateState(ArtemisFlutterState state) {
     if (state.epoch != _state?.epoch || state.phase == 4) {
+      _unsupportedShaderLanguages.clear();
       _submittedWindow = _normalWindow;
       _capture = null;
       _cancelHttp();
@@ -769,6 +771,19 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
   }
 
   Future<void> _event(ArtemisFlutterEvent event) async {
+    if (event.domain == 7 && event.kind == 1) {
+      final language = event.metadata['language'];
+      if (event.epoch == _state?.epoch &&
+          language is String &&
+          (language == 'hlsl' || language == 'glsl') &&
+          _unsupportedShaderLanguages.add(language)) {
+        Log.warn(
+          '[ArtemisV2] The selected renderer does not support '
+          '${language.toUpperCase()} effects for this project.',
+        );
+      }
+      return;
+    }
     if (event.mediaCommand case final command?) {
       final owner = _session;
       if (owner == null || _closed || event.epoch != _state?.epoch) return;
