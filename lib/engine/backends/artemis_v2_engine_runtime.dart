@@ -76,11 +76,14 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
   bool _environmentPatch = false;
   bool _appBackgrounded = false;
   bool _closed = false;
+  bool _finishingSession = false;
   static const _normalWindow = (fullscreen: false, minimized: false);
   var _window = _normalWindow;
   var _submittedWindow = _normalWindow;
 
-  bool get _canRun => !_closed && !_appBackgrounded && _residency.isRunning;
+  bool get _acceptsSceneServices => !_closed && !_finishingSession;
+  bool get _canRun =>
+      _acceptsSceneServices && !_appBackgrounded && _residency.isRunning;
 
   @override
   bool get isInitialized => !_closed;
@@ -458,6 +461,11 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     await _advancing;
     await _backgroundAutosave;
     if (_closed || !identical(_session, previous)) return;
+    try {
+      await _finishSession(previous);
+    } on Exception catch (error) {
+      Log.warn('[ArtemisV2] project shutdown: $error');
+    }
     _session = null;
     _hlslCompiler = null;
     _handledHlsl.clear();
@@ -631,7 +639,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
   void _startHttp(ArtemisFlutterEvent event) {
     _cancelHttp();
     _httpRequest = event;
-    if (_closed) {
+    if (!_acceptsSceneServices) {
       _httpReply = event.reply({'status': 'cancelled'});
       return;
     }
@@ -646,7 +654,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
       maxResponseBytes: limit.clamp(0, 32 * 1024 * 1024),
       readFile: _asset,
       onComplete: (status, body) {
-        if (_closed || !identical(_httpRequest, event)) return;
+        if (!_acceptsSceneServices || !identical(_httpRequest, event)) return;
         _httpReply = status == 0
             ? event.reply({'status': 'io_error'})
             : event.reply({'status': 'ok', 'status_code': status}, blob: body);
@@ -666,7 +674,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
   }
 
   void _translate(ArtemisFlutterEvent event) {
-    if (_closed || event.epoch != _state?.epoch) return;
+    if (!_acceptsSceneServices || event.epoch != _state?.epoch) return;
     if (_translations.length >= 64) {
       _translations[event] = event.reply({'status': 'limit'});
       return;
@@ -800,9 +808,13 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     }
     if (event.mediaCommand case final command?) {
       final owner = _session;
-      if (owner == null || _closed || event.epoch != _state?.epoch) return;
+      if (owner == null ||
+          !_acceptsSceneServices ||
+          event.epoch != _state?.epoch) {
+        return;
+      }
       media.handle(owner, event.epoch, command, (id, status) {
-        if (!_closed &&
+        if (_acceptsSceneServices &&
             identical(_session, owner) &&
             event.epoch == _state?.epoch) {
           _mediaFeedback.add(event.playbackStatus(id, status));
@@ -825,7 +837,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
       final compiler = _hlslCompiler;
       final source = fileReply.blob;
       final key = event.metadata['key'];
-      if (!_closed &&
+      if (_acceptsSceneServices &&
           session != null &&
           compiler != null &&
           source != null &&
@@ -873,14 +885,14 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
       _translate(event);
     } else if (event.domain == 4 && event.kind == 1) {
       _title.value = event.metadata['text'] as String?;
-    } else if (event.domain == 4 && event.kind == 3 && !_closed) {
+    } else if (event.domain == 4 && event.kind == 3 && _acceptsSceneServices) {
       final action = switch (event.metadata['command']) {
         'fullscreen' => EngineWindowAction.toggleFullscreen,
         'minimize' => EngineWindowAction.minimize,
         _ => null,
       };
       if (action != null) onWindowAction?.call(action);
-    } else if (event.domain == 4 && event.kind == 4 && !_closed) {
+    } else if (event.domain == 4 && event.kind == 4 && _acceptsSceneServices) {
       final data = event.metadata;
       media.setAvoidMuted(data['mute'] == true);
       _avoid.value = data['visible'] == true
@@ -888,7 +900,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
           : null;
     } else if (event.domain == 4 &&
         event.kind == 2 &&
-        !_closed &&
+        _acceptsSceneServices &&
         onDialogRequested != null) {
       _dialog = event;
       final metadata = event.metadata;
@@ -1016,7 +1028,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     if (backgrounded) _input(4, const {});
     _appBackgrounded = backgrounded;
     final session = _session;
-    if (state == 1 && session != null) {
+    if (state == 1 && session != null && _acceptsSceneServices) {
       _backgroundAutosave ??= _saveOnBackground(session).whenComplete(() {
         _backgroundAutosave = null;
       });
@@ -1031,7 +1043,9 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
   Future<void> _saveOnBackground(ArtemisFlutterSession session) async {
     try {
       await _advancing;
-      if (_closed || !identical(_session, session) || _state?.phase != 2) {
+      if (!_acceptsSceneServices ||
+          !identical(_session, session) ||
+          _state?.phase != 2) {
         return;
       }
       if (_frameTime != null) {
@@ -1061,6 +1075,40 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     return _closing = _shutdown();
   }
 
+  Future<void> _finishSession(ArtemisFlutterSession session) async {
+    final state = _state;
+    if (state == null || state.phase != 2) return;
+    _finishingSession = true;
+    _http.cancel();
+    try {
+      final message = ArtemisFlutterMessage(
+        domain: 1,
+        kind: 16,
+        epoch: state.epoch,
+        metadata: const {},
+      );
+      var accepted = false;
+      for (var turn = 0; turn < 8 && _state?.phase != 4; turn++) {
+        if (_httpRequest case final request?) {
+          _httpReply = request.reply({'status': 'cancelled'});
+          await _submitHttp(session);
+        }
+        if (!accepted) {
+          if (_dialog != null) submitDialog(false, '');
+          await _submit(session, _replies);
+          accepted = await session.submit([message]);
+        }
+        _nextClock(0);
+        await _step(session);
+      }
+      if (_state?.phase != 4) {
+        Log.warn('[ArtemisV2] Shutdown ended before Core confirmed closure');
+      }
+    } finally {
+      _finishingSession = false;
+    }
+  }
+
   Future<void> _shutdown() async {
     await _projectChange;
     final session = _session;
@@ -1071,32 +1119,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
       } on Exception {
         /* The session can still be closed. */
       }
-      final state = _state;
-      if (session != null && state?.phase == 2) {
-        final message = ArtemisFlutterMessage(
-          domain: 1,
-          kind: 16,
-          epoch: state!.epoch,
-          metadata: const {},
-        );
-        var accepted = false;
-        for (var turn = 0; turn < 8 && _state?.phase != 4; turn++) {
-          if (!accepted) {
-            if (_dialog != null) submitDialog(false, '');
-            if (_httpRequest case final request?) {
-              _httpReply = request.reply({'status': 'cancelled'});
-              await _submitHttp(session);
-            }
-            await _submit(session, _replies);
-            accepted = await session.submit([message]);
-          }
-          _nextClock(0);
-          await _step(session);
-        }
-        if (_state?.phase != 4) {
-          Log.warn('[ArtemisV2] Shutdown ended before Core confirmed closure');
-        }
-      }
+      if (session != null) await _finishSession(session);
     } on Exception catch (error) {
       Log.warn('[ArtemisV2] shutdown: $error');
     } finally {

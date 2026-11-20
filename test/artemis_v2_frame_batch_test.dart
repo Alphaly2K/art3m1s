@@ -317,6 +317,149 @@ void main() {
     );
   }
 
+  test('v2 saves the old project before opening the next one', () async {
+    const channel = MethodChannel('moe.alphaly.art3m1s/artemis_v2');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final saves = Directory.systemTemp.createTempSync('artemis-switch-save-');
+    final runtime = ArtemisV2EngineRuntime()..setSaveDir(saves.path);
+    final shutdownSent = Completer<void>();
+    final allowShutdown = Completer<void>();
+    final saving = Completer<void>();
+    final acknowledge = Completer<void>();
+    final calls = <String>[];
+    final opening = <String>{};
+    var opens = 0;
+    var writePending = false;
+    var written = false;
+    var closedPending = false;
+    Map<String, Object?> state(String session, int phase) => {
+      'session': session,
+      'epoch': '1',
+      'width': 4,
+      'height': 4,
+      'phase': phase,
+      'waitFlags': phase == 3 ? 1 : 0,
+      'exitRequested': false,
+      'stepFlags': 0,
+      'backpressured': false,
+    };
+    Map<String, Object?> event(
+      String session,
+      int domain,
+      int kind,
+      int sequence,
+      Map<String, Object?> metadata, {
+      String request = '0',
+      String blob = '',
+    }) => {
+      'owner': session,
+      'domain': domain,
+      'kind': kind,
+      'epoch': '1',
+      'sequence': '$sequence',
+      'request': request,
+      'metadata': Uint8List.fromList(utf8.encode(jsonEncode(metadata))),
+      'blob': Uint8List.fromList(utf8.encode(blob)),
+    };
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'open') {
+        final session = '${++opens}';
+        calls.add('open:$session');
+        opening.add(session);
+        return state(session, opens == 1 ? 2 : 1);
+      }
+      final session = call.arguments['session'] as String;
+      switch (call.method) {
+        case 'poll':
+          if (opening.remove(session)) {
+            return [
+              event(session, 1, 1, 1, {'save_path': 'save-$session'}),
+            ];
+          }
+          if (writePending) {
+            writePending = false;
+            return [
+              event(
+                session,
+                3,
+                4,
+                2,
+                {'namespace': 'save', 'key': 'saveg.dat'},
+                request: '1',
+                blob: 'old project state',
+              ),
+            ];
+          }
+          if (closedPending) {
+            closedPending = false;
+            return [
+              event(session, 1, 4, 3, {'save_status': 'written'}),
+            ];
+          }
+          return <Object>[];
+        case 'submit':
+          final message = (call.arguments['batch'] as List).single as Map;
+          expect(session, '1');
+          if (message['domain'] == 1 && message['kind'] == 16) {
+            calls.add('shutdown:$session');
+            shutdownSent.complete();
+            await allowShutdown.future;
+          } else {
+            expect(message['request'], '1');
+            expect(jsonDecode(utf8.decode(message['metadata'] as Uint8List)), {
+              'status': 'ok',
+            });
+            calls.add('write:$session');
+            saving.complete();
+            await acknowledge.future;
+            written = true;
+          }
+          return true;
+        case 'step':
+          expect(call.arguments['backgroundAutosave'], isNull);
+          if (written) {
+            closedPending = true;
+            return state(session, 4);
+          }
+          writePending = true;
+          return state(session, 3);
+        case 'close':
+          calls.add('close:$session');
+          return null;
+        default:
+          throw StateError('Unexpected method: ${call.method}');
+      }
+    });
+    Future<bool>? switching;
+    try {
+      expect(await runtime.loadProjectBytes(Uint8List(0)), isTrue);
+      switching = runtime.loadProjectBytes(Uint8List(0));
+      await shutdownSent.future.timeout(const Duration(seconds: 2));
+      runtime.notifyLifecycle(1);
+      await Future<void>.delayed(Duration.zero);
+      expect(calls, ['open:1', 'shutdown:1']);
+      allowShutdown.complete();
+      await saving.future.timeout(const Duration(seconds: 2));
+      expect(calls, ['open:1', 'shutdown:1', 'write:1']);
+      expect(
+        File('${saves.path}/save-1/saveg.dat').readAsStringSync(),
+        'old project state',
+      );
+      acknowledge.complete();
+      expect(await switching, isTrue);
+      expect(calls, ['open:1', 'shutdown:1', 'write:1', 'close:1', 'open:2']);
+      expect(File('${saves.path}/save-2/saveg.dat').existsSync(), isFalse);
+    } finally {
+      if (!allowShutdown.isCompleted) allowShutdown.complete();
+      if (!acknowledge.isCompleted) acknowledge.complete();
+      await switching;
+      await runtime.close();
+      messenger.setMockMethodCallHandler(channel, null);
+      saves.deleteSync(recursive: true);
+    }
+  });
+
   test(
     'v2 preserves frame timing and retries shutdown after pending IO',
     () async {
