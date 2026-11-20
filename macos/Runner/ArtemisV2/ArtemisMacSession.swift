@@ -171,17 +171,27 @@ private final class ArtemisMacLifetime {
             throw ArtemisMacError.protocolError("Invalid Artemis runtime table")
         }
         let frames = try queryTable(UInt32(ArtSwiftFrame), ArtFrameApiV2.self)
+        let rendererCaps = if angleDirectory != nil && dxvkDirectory != nil {
+            art_swift_mixed_renderer_caps(screenshots ? 1 : 0)
+        } else if angleDirectory != nil {
+            art_swift_angle_renderer_caps(screenshots ? 1 : 0)
+        } else {
+            art_swift_renderer_caps(screenshots ? 1 : 0)
+        }
         var config = ArtCreateInfo(struct_size: UInt32(MemoryLayout<ArtCreateInfo>.size), flags: 0,
                                    host_service_caps: hostCaps,
-                                   renderer_caps: angleDirectory == nil
-                                     ? art_swift_renderer_caps(screenshots ? 1 : 0)
-                                     : art_swift_angle_renderer_caps(screenshots ? 1 : 0),
+                                   renderer_caps: rendererCaps,
                                    random_seed: randomSeed)
         var handle: ArtRuntimeHandle = 0
         try check(api.create(&config, &handle), "create", root: root)
         do {
             var renderer: OpaquePointer?
-            if let angleDirectory {
+            if let angleDirectory, let dxvkDirectory {
+                let create = try metalLibrary.symbol("art3m1s_metal_host_v1_create_mixed", as: ArtSwiftMixedCreate.self)
+                try check(dxvkDirectory.withCString { dxvk in
+                    angleDirectory.withCString { angle in create(frames, handle, dxvk, angle, &renderer) }
+                }, "create mixed renderer")
+            } else if let angleDirectory {
                 let create = try metalLibrary.symbol("art3m1s_metal_host_v1_create_angle", as: ArtSwiftAngleCreate.self)
                 try check(angleDirectory.withCString { create(frames, handle, $0, &renderer) }, "create ANGLE renderer")
             } else if let dxvkDirectory {

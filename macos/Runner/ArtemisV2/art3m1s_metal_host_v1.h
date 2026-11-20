@@ -14,6 +14,7 @@ extern "C" {
      ART_RENDERER_CAP_GROUP | ART_RENDERER_CAP_EMOTE | ART_RENDERER_CAP_HLSL)
 #define ART_ANGLE_HOST_V1_RENDERER_CAPS \
     ((ART_METAL_HOST_V1_RENDERER_CAPS & ~ART_RENDERER_CAP_HLSL) | ART_RENDERER_CAP_GLSL)
+#define ART_MIXED_HOST_V1_RENDERER_CAPS (ART_METAL_HOST_V1_RENDERER_CAPS | ART_RENDERER_CAP_GLSL)
 
 typedef struct ArtMetalHost ArtMetalHost;
 
@@ -35,6 +36,11 @@ ArtStatus art3m1s_metal_host_v1_prepare_glsl(ArtMetalHost *host, ArtBytes source
  * initializes the DXVK device. */
 ArtStatus art3m1s_metal_host_v1_create_dxvk(const ArtFrameApiV2 *frames, ArtRuntimeHandle runtime,
                                            const char *directory, ArtMetalHost **out);
+/* Negotiate ART_MIXED_HOST_V1_RENDERER_CAPS and supply both runtime directories.
+ * Both effect languages can be used in the same frame. */
+ArtStatus art3m1s_metal_host_v1_create_mixed(const ArtFrameApiV2 *frames, ArtRuntimeHandle runtime,
+                                            const char *dxvk_directory, const char *angle_directory,
+                                            ArtMetalHost **out);
 /* Prepare a program for the exact HLSL source bytes before frames use it.
  * Both byte ranges are borrowed for this call only. */
 ArtStatus art3m1s_metal_host_v1_prepare_ade2(ArtMetalHost *host, ArtBytes source, ArtBytes artifact);

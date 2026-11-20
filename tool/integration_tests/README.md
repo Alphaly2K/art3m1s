@@ -46,3 +46,5 @@ build/macos/Build/Products/Debug/art3m1s.app/Contents/MacOS/art3m1s
 编译器的打包目录。在 macOS 桌面运行应用时设置 `ARTEMIS_DXVK_TEST_CACHE_TOKEN` 为一个新的
 字母数字标识；再用同一标识和 `ARTEMIS_DXVK_TEST_WARM=1` 运行一次，验证缓存复用。测试使用
 合成项目，检查首帧前预热、启动缓存被拒绝后的首次读取恢复、Flutter 纹理像素和脚本截图。
+应用同时打包 ANGLE 时，设置 `ARTEMIS_DXVK_TEST_MIXED=1`，额外检查 GLSL 背景取样能读到
+同一帧的 HLSL 绘制结果。

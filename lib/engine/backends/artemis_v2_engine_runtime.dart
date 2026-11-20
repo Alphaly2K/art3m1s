@@ -333,20 +333,19 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     final files = _vfs;
     final paths = files?.listFiles() ?? const <String>[];
     final glsl = paths.where(_isGlsl);
+    final hasHlsl = paths.any((path) => _isHlsl(path) || _isAde2Path(path));
+    final mixedShaders = !_preferAngle && glsl.isNotEmpty && hasHlsl;
     final portPrefersGlsl = switch (platform.trim().toUpperCase()) {
       'ANDROID' || 'IOS' || 'WASM' || 'SWITCH' => true,
       _ => false,
     };
     final angle =
-        _preferAngle ||
-        (glsl.isNotEmpty &&
-            (portPrefersGlsl ||
-                !paths.any((path) => _isHlsl(path) || _isAde2Path(path))));
-    final compiler = angle || files == null
+        _preferAngle || (glsl.isNotEmpty && (portPrefersGlsl || !hasHlsl));
+    final compiler = (angle && !mixedShaders) || files == null
         ? null
         : await (_hlslCompilerDiscovery ??= ArtemisHlslCompiler.bundled());
     if (_closed || !identical(files, _vfs)) return false;
-    final hlslEffects = angle || files == null
+    final hlslEffects = (angle && !mixedShaders) || files == null
         ? const <({Uint8List source, Uint8List artifact})>[]
         : await _prepareHlslEffects(files, paths, compiler);
     if (_closed || !identical(files, _vfs)) return false;
@@ -363,9 +362,10 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
       reportedOS: _reportedOS,
       screenshots: true,
       angle: angle,
+      mixedShaders: mixedShaders,
       hlslEffects: hlslEffects,
       compileHlsl: compiler != null,
-      glslSources: angle ? _knownGlslSources(glsl) : const [],
+      glslSources: angle || mixedShaders ? _knownGlslSources(glsl) : const [],
     );
     try {
       final events = await opened.session.pollEvents();

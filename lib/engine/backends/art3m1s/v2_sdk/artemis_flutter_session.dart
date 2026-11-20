@@ -139,6 +139,7 @@ final class ArtemisFlutterSession {
     required int hostCaps,
     String? reportedOS,
     bool angle = false,
+    bool mixedShaders = false,
     bool screenshots = false,
     List<({Uint8List source, Uint8List artifact})> hlslEffects = const [],
     List<Uint8List> glslSources = const [],
@@ -150,10 +151,12 @@ final class ArtemisFlutterSession {
       'hostCaps': hostCaps,
       'reportedOS': ?reportedOS,
       if (angle) 'renderer': 'angle',
-      if (angle && glslSources.isNotEmpty) 'glslSources': glslSources,
+      if (mixedShaders) 'mixedShaders': true,
+      if ((angle || mixedShaders) && glslSources.isNotEmpty)
+        'glslSources': glslSources,
       'screenshots': screenshots,
-      if (!angle && compileHlsl) 'compileHlsl': true,
-      if (!angle && hlslEffects.isNotEmpty)
+      if ((!angle || mixedShaders) && compileHlsl) 'compileHlsl': true,
+      if ((!angle || mixedShaders) && hlslEffects.isNotEmpty)
         'hlslEffects': [
           for (final effect in hlslEffects)
             {'source': effect.source, 'artifact': effect.artifact},

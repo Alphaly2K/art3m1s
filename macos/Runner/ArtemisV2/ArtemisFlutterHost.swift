@@ -84,13 +84,31 @@ private enum ArtemisFlutterError: Error {
             }
             let screenshots = args["screenshots"] as? Bool ?? false
             var dxvk: ArtemisMacSession?
+            var mixed = false
             var preparedHlsl: [Int] = []
             let effects = args["hlslEffects"] as? [[String: Any]] ?? []
             let compileHlsl = args["compileHlsl"] as? Bool == true
-            if angle == nil, let dxvkDirectory, compileHlsl || !effects.isEmpty {
+            let requestedMixed = args["mixedShaders"] as? Bool == true
+            if angle == nil || requestedMixed, let dxvkDirectory, compileHlsl || !effects.isEmpty {
                 do {
-                    let candidate = try ArtemisMacSession(corePath: corePath, metalPath: metalPath, hostCaps: caps,
-                                                          screenshots: screenshots, dxvkDirectory: dxvkDirectory)
+                    func openDXVK(angle: String? = nil) throws -> ArtemisMacSession {
+                        try ArtemisMacSession(corePath: corePath, metalPath: metalPath, hostCaps: caps,
+                                              screenshots: screenshots, angleDirectory: angle, dxvkDirectory: dxvkDirectory)
+                    }
+                    let candidate: ArtemisMacSession
+                    var candidateMixed = false
+                    if requestedMixed, let angleDirectory {
+                        do {
+                            candidate = try openDXVK(angle: angleDirectory)
+                            candidateMixed = true
+                        } catch {
+                            if angle != nil { throw error }
+                            NSLog("Artemis mixed renderer unavailable: %@", String(describing: error))
+                            candidate = try openDXVK()
+                        }
+                    } else {
+                        candidate = try openDXVK()
+                    }
                     for (index, effect) in effects.prefix(256).enumerated() {
                         guard let source = bytes(effect["source"]), let artifact = bytes(effect["artifact"]) else { continue }
                         do {
@@ -102,6 +120,7 @@ private enum ArtemisFlutterError: Error {
                     }
                     if !preparedHlsl.isEmpty || compileHlsl {
                         dxvk = candidate
+                        mixed = candidateMixed
                     } else {
                         try candidate.close()
                     }
@@ -112,7 +131,7 @@ private enum ArtemisFlutterError: Error {
             let core = try dxvk ?? ArtemisMacSession(corePath: corePath, metalPath: metalPath, hostCaps: caps,
                                                      screenshots: screenshots, angleDirectory: angle)
             do {
-                if angle != nil {
+                if mixed || (dxvk == nil && angle != nil) {
                     let sources = (args["glslSources"] as? [Any] ?? []).prefix(256).compactMap(bytes)
                     let cacheDirectory = Bundle.main.bundleIdentifier.flatMap { identifier in
                         FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?

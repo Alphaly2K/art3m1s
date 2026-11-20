@@ -44,6 +44,10 @@ static inline uint64_t art_swift_angle_renderer_caps(int screenshot) {
     return screenshot ? ART_ANGLE_HOST_V1_RENDERER_CAPS
                       : ART_ANGLE_HOST_V1_RENDERER_CAPS & ~ART_RENDERER_CAP_SCREENSHOT;
 }
+static inline uint64_t art_swift_mixed_renderer_caps(int screenshot) {
+    return screenshot ? ART_MIXED_HOST_V1_RENDERER_CAPS
+                      : ART_MIXED_HOST_V1_RENDERER_CAPS & ~ART_RENDERER_CAP_SCREENSHOT;
+}
 
 static inline int art_swift_header_valid(ArtApiHeader header, uint32_t id, uint32_t size) {
     return header.magic == ART_API_MAGIC && header.interface_id == id &&
@@ -56,6 +60,7 @@ typedef __typeof__(art3m1s_metal_host_v1_create_angle) *ArtSwiftAngleCreate;
 typedef __typeof__(art3m1s_metal_host_v1_set_glsl_cache) *ArtSwiftGlslCache;
 typedef __typeof__(art3m1s_metal_host_v1_prepare_glsl) *ArtSwiftPrepareGlsl;
 typedef __typeof__(art3m1s_metal_host_v1_create_dxvk) *ArtSwiftDxvkCreate;
+typedef __typeof__(art3m1s_metal_host_v1_create_mixed) *ArtSwiftMixedCreate;
 typedef __typeof__(art3m1s_metal_host_v1_prepare_ade2) *ArtSwiftPrepareADE2;
 typedef __typeof__(art3m1s_metal_host_v1_destroy) *ArtSwiftMetalDestroy;
 typedef __typeof__(art3m1s_metal_host_v1_set_surface) *ArtSwiftMetalSurface;
