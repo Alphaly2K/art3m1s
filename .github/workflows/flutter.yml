@@ -58,55 +58,17 @@ jobs:
       - name: Resolve Flutter packages
         run: flutter pub get
       - name: Analyze Flutter Host
+        run: flutter analyze --no-pub
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Build PFS library for Flutter tests
         run: |
-          report="$RUNNER_TEMP/flutter-analysis.txt"
-          if ! flutter analyze --no-pub --write="$report"; then
-            if [[ -s "$report" ]]; then
-              awk 'NR <= 12 && NF {
-                gsub(/%/, "%25"); gsub(/\r/, "%0D");
-                print "::error title=Flutter analyzer::" $0
-              }' "$report"
-            fi
-            exit 1
-          fi
+          cargo build --locked --manifest-path "$CORE_SRC/crates/pfs-upk-rust/Cargo.toml" \
+            --target-dir "$RUNNER_TEMP/flutter-pfs"
       - name: Test Flutter Host
         run: |
-          report="$RUNNER_TEMP/flutter-tests.json"
-          if ! flutter test --no-pub --file-reporter "json:$report"; then
-            python3 - "$report" <<'PYTHON'
-          import json
-          from pathlib import Path
-          import re
-          import subprocess
-          import sys
-
-          report = Path(sys.argv[1])
-          tracked = set(subprocess.check_output(['git', 'ls-files', 'test'], text=True).splitlines())
-          suites, tests, failed = {}, {}, set()
-          if report.is_file():
-              for line in report.read_text().splitlines():
-                  event = json.loads(line)
-                  if event['type'] == 'suite':
-                      suites[event['suite']['id']] = event['suite'].get('path')
-                  elif event['type'] == 'testStart':
-                      tests[event['test']['id']] = event['test']['suiteID']
-                  elif event['type'] == 'testDone' and event['result'] != 'success':
-                      failed.add(event['testID'])
-
-          paths = {suites.get(tests.get(test)) for test in failed}
-          for path in sorted(p for p in paths if p):
-              relative = Path(path)
-              if relative.is_absolute():
-                  try:
-                      relative = relative.relative_to(Path.cwd())
-                  except ValueError:
-                      continue
-              name = relative.as_posix()
-              if name in tracked and re.fullmatch(r'test/[a-zA-Z0-9_/]+_test\.dart', name):
-                  print(f'::error file={name}::Tests failed in {name}')
-          PYTHON
-            exit 1
-          fi
+          export LD_LIBRARY_PATH="$RUNNER_TEMP/flutter-pfs/debug${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          flutter test --no-pub
 
   android:
     runs-on: ubuntu-latest
