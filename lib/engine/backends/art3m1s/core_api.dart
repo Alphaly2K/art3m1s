@@ -232,11 +232,12 @@ final class CoreApiV1 {
     final size = calloc<UintPtr>();
     try {
       final pointer = getApi(size);
-      if (pointer == nullptr) return null;
+      final tableSize = size.value;
+      if (pointer == nullptr || tableSize < sizeOf<_CoreApiV1>()) return null;
       final ref = pointer.ref;
-      if (ref.abiVersion != _abiVersion ||
-          ref.magic != _abiMagic ||
-          ref.structSize < sizeOf<_CoreApiV1>()) {
+      if (ref.structSize != tableSize ||
+          ref.abiVersion != _abiVersion ||
+          ref.magic != _abiMagic) {
         return null;
       }
       return CoreApiV1._(pointer);
