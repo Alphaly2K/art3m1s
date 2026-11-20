@@ -61,7 +61,8 @@ Future<void> _run(
   File('${game.path}/system.ini').writeAsStringSync(
     '[WINDOWS]\nWIDTH=$width\nHEIGHT=$height\nBOOT=boot.iet\n',
   );
-  File('${game.path}/paint.glsl').writeAsStringSync('''
+  final glsl = File('${game.path}/paint.glsl')
+    ..writeAsStringSync('''
 precision mediump float;
 void main() { gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0); }
 ''');
@@ -93,7 +94,7 @@ void main() { gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0); }
       List<int> expected, {
       Future<void> Function()? beforeStep,
       bool effect = true,
-      bool mixed = false,
+      int glslLayers = 0,
       bool measure = false,
       int layers = 1,
     }) async {
@@ -108,10 +109,14 @@ void main() { gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0); }
         );
         if (effect) scene.writeln('[lyprop id=$layer shader=paint]');
       }
-      if (mixed) {
+      if (glslLayers > 0) {
         scene.writeln('[lyshader id=back file=paint.glsl]');
-        scene.writeln('[lyc id=9 width=$width height=$height color=ffffffff]');
-        scene.writeln('[lyprop id=9 shader=back]');
+        for (var layer = 9; layer < 9 + glslLayers; layer++) {
+          scene.writeln(
+            '[lyc id=$layer width=$width height=$height color=ffffffff]',
+          );
+          scene.writeln('[lyprop id=$layer shader=back]');
+        }
       }
       File('${game.path}/boot.iet').writeAsStringSync('''
 *top
@@ -266,19 +271,13 @@ ${measure ? _motion : '[stop]'}
     await checkProject('changed', [255, 0, 0, 255]);
     shader.writeAsBytesSync(source);
     await checkProject('restored', [0, 0, 255, 255]);
-    if (Platform.environment['ARTEMIS_DXVK_TEST_MIXED'] == '1') {
-      File('${game.path}/paint.glsl').writeAsStringSync('''
-precision mediump float;
-varying vec2 resultCoord0;
-uniform sampler2D textureBack;
-void main() {
-  vec4 back = texture2D(textureBack, resultCoord0);
-  gl_FragColor = vec4(back.r, back.b, back.b, back.a);
-}
-''');
-      await checkProject('mixed', [0, 255, 255, 255], mixed: true);
+    final mixed = Platform.environment['ARTEMIS_DXVK_TEST_MIXED'] == '1';
+    if (mixed && !profile) {
+      glsl.writeAsStringSync(_backdrop);
+      await checkProject('mixed', [16, 255, 255, 255], glslLayers: 1);
     }
     if (profile) {
+      glsl.deleteSync();
       shader.writeAsBytesSync([]);
       await checkProject(
         'metal',
@@ -288,6 +287,18 @@ void main() {
       );
       shader.writeAsBytesSync(source);
       await checkProject('dxvk-1', [0, 0, 255, 255], measure: true);
+      if (mixed) {
+        glsl.writeAsStringSync(_backdrop);
+        for (final count in [1, 4]) {
+          await checkProject(
+            'dxvk-1-glsl-$count',
+            [16 * count, 255, 255, 255],
+            glslLayers: count,
+            measure: true,
+          );
+        }
+        glsl.deleteSync();
+      }
       if (legacy) {
         await checkProject(
           'dxvk-2',
@@ -307,6 +318,16 @@ void main() {
     await runtime.close();
   }
 }
+
+const _backdrop = '''
+precision mediump float;
+varying vec2 resultCoord0;
+uniform sampler2D textureBack;
+void main() {
+  vec4 back = texture2D(textureBack, resultCoord0);
+  gl_FragColor = vec4(back.r + 16.0 / 255.0, back.b, back.b, back.a);
+}
+''';
 
 String _legacyShader(String color) =>
     '''

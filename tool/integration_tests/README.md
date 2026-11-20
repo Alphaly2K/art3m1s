@@ -48,3 +48,6 @@ build/macos/Build/Products/Debug/art3m1s.app/Contents/MacOS/art3m1s
 合成项目，检查首帧前预热、启动缓存被拒绝后的首次读取恢复、Flutter 纹理像素和脚本截图。
 应用同时打包 ANGLE 时，设置 `ARTEMIS_DXVK_TEST_MIXED=1`，额外检查 GLSL 背景取样能读到
 同一帧的 HLSL 绘制结果。
+用 `--release` 构建并同时设置 `ARTEMIS_DXVK_TEST_1080P=1` 和 `ARTEMIS_DXVK_TEST_MIXED=1`，可对照
+纯 DXVK 和分别叠加一层、四层 GLSL 的 1080p 帧耗时。探针丢弃前 20 帧，报告后续 120 帧的中位数
+和 P95，并检查每层效果的颜色累加。
