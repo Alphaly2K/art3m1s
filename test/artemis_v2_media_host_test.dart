@@ -30,6 +30,7 @@ void main() {
     final fadeStopping = Completer<void>();
     final allowFadeStop = Completer<void>();
     String? rejectedPanPlayer;
+    String? rejectedReleasePlayer;
 
     Future<void> waitFor(bool Function() ready) async {
       if (!ready()) {
@@ -94,6 +95,8 @@ void main() {
           case 'stop' when stopGate != null && !stopping.isCompleted:
             stopping.complete();
             await stopGate.future;
+          case 'release' when id == rejectedReleasePlayer:
+            throw PlatformException(code: 'release_failed');
           case 'dispose':
             disposed.add(id);
             changes.add(null);
@@ -409,6 +412,27 @@ void main() {
       expect(feedback.where((entry) => entry.$1 == '10'), [
         ('10', ArtemisPlaybackStatus.started),
         ('10', ArtemisPlaybackStatus.failed),
+      ]);
+
+      play('11');
+      await waitFor(
+        () => feedback.contains(('11', ArtemisPlaybackStatus.started)),
+      );
+      rejectedReleasePlayer = resumed.last;
+      send({
+        'op': 'stop',
+        'playback_ids': ['11'],
+        'time_ms': '0',
+      });
+      await waitFor(
+        () => feedback.any(
+          (entry) =>
+              entry.$1 == '11' && entry.$2 != ArtemisPlaybackStatus.started,
+        ),
+      );
+      expect(feedback.where((entry) => entry.$1 == '11'), [
+        ('11', ArtemisPlaybackStatus.started),
+        ('11', ArtemisPlaybackStatus.failed),
       ]);
     } finally {
       if (!allowVolume.isCompleted) allowVolume.complete();

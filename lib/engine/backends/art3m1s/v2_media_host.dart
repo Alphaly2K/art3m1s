@@ -389,9 +389,12 @@ final class ArtemisV2MediaHost extends MediaBridge {
     }
     final generation = _audioGeneration;
     _run(
-      _releaseAudio(handle).then((_) {
+      _releaseAudio(handle).then((released) {
         if (generation == _audioGeneration) {
-          track.feedback(track.play.id, status);
+          track.feedback(
+            track.play.id,
+            released ? status : ArtemisPlaybackStatus.failed,
+          );
         }
       }),
     );
@@ -483,11 +486,16 @@ final class ArtemisV2MediaHost extends MediaBridge {
     );
   }
 
-  Future<void> _releaseAudio(_AudioHandle handle) {
-    final work = _run(handle.dispose());
+  Future<bool> _releaseAudio(_AudioHandle handle) {
+    var released = false;
+    final work = _run(
+      handle.dispose().then<void>((_) {
+        released = true;
+      }),
+    );
     _audioReleases.add(work);
     unawaited(work.whenComplete(() => _audioReleases.remove(work)));
-    return work;
+    return work.then((_) => released);
   }
 
   Future<void> _run(Future<void> operation) {
