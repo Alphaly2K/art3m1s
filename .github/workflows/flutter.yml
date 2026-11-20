@@ -186,12 +186,19 @@ jobs:
         run: |
           ditto -c -k --sequesterRsrc --keepParent \
             build/macos/Build/Products/Release/art3m1s.app build/Art3m1s-macos-arm64-artemis-v2.zip
+      - name: Verify macOS Artemis v2 preview archive
+        if: ${{ inputs.artemis_v2 }}
+        working-directory: art3m1s
+        run: |
+          bash tool/verify_artemis_v2_archive.sh \
+            build/Art3m1s-macos-arm64-artemis-v2.zip "${{ github.workspace }}/art3m1s-core"
       - name: Upload macOS Artemis v2 preview
         if: ${{ inputs.artemis_v2 }}
         uses: actions/upload-artifact@v4
         with:
           name: Art3m1s-macos-arm64-artemis-v2
           path: art3m1s/build/Art3m1s-macos-arm64-artemis-v2.zip
+          if-no-files-found: error
       - name: Upload iOS app
         uses: actions/upload-artifact@v4
         with:
