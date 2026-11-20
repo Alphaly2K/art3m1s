@@ -37,6 +37,8 @@ final class ArtemisHlslCompiler {
       ]);
       final root = await getApplicationCacheDirectory();
       cache = Directory('${root.path}/artemis-ade2-v1/$identity');
+    } on UnimplementedError {
+      // A Host may not provide a persistent cache directory.
     } on Exception {
       // A cache directory is optional; the bundled tool can still compile.
     }
