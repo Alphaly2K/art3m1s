@@ -724,6 +724,8 @@ void main() {
         );
         final runtime = ArtemisV2EngineRuntime()..setSaveDir(saves.path);
         final videoOpened = Completer<void>();
+        final videoClosing = Completer<void>();
+        final allowVideoClose = Completer<void>();
         final calls = <String>[];
         final closedVideos = <String>[];
         const playback = '9223372036854775809';
@@ -792,6 +794,8 @@ void main() {
               ];
             case 'videoClose':
               closedVideos.add(call.arguments['playback'] as String);
+              videoClosing.complete();
+              await allowVideoClose.future;
               return null;
             case 'submit':
               for (final message in call.arguments['batch'] as List) {
@@ -826,29 +830,37 @@ void main() {
           expect(steps, 3);
           expect(runtime.media.videoPlayback.value, isNotNull);
 
-          await runtime.advanceTextureBatch([16]);
-          expect(calls, [
-            'started',
-            'present',
-            pollFails ? 'failed' : 'ended',
-            'present',
-          ]);
-          expect(steps, 4);
-          expect(runtime.media.videoPlayback.value, isNull);
-          expect(closedVideos, pollFails ? [playback] : isEmpty);
+          const timeout = Duration(seconds: 2);
+          await runtime.advanceTextureBatch([16]).timeout(timeout);
           if (pollFails) {
+            await videoClosing.future.timeout(timeout);
+            expect(calls, ['started', 'present', 'present']);
+            expect(runtime.media.videoPlayback.value, isNotNull);
+            await runtime.advanceTextureBatch([16]).timeout(timeout);
+            expect(calls.last, 'present');
+            expect(steps, 5);
+            expect(videoPolls, 2);
+            allowVideoClose.complete();
+            await Future<void>.delayed(Duration.zero);
             await runtime.advanceTextureBatch([16]);
             expect(calls, [
               'started',
               'present',
+              'present',
+              'present',
               'failed',
               'present',
-              'present',
             ]);
-            expect(steps, 5);
-            expect(videoPolls, 2);
+            expect(closedVideos, [playback]);
+            expect(steps, 6);
+          } else {
+            expect(calls, ['started', 'present', 'ended', 'present']);
+            expect(closedVideos, isEmpty);
+            expect(steps, 4);
           }
+          expect(runtime.media.videoPlayback.value, isNull);
         } finally {
+          if (!allowVideoClose.isCompleted) allowVideoClose.complete();
           await runtime.close();
           messenger.setMockMethodCallHandler(channel, null);
           saves.deleteSync(recursive: true);

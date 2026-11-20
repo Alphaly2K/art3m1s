@@ -141,52 +141,47 @@ final class ArtemisV2MediaHost extends MediaBridge {
     });
     try {
       final asset = await pending;
-      if (!identical(_videos[play.id], track)) return;
+      if (!_videoIsActive(track)) return;
       await track.session.suspendVideos(_suspended);
-      if (!identical(_videos[play.id], track)) return;
+      if (!_videoIsActive(track)) return;
       await track.session.openVideo(
         epoch: epoch,
         play: play,
         path: asset.path,
         volume: _volumeScale('video'),
       );
-      if (!identical(_videos[play.id], track) && !track.skipping) {
+      if (!identical(_videos[play.id], track) && !track.closing) {
         await track.session.closeVideo(play.id);
       }
     } catch (_) {
       if (identical(_videoAssets[play.key], pending)) {
         _videoAssets.remove(play.key);
       }
-      if (identical(_videos[play.id], track)) {
-        _closeVideo(track, status: ArtemisPlaybackStatus.failed);
-      }
+      await _closeVideoThenReport(track, ArtemisPlaybackStatus.failed);
       rethrow;
     }
   }
 
+  bool _videoIsActive(_V2VideoPlayback track) =>
+      !track.closing && identical(_videos[track.play.id], track);
+
   Future<void> pollVideo(ArtemisFlutterSession session) async {
     final polling = {
       for (final track in _videos.values)
-        if (identical(track.session, session) && !track.skipping)
+        if (identical(track.session, session) && !track.closing)
           track.play.id: track,
     };
     if (polling.isEmpty) return;
     final events = await session.pollVideos().onError<Exception>((error, _) {
       Log.warn('[ArtemisV2] video poll: $error');
       for (final track in polling.values) {
-        if (!track.skipping) {
-          _closeVideo(track, status: ArtemisPlaybackStatus.failed);
-        }
+        _run(_closeVideoThenReport(track, ArtemisPlaybackStatus.failed));
       }
       return const [];
     });
     for (final event in events) {
       final track = polling[event.id];
-      if (track == null ||
-          track.skipping ||
-          !identical(_videos[event.id], track)) {
-        continue;
-      }
+      if (track == null || !_videoIsActive(track)) continue;
       if (event.status != ArtemisPlaybackStatus.started) {
         _closeVideo(track, status: event.status, notifyRunner: false);
         continue;
@@ -216,18 +211,22 @@ final class ArtemisV2MediaHost extends MediaBridge {
   }
 
   Future<void> _skip(_V2VideoPlayback track) async {
-    if (!identical(_fullscreen, track) || track.skipping) return;
-    track.skipping = true;
-    await _run(_confirmVideoSkip(track));
+    if (!identical(_fullscreen, track)) return;
+    await _run(_closeVideoThenReport(track, ArtemisPlaybackStatus.cancelled));
   }
 
-  Future<void> _confirmVideoSkip(_V2VideoPlayback track) async {
-    var status = ArtemisPlaybackStatus.failed;
+  Future<void> _closeVideoThenReport(
+    _V2VideoPlayback track,
+    ArtemisPlaybackStatus status,
+  ) async {
+    if (!_videoIsActive(track)) return;
+    track.closing = true;
+    var reportedStatus = ArtemisPlaybackStatus.failed;
     try {
       await track.session.closeVideo(track.play.id);
-      status = ArtemisPlaybackStatus.cancelled;
+      reportedStatus = status;
     } finally {
-      _closeVideo(track, status: status, notifyRunner: false);
+      _closeVideo(track, status: reportedStatus, notifyRunner: false);
     }
   }
 
@@ -242,7 +241,7 @@ final class ArtemisV2MediaHost extends MediaBridge {
       _fullscreen = null;
       videoPlayback.value = null;
     }
-    if (notifyRunner && !track.skipping) {
+    if (notifyRunner && !track.closing) {
       _run(track.session.closeVideo(track.play.id));
     }
     if (status != null) track.feedback(track.play.id, status);
@@ -486,7 +485,7 @@ final class _V2VideoPlayback {
   final ArtemisFlutterSession session;
   final ArtemisVideoPlay play;
   final _PlaybackFeedback feedback;
-  bool skipping = false;
+  bool closing = false;
 }
 
 final class _V2AudioPlayback {
