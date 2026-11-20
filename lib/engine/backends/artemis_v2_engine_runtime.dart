@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:crypto/crypto.dart';
@@ -156,17 +157,19 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     return ini;
   });
 
-  Uint8List? _asset(String key) {
+  Uint8List? _asset(String key, {int? maxBytes}) {
     final virtual = _environmentPatch
         ? EnvironmentPatch.virtualFile(key)
         : null;
-    if (virtual != null) return virtual;
-    final bytes = _vfs?.readFile(key);
-    return bytes != null &&
+    final bytes = virtual ?? _vfs?.readFile(key, maxBytes: maxBytes);
+    if (bytes == null) return null;
+    final asset =
+        virtual == null &&
             _environmentPatch &&
             EnvironmentPatch.canTransform(key)
         ? EnvironmentPatch.transform(key, bytes)
         : bytes;
+    return maxBytes != null && asset.length > maxBytes ? null : asset;
   }
 
   Future<File?> _writeVideoAsset(
@@ -187,6 +190,8 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
 
   static const _ade2Folder = 'artemis-shaders/ade2/';
   static const _maxHlslPrewarmBytes = 16 * 1024 * 1024;
+  static const _maxGlslSourceBytes = 256 * 1024;
+  static const _maxGlslPrewarmBytes = 4 * 1024 * 1024;
   static const _hlslPrewarmTime = Duration(seconds: 5);
   static const _maxRuntimeHlslAttempts = 256;
 
@@ -203,24 +208,25 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     final seen = <String>{};
     var size = 0;
     for (final path in paths.where(_isAde2Path)) {
-      if (budget.elapsed >= _hlslPrewarmTime) break;
+      final remaining = _maxHlslPrewarmBytes - size;
+      if (remaining <= 0 || budget.elapsed >= _hlslPrewarmTime) break;
       final entry = entryPattern.firstMatch(path.substring(_ade2Folder.length));
       if (entry == null || seen.contains(entry[2])) continue;
       try {
-        final source = _asset(entry[1]!);
+        final source = _asset(
+          entry[1]!,
+          maxBytes: math.min(ArtemisHlslCompiler.maxSourceBytes, remaining),
+        );
         if (source == null ||
             source.isEmpty ||
-            source.length > 256 * 1024 ||
             sha256.convert(source).toString() != entry[2]) {
           continue;
         }
         final artifact = files.readFile(
           path,
-          maxBytes: _maxHlslPrewarmBytes - size - source.length,
+          maxBytes: remaining - source.length,
         );
-        if (artifact == null ||
-            artifact.isEmpty ||
-            size + source.length + artifact.length > _maxHlslPrewarmBytes) {
+        if (artifact == null || artifact.isEmpty) {
           continue;
         }
         seen.add(entry[2]!);
@@ -255,7 +261,9 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
       (size, effect) => size + effect.source.length + effect.artifact.length,
     );
     for (final path in paths.where(_isHlsl)) {
-      if (_closed ||
+      final remaining = _maxHlslPrewarmBytes - size;
+      if (remaining <= 0 ||
+          _closed ||
           !identical(_vfs, files) ||
           attempted.length >= 256 ||
           budget.elapsed >= _hlslPrewarmTime) {
@@ -263,15 +271,14 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
       }
       Uint8List? source;
       try {
-        source = _asset(path);
+        source = _asset(
+          path,
+          maxBytes: math.min(ArtemisHlslCompiler.maxSourceBytes, remaining),
+        );
       } on FileSystemException {
         continue;
       }
-      if (source == null ||
-          source.isEmpty ||
-          source.length > ArtemisHlslCompiler.maxSourceBytes) {
-        continue;
-      }
+      if (source == null || source.isEmpty) continue;
       final digest = sha256.convert(source);
       if (!attempted.add(digest)) continue;
       final artifact = await compiler.prepare(
@@ -390,14 +397,14 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     final seen = <Digest>{};
     var size = 0;
     for (final path in paths.take(256)) {
+      final remaining = _maxGlslPrewarmBytes - size;
+      if (remaining <= 0) break;
       try {
-        final source = _asset(path);
-        if (source == null ||
-            source.isEmpty ||
-            source.length > 256 * 1024 ||
-            size + source.length > 4 * 1024 * 1024) {
-          continue;
-        }
+        final source = _asset(
+          path,
+          maxBytes: math.min(_maxGlslSourceBytes, remaining),
+        );
+        if (source == null || source.isEmpty) continue;
         if (!seen.add(sha256.convert(source))) continue;
         sources.add(source);
         size += source.length;

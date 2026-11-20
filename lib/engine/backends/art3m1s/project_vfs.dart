@@ -314,7 +314,7 @@ final class ProjectVfs {
     return candidates.isEmpty ? null : candidates.first;
   }
 
-  /// 按优先级查找并读取。路径不合法或未命中都返回 null。
+  /// 按优先级查找并读取。命中的资源超过 [maxBytes] 时返回 null。
   Uint8List? readFile(String path, {int? maxBytes}) {
     final normalized = normalizeRelativePath(path);
     if (normalized == null) return null;
@@ -322,7 +322,23 @@ final class ProjectVfs {
     for (final layer in _layers) {
       final entry = layer.lookup(key, normalized);
       if (entry == null) continue;
-      final bytes = _read(entry, maxBytes);
+      final file = entry.file;
+      if (file != null) {
+        if (!file.existsSync()) continue;
+        if (maxBytes == null) return file.readAsBytesSync();
+        final input = file.openSync();
+        try {
+          final length = input.lengthSync();
+          if (length > maxBytes) return null;
+          final bytes = input.readSync(length);
+          if (bytes.length == length) return bytes;
+        } finally {
+          input.closeSync();
+        }
+        continue;
+      }
+      if (maxBytes != null && entry.size > maxBytes) return null;
+      final bytes = _readArchive(entry);
       if (bytes != null) return bytes;
     }
     return null;
@@ -404,25 +420,10 @@ final class ProjectVfs {
     _layers.clear();
   }
 
-  static Uint8List? _read(VfsEntry entry, int? maxBytes) {
-    final file = entry.file;
-    if (file != null) {
-      if (!file.existsSync()) return null;
-      if (maxBytes == null) return file.readAsBytesSync();
-      final input = file.openSync();
-      try {
-        final length = input.lengthSync();
-        if (length > maxBytes) return null;
-        final bytes = input.readSync(length);
-        return bytes.length == length ? bytes : null;
-      } finally {
-        input.closeSync();
-      }
-    }
+  static Uint8List? _readArchive(VfsEntry entry) {
     final archive = entry.archive;
     final entryPath = entry.entryPath;
     if (archive == null || entryPath == null || entry.size <= 0) return null;
-    if (maxBytes != null && entry.size > maxBytes) return null;
     final buffer = malloc.allocate<Uint8>(entry.size);
     try {
       final read = PfsVfsLayer._bridge.read(
