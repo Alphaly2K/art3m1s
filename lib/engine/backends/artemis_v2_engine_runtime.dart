@@ -169,6 +169,8 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
   }
 
   static const _ade2Folder = 'artemis-shaders/ade2/';
+  static const _maxHlslPrewarmBytes = 16 * 1024 * 1024;
+  static const _hlslPrewarmTime = Duration(seconds: 5);
 
   static bool _isAde2Path(String path) =>
       path.startsWith(_ade2Folder) && path.endsWith('.ade2');
@@ -177,7 +179,6 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     ProjectVfs files,
     List<String> paths,
   ) {
-    const byteLimit = 16 * 1024 * 1024;
     final entryPattern = RegExp(r'^(.+)\.([a-f0-9]{64})\.ade2$');
     final effects = <({Uint8List source, Uint8List artifact})>[];
     final seen = <String>{};
@@ -196,7 +197,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
         final artifact = files.readFile(path);
         if (artifact == null ||
             artifact.isEmpty ||
-            size + source.length + artifact.length > byteLimit) {
+            size + source.length + artifact.length > _maxHlslPrewarmBytes) {
           continue;
         }
         seen.add(entry[2]!);
@@ -219,6 +220,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     ProjectVfs files,
     List<String> paths,
     ArtemisHlslCompiler? compiler,
+    Stopwatch budget,
   ) async {
     final effects = _cachedHlslEffects(files, paths);
     if (compiler == null) return effects;
@@ -229,12 +231,11 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
       0,
       (size, effect) => size + effect.source.length + effect.artifact.length,
     );
-    final budget = Stopwatch()..start();
     for (final path in paths.where(_isHlsl)) {
       if (_closed ||
           !identical(_vfs, files) ||
           attempted.length >= 256 ||
-          budget.elapsed >= const Duration(seconds: 5)) {
+          budget.elapsed >= _hlslPrewarmTime) {
         break;
       }
       Uint8List? source;
@@ -250,15 +251,74 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
       }
       final digest = sha256.convert(source);
       if (!attempted.add(digest)) continue;
-      final artifact = await compiler.prepare(source);
+      final artifact = await compiler.prepare(
+        source,
+        timeout: _hlslPrewarmTime - budget.elapsed,
+      );
       if (artifact == null ||
-          size + source.length + artifact.length > 16 * 1024 * 1024) {
+          size + source.length + artifact.length > _maxHlslPrewarmBytes) {
         continue;
       }
       size += source.length + artifact.length;
       effects.add((source: source, artifact: artifact));
     }
     return effects;
+  }
+
+  Future<Set<Digest>> _finishHlslPrewarm(
+    ArtemisFlutterSession session,
+    ProjectVfs? files,
+    ArtemisHlslCompiler? compiler,
+    List<({Uint8List source, Uint8List artifact})> effects,
+    Set<int> accepted,
+    Stopwatch budget,
+  ) async {
+    final prepared = <Digest>{};
+    var size = 0;
+    for (final (index, effect) in effects.indexed) {
+      if (accepted.contains(index)) {
+        prepared.add(sha256.convert(effect.source));
+        size += effect.source.length + effect.artifact.length;
+      }
+    }
+    if (compiler == null || !session.usesDxvk) return prepared;
+    for (final (index, effect) in effects.indexed) {
+      if (accepted.contains(index)) continue;
+      final remaining = _hlslPrewarmTime - budget.elapsed;
+      if (_closed || !identical(files, _vfs) || remaining <= Duration.zero) {
+        break;
+      }
+      final artifact = await compiler.prepare(
+        effect.source,
+        rejectedArtifact: effect.artifact,
+        timeout: remaining,
+      );
+      if (_closed || !identical(files, _vfs)) break;
+      if (artifact == null ||
+          size + effect.source.length + artifact.length >
+              _maxHlslPrewarmBytes) {
+        continue;
+      }
+      if (await _registerHlsl(session, effect.source, artifact)) {
+        prepared.add(sha256.convert(effect.source));
+        size += effect.source.length + artifact.length;
+      }
+    }
+    return prepared;
+  }
+
+  Future<bool> _registerHlsl(
+    ArtemisFlutterSession session,
+    Uint8List source,
+    Uint8List artifact,
+  ) async {
+    try {
+      await session.prepareHlsl(source, artifact);
+      return true;
+    } on PlatformException catch (error) {
+      Log.warn('[ArtemisV2] DXVK effect unavailable: ${error.code}');
+      return false;
+    }
   }
 
   static bool _isGlsl(String path) =>
@@ -352,9 +412,10 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
         ? null
         : await (_hlslCompilerDiscovery ??= ArtemisHlslCompiler.bundled());
     if (_closed || !identical(files, _vfs)) return false;
+    final hlslBudget = Stopwatch()..start();
     final hlslEffects = (angle && !mixedShaders) || files == null
         ? const <({Uint8List source, Uint8List artifact})>[]
-        : await _prepareHlslEffects(files, paths, compiler);
+        : await _prepareHlslEffects(files, paths, compiler, hlslBudget);
     if (_closed || !identical(files, _vfs)) return false;
     final opened = await ArtemisFlutterSession.open(
       ini: iniContent,
@@ -375,6 +436,14 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
       glslSources: angle || mixedShaders ? _knownGlslSources(glsl) : const [],
     );
     try {
+      final preparedHlsl = await _finishHlslPrewarm(
+        opened.session,
+        files,
+        compiler,
+        hlslEffects,
+        opened.preparedHlsl,
+        hlslBudget,
+      );
       final events = await opened.session.pollEvents();
       if (_closed || !identical(files, _vfs)) {
         await opened.session.close();
@@ -406,11 +475,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
       );
       _session = opened.session;
       _hlslCompiler = opened.session.usesDxvk ? compiler : null;
-      _handledHlsl.addAll([
-        for (final (index, effect) in hlslEffects.indexed)
-          if (opened.preparedHlsl.contains(index))
-            sha256.convert(effect.source),
-      ]);
+      _handledHlsl.addAll(preparedHlsl);
       _updateState(opened.state);
       for (final event in events) {
         await _event(event);
@@ -856,11 +921,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
         final artifact = await compiler.prepare(source);
         if (!identical(_session, session)) return;
         if (!_closed && artifact != null) {
-          try {
-            await session.prepareHlsl(source, artifact);
-          } on PlatformException catch (error) {
-            Log.warn('[ArtemisV2] DXVK effect unavailable: ${error.code}');
-          }
+          await _registerHlsl(session, source, artifact);
         }
         if (!identical(_session, session)) return;
       }

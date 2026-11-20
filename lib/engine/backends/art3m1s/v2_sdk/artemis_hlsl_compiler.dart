@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:path_provider/path_provider.dart';
 
 /// Runs the compiler shipped with the Host, and owns its disposable disk cache.
@@ -42,22 +43,27 @@ final class ArtemisHlslCompiler {
     return ArtemisHlslCompiler._(executable.path, cache);
   }
 
-  Future<Uint8List?> prepare(Uint8List source) async {
+  Future<Uint8List?> prepare(
+    Uint8List source, {
+    Uint8List? rejectedArtifact,
+    Duration timeout = const Duration(seconds: 5),
+  }) async {
     if (source.isEmpty || source.length > maxSourceBytes) return null;
     final cache = _cache;
     final entry = cache == null
         ? null
         : File('${cache.path}/${sha256.convert(source)}.ade2');
     final hit = entry == null ? null : await _load(entry);
-    if (hit != null) return hit;
-    final artifact = await _compile(source);
+    if (hit != null && !listEquals(hit, rejectedArtifact)) return hit;
+    if (timeout <= Duration.zero) return null;
+    final artifact = await _compile(source, timeout);
     if (artifact != null && entry != null) {
       await _store(cache!, entry, artifact);
     }
     return artifact;
   }
 
-  Future<Uint8List?> _compile(Uint8List source) async {
+  Future<Uint8List?> _compile(Uint8List source, Duration timeout) async {
     Process? process;
     try {
       process = await Process.start(_executable, ['effect-pair']);
@@ -76,7 +82,7 @@ final class ArtemisHlslCompiler {
         child.stderr.drain<void>(),
         child.exitCode,
         (child.stdin..add(source)).close(),
-      ]).timeout(const Duration(seconds: 5));
+      ]).timeout(timeout);
       final artifact = (results[0] as BytesBuilder).takeBytes();
       if (results[2] == 0 && _isAde2(artifact)) return artifact;
     } on Exception {
