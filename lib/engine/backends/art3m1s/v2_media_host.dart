@@ -12,6 +12,8 @@ final class ArtemisV2MediaHost extends MediaBridge {
   final _videoAssets = <String, Future<File>>{};
   final _fading = <_AudioHandle, Object>{};
   final _work = <Future<void>>{};
+  final _audioReleases = <Future<void>>{};
+  Future<void>? _audioReset;
   _V2VideoPlayback? _fullscreen;
   bool _muted = false;
   double _scriptMasterVolume = 1;
@@ -285,6 +287,7 @@ final class ArtemisV2MediaHost extends MediaBridge {
       await handle.setPan(track.pan);
       await handle.setHostSuspended(_suspended);
       await handle.setEffectiveVolume(play.fadeMs > 0 ? 0 : track.gain);
+      await _audioReset;
       if (!_current(track) || track.stopping) return;
       await handle.play();
       if (!_current(track) || track.stopping) return;
@@ -308,7 +311,7 @@ final class ArtemisV2MediaHost extends MediaBridge {
     } finally {
       if (identical(_fading[handle], ticket)) {
         _fading.remove(handle);
-        await handle.dispose();
+        await _releaseAudio(handle);
       }
     }
   }
@@ -342,7 +345,7 @@ final class ArtemisV2MediaHost extends MediaBridge {
     if (!_current(track)) return;
     _playbacks.remove(track.play.id);
     final handle = track.handle;
-    if (handle != null) _run(handle.dispose());
+    if (handle != null) _releaseAudio(handle);
     track.feedback(track.play.id, status);
   }
 
@@ -402,16 +405,31 @@ final class ArtemisV2MediaHost extends MediaBridge {
     _playbacks.clear();
     _fading.clear();
     for (final handle in handles) {
-      _run(handle.dispose());
+      _releaseAudio(handle);
     }
+    if (_audioReleases.isEmpty) return;
+    final reset = _audioReset = Future.wait(_audioReleases).then<void>((_) {});
+    unawaited(
+      reset.whenComplete(() {
+        if (identical(_audioReset, reset)) _audioReset = null;
+      }),
+    );
   }
 
-  void _run(Future<void> operation) {
+  Future<void> _releaseAudio(_AudioHandle handle) {
+    final work = _run(handle.dispose());
+    _audioReleases.add(work);
+    unawaited(work.whenComplete(() => _audioReleases.remove(work)));
+    return work;
+  }
+
+  Future<void> _run(Future<void> operation) {
     final work = operation.catchError((Object error) {
       Log.warn('[ArtemisV2] media: $error');
     });
     _work.add(work);
     unawaited(work.whenComplete(() => _work.remove(work)));
+    return work;
   }
 
   Future<void> _drainWork() async {

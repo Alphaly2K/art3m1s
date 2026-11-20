@@ -10,7 +10,7 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('stop commands retire active and replaced BGM once', () async {
+  test('audio stops retire replaced tracks and order save restore', () async {
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     final resumed = <String>[];
@@ -21,6 +21,8 @@ void main() {
     final assets = <File>[];
     final changes = StreamController<void>.broadcast();
     Completer<void>? resumeGate;
+    Completer<void>? stopGate;
+    final stopping = Completer<void>();
 
     Future<void> waitFor(bool Function() ready) async {
       if (!ready()) {
@@ -65,6 +67,9 @@ void main() {
             await resumeGate?.future;
           case 'pause':
             paused.add(id);
+          case 'stop' when stopGate != null && !stopping.isCompleted:
+            stopping.complete();
+            await stopGate.future;
           case 'dispose':
             disposed.add(id);
             changes.add(null);
@@ -113,20 +118,28 @@ void main() {
       );
     }
 
+    Map<String, Object?> playCommand(
+      String id, {
+      String? replaces,
+      String? loopKey,
+      int? gain,
+      String channel = 'bgm',
+    }) => {
+      'op': 'play',
+      'playback_id': id,
+      'replaces': replaces,
+      'channel': channel,
+      'key': 'track_$id.wav',
+      'loop': true,
+      'loop_key': loopKey,
+      'gain': gain,
+      'fade_ms': replaces == null ? '0' : '4000',
+      'skippable': false,
+      'crossfade': replaces != null,
+    };
+
     void play(String id, {String? replaces, String? loopKey, int? gain}) =>
-        send({
-          'op': 'play',
-          'playback_id': id,
-          'replaces': replaces,
-          'channel': 'bgm',
-          'key': 'track_$id.wav',
-          'loop': true,
-          'loop_key': loopKey,
-          'gain': gain,
-          'fade_ms': replaces == null ? '0' : '4000',
-          'skippable': false,
-          'crossfade': replaces != null,
-        });
+        send(playCommand(id, replaces: replaces, loopKey: loopKey, gain: gain));
 
     try {
       play('1', loopKey: 'loop.wav');
@@ -155,12 +168,14 @@ void main() {
       expect(oldLevel, greaterThan(0));
       send({'op': 'volume', 'channel': 'bgm', 'level': 500});
       await waitFor(
-        () => volumes[loop]!.last == oldLevel * 0.5 &&
+        () =>
+            volumes[loop]!.last == oldLevel * 0.5 &&
             volumes[next]!.last == nextLevel * 0.5,
       );
       send({'op': 'volume', 'channel': 'master', 'level': 250});
       await waitFor(
-        () => volumes[loop]!.last == oldLevel * 0.125 &&
+        () =>
+            volumes[loop]!.last == oldLevel * 0.125 &&
             volumes[next]!.last == nextLevel * 0.125,
       );
       await host.setSuspended(false);
@@ -248,7 +263,40 @@ void main() {
       send({'op': 'volume', 'channel': 'master', 'level': 250});
       host.setAvoidMuted(false);
       await waitFor(() => (volumes[fresh]!.last - 0.05).abs() < 0.0001);
+
+      final beforeRestore = resumed.length;
+      final previousPlayers = volumes.keys.toSet();
+      stopGate = Completer<void>();
+      send({
+        'op': 'restore',
+        'plays': [playCommand('5')],
+        'stop_video': false,
+      });
+      send(playCommand('6', channel: 'se'));
+      await stopping.future.timeout(const Duration(seconds: 2));
+      await waitFor(
+        () =>
+            volumes.entries
+                .where(
+                  (entry) =>
+                      !previousPlayers.contains(entry.key) &&
+                      entry.value.length >= 2,
+                )
+                .length ==
+            2,
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(resumed.length, beforeRestore);
+      stopGate.complete();
+      await waitFor(
+        () =>
+            feedback.contains(('5', ArtemisPlaybackStatus.started)) &&
+            feedback.contains(('6', ArtemisPlaybackStatus.started)),
+      );
+      expect(resumed.length, beforeRestore + 2);
+      expect(disposed, contains(fresh));
     } finally {
+      if (stopGate?.isCompleted == false) stopGate!.complete();
       resumeGate?.complete();
       await host.dispose();
       await opened.session.close();
