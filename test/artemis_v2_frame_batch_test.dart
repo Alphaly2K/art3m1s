@@ -130,6 +130,75 @@ void main() {
     }
   });
 
+  test('v2 logs Lua print bytes only for the current epoch', () async {
+    const channel = MethodChannel('moe.alphaly.art3m1s/artemis_v2');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final saves = Directory.systemTemp.createTempSync('artemis-script-print-');
+    final runtime = ArtemisV2EngineRuntime()..setSaveDir(saves.path);
+    final debug = Log.debugEnabled;
+    Map<String, Object?> event({
+      required int domain,
+      required int kind,
+      required String epoch,
+      required String sequence,
+      String metadata = '{}',
+      List<int> blob = const [],
+    }) => {
+      'owner': '1',
+      'domain': domain,
+      'kind': kind,
+      'epoch': epoch,
+      'sequence': sequence,
+      'request': '0',
+      'metadata': Uint8List.fromList(utf8.encode(metadata)),
+      'blob': Uint8List.fromList(blob),
+    };
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      return switch (call.method) {
+        'open' => {
+          'session': '1',
+          'epoch': '2',
+          'width': 4,
+          'height': 4,
+          'phase': 1,
+          'waitFlags': 0,
+          'exitRequested': false,
+        },
+        'poll' => [
+          event(
+            domain: 1,
+            kind: 1,
+            epoch: '2',
+            sequence: '1',
+            metadata: '{"save_path":"save"}',
+          ),
+          event(domain: 7, kind: 2, epoch: '1', sequence: '2', blob: [97]),
+          event(domain: 7, kind: 2, epoch: '2', sequence: '3', blob: [98, 255]),
+        ],
+        'close' => null,
+        _ => throw StateError('Unexpected method: ${call.method}'),
+      };
+    });
+    try {
+      Log.setDebugEnabled(true);
+      final start = Log.entries.length;
+      expect(await runtime.loadProjectBytes(Uint8List(0)), isTrue);
+      expect(
+        Log.entries
+            .skip(start)
+            .map((entry) => entry.message)
+            .where((message) => message.startsWith('[ArtemisV2] [Lua] ')),
+        ['[ArtemisV2] [Lua] b\uFFFD'],
+      );
+    } finally {
+      Log.setDebugEnabled(debug);
+      await runtime.close();
+      messenger.setMockMethodCallHandler(channel, null);
+      saves.deleteSync(recursive: true);
+    }
+  });
+
   for (final exitDuringOpen in [false, true]) {
     test(
       exitDuringOpen
