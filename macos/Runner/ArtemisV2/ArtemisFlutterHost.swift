@@ -83,6 +83,7 @@ private enum ArtemisFlutterError: Error {
             default: throw ArtemisFlutterError.invalidArguments
             }
             let screenshots = args["screenshots"] as? Bool ?? false
+            let randomSeed = UInt64.random(in: .min ... .max)
             var dxvk: ArtemisMacSession?
             var mixed = false
             var preparedHlsl: [Int] = []
@@ -93,7 +94,8 @@ private enum ArtemisFlutterError: Error {
                 do {
                     func openDXVK(angle: String? = nil) throws -> ArtemisMacSession {
                         try ArtemisMacSession(corePath: corePath, metalPath: metalPath, hostCaps: caps,
-                                              screenshots: screenshots, angleDirectory: angle, dxvkDirectory: dxvkDirectory)
+                                              screenshots: screenshots, randomSeed: randomSeed,
+                                              angleDirectory: angle, dxvkDirectory: dxvkDirectory)
                     }
                     let candidate: ArtemisMacSession
                     var candidateMixed = false
@@ -129,7 +131,8 @@ private enum ArtemisFlutterError: Error {
                 }
             }
             let core = try dxvk ?? ArtemisMacSession(corePath: corePath, metalPath: metalPath, hostCaps: caps,
-                                                     screenshots: screenshots, angleDirectory: angle)
+                                                     screenshots: screenshots, randomSeed: randomSeed,
+                                                     angleDirectory: angle)
             do {
                 if mixed || (dxvk == nil && angle != nil) {
                     let sources = (args["glslSources"] as? [Any] ?? []).prefix(256).compactMap(bytes)
