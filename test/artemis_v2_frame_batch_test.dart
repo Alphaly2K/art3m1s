@@ -75,7 +75,7 @@ void main() {
     }
   });
 
-  test('v2 loads a runtime ADE2 after filling the startup budget', () async {
+  test('v2 loads ADE2 after prewarm and runtime shader failures', () async {
     const channel = MethodChannel('moe.alphaly.art3m1s/artemis_v2');
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
@@ -92,13 +92,20 @@ void main() {
       File('${project.path}/$key').writeAsBytesSync(bytes);
       sidecar(key, bytes).writeAsStringSync('prewarmed ADE2');
     }
-    const rejectedKey = 'late-rejected.txt';
+    final rejectedKeys = List.generate(256, (i) => 'late-rejected-$i.txt');
     const key = 'late.txt';
-    const reads = [rejectedKey, rejectedKey, key, key, rejectedKey];
+    final reads = [
+      rejectedKeys.first,
+      ...rejectedKeys,
+      key,
+      key,
+      rejectedKeys.first,
+    ];
     final source = utf8.encode('HLSL read after prewarm');
     final artifact = utf8.encode('runtime ADE2');
     final rejectedArtifact = utf8.encode('rejected ADE2');
-    final prepared = <List<int>>[];
+    var rejected = 0;
+    var accepted = 0;
     Map<String, Object> event(
       int sequence,
       int domain,
@@ -122,8 +129,10 @@ void main() {
           expect(call.arguments['hlslEffects'], hasLength(256));
           File('${project.path}/$key').writeAsBytesSync(source);
           sidecar(key, source).writeAsBytesSync(artifact);
-          File('${project.path}/$rejectedKey').writeAsBytesSync(source);
-          sidecar(rejectedKey, source).writeAsBytesSync(rejectedArtifact);
+          for (final rejectedKey in rejectedKeys) {
+            File('${project.path}/$rejectedKey').writeAsBytesSync(source);
+            sidecar(rejectedKey, source).writeAsBytesSync(rejectedArtifact);
+          }
           return {
             'session': '1',
             'epoch': '1',
@@ -156,10 +165,12 @@ void main() {
         case 'prepareHlsl':
           expect(call.arguments['source'], source);
           final input = call.arguments['artifact'] as Uint8List;
-          prepared.add(input);
           if (utf8.decode(input) == 'rejected ADE2') {
+            rejected++;
             throw PlatformException(code: 'invalid_ade2');
           }
+          expect(input, artifact);
+          accepted++;
           return null;
         case 'close':
           return null;
@@ -175,7 +186,8 @@ void main() {
         platform: 'WINDOWS',
       );
       expect(await runtime.loadProjectBytes(ini!), isTrue);
-      expect(prepared, [rejectedArtifact, artifact]);
+      expect(rejected, rejectedKeys.length);
+      expect(accepted, 1);
     } finally {
       await runtime.close();
       messenger.setMockMethodCallHandler(channel, null);

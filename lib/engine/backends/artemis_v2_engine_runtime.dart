@@ -51,7 +51,8 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
   Future<ArtemisHlslCompiler?>? _hlslCompilerDiscovery;
   ArtemisHlslCompiler? _hlslCompiler;
   final _preparedHlsl = <Digest>{};
-  final _attemptedRuntimeHlsl = <(String, Digest)>{};
+  final _failedRuntimeHlsl = <(String, Digest)>{};
+  int _runtimeHlslPrograms = 0;
   ArtemisFlutterState? _state;
   ArtemisFlutterEvent? _dialog;
   ArtemisFlutterEvent? _httpRequest;
@@ -177,7 +178,8 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
   static const _maxGlslSourceBytes = 256 * 1024;
   static const _maxGlslPrewarmBytes = 4 * 1024 * 1024;
   static const _hlslPrewarmTime = Duration(seconds: 5);
-  static const _maxRuntimeHlslAttempts = 256;
+  static const _maxRuntimeHlslPrograms = 256;
+  static const _maxRecentHlslFailures = 256;
 
   static bool _isAde2Path(String path) =>
       path.startsWith(_ade2Folder) && path.endsWith('.ade2');
@@ -326,11 +328,12 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
   ) async {
     final digest = sha256.convert(source);
     if (_preparedHlsl.contains(digest) ||
-        _attemptedRuntimeHlsl.length >= _maxRuntimeHlslAttempts) {
+        _runtimeHlslPrograms >= _maxRuntimeHlslPrograms) {
       return;
     }
     final path = ProjectVfs.normalizeRelativePath(key);
-    if (!_attemptedRuntimeHlsl.add((path ?? key, digest))) return;
+    final lookup = (path ?? key, digest);
+    if (_failedRuntimeHlsl.contains(lookup)) return;
     Uint8List? artifact;
     if (path != null) {
       try {
@@ -342,20 +345,28 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
         // An unreadable sidecar can be replaced by the compiler.
       }
     }
-    if (artifact != null &&
+    var prepared =
+        artifact != null &&
         artifact.isNotEmpty &&
-        await _registerHlsl(session, source, artifact)) {
-      if (identical(_session, session)) _preparedHlsl.add(digest);
-      return;
+        await _registerHlsl(session, source, artifact);
+    if (!prepared) {
+      final compiled = await _hlslCompiler?.prepare(
+        source,
+        rejectedArtifact: artifact,
+        isCurrent: () => _acceptsSceneServices && identical(_session, session),
+        register: (artifact) => _registerHlsl(session, source, artifact),
+      );
+      prepared = compiled != null;
     }
-    final prepared = await _hlslCompiler?.prepare(
-      source,
-      rejectedArtifact: artifact,
-      isCurrent: () => _acceptsSceneServices && identical(_session, session),
-      register: (artifact) => _registerHlsl(session, source, artifact),
-    );
-    if (prepared != null && identical(_session, session)) {
+    if (!identical(_session, session)) return;
+    if (prepared) {
       _preparedHlsl.add(digest);
+      _runtimeHlslPrograms++;
+    } else {
+      if (_failedRuntimeHlsl.length == _maxRecentHlslFailures) {
+        _failedRuntimeHlsl.remove(_failedRuntimeHlsl.first);
+      }
+      _failedRuntimeHlsl.add(lookup);
     }
   }
 
@@ -539,7 +550,8 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
       _session = null;
       _hlslCompiler = null;
       _preparedHlsl.clear();
-      _attemptedRuntimeHlsl.clear();
+      _failedRuntimeHlsl.clear();
+      _runtimeHlslPrograms = 0;
       await opened.session.close();
       return false;
     }
@@ -587,7 +599,8 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     _session = null;
     _hlslCompiler = null;
     _preparedHlsl.clear();
-    _attemptedRuntimeHlsl.clear();
+    _failedRuntimeHlsl.clear();
+    _runtimeHlslPrograms = 0;
     _mediaFeedback.clear();
     _translations.clear();
     _inputs.clear();
