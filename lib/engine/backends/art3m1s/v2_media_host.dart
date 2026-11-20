@@ -117,11 +117,11 @@ final class ArtemisV2MediaHost extends MediaBridge {
         }
       case ArtemisMediaStopAll(:final audio, :final fadeMs):
         if (audio) {
-          for (final track in _playbacks.values.toList()) {
-            _stop(track, fadeMs);
-          }
           for (final handle in _fading.keys.toList()) {
             _run(_fadeOutRetired(handle, fadeMs));
+          }
+          for (final track in _playbacks.values.toList()) {
+            _stop(track, fadeMs);
           }
         } else {
           _stopVideos();
@@ -294,11 +294,16 @@ final class ArtemisV2MediaHost extends MediaBridge {
     final previous = _playbacks.remove(play.replaces);
     final track = _V2AudioPlayback(play, feedback);
     final previousHandle = previous?.handle;
-    if (previousHandle != null) {
-      _fading[previousHandle] = Object();
+    final inherited = previous == null ? null : _takePrevious(previous);
+    if (inherited != null) {
+      track.previous = inherited;
+      if (previousHandle != null) _releaseAudio(previousHandle);
+    } else if (previousHandle != null) {
+      final ticket = _fading[previousHandle] = Object();
+      track.previous = (handle: previousHandle, ticket: ticket);
     }
     _playbacks[play.id] = track;
-    _run(_open(track, previousHandle));
+    _run(_open(track));
   }
 
   Future<File?> _audioAsset(String key) =>
@@ -310,18 +315,27 @@ final class ArtemisV2MediaHost extends MediaBridge {
         }
       });
 
-  Future<void> _open(_V2AudioPlayback track, _AudioHandle? previous) async {
-    final play = track.play;
-    final previousTicket = _fading[previous];
-    Future<void> retirePrevious(int fadeMs) async {
-      final handle = previous;
-      previous = null;
-      if (handle == null || !identical(_fading[handle], previousTicket)) return;
-      await _fadeOutRetired(handle, fadeMs);
+  ({_AudioHandle handle, Object ticket})? _takePrevious(
+    _V2AudioPlayback track,
+  ) {
+    final previous = track.previous;
+    track.previous = null;
+    if (previous == null ||
+        !identical(_fading[previous.handle], previous.ticket)) {
+      return null;
     }
+    return previous;
+  }
 
+  Future<bool>? _retirePrevious(_V2AudioPlayback track, int fadeMs) {
+    final previous = _takePrevious(track);
+    return previous == null ? null : _fadeOutRetired(previous.handle, fadeMs);
+  }
+
+  Future<void> _open(_V2AudioPlayback track) async {
+    final play = track.play;
     try {
-      if (!play.crossfade) await retirePrevious(0);
+      if (!play.crossfade) await _retirePrevious(track, 0);
       final file = await _audioAsset(play.key);
       if (!_current(track)) return;
       if (file == null) {
@@ -384,26 +398,28 @@ final class ArtemisV2MediaHost extends MediaBridge {
       if (play.fadeMs > 0) {
         _runAudio(track, handle.fadeTo(track.gain, play.fadeMs));
       }
-      await retirePrevious(play.crossfade ? play.fadeMs : 0);
+      await _retirePrevious(track, play.fadeMs);
     } catch (_) {
       _finish(track, ArtemisPlaybackStatus.failed);
       rethrow;
     } finally {
-      await retirePrevious(0);
+      await _retirePrevious(track, 0);
     }
   }
 
-  Future<void> _fadeOutRetired(_AudioHandle handle, int fadeMs) async {
+  Future<bool> _fadeOutRetired(_AudioHandle handle, int fadeMs) async {
     // Replacing a fade settles its old future before the new fade finishes.
     final ticket = _fading[handle] = Object();
+    var released = true;
     try {
       if (fadeMs > 0) await handle.fadeTo(0, fadeMs);
     } finally {
       if (identical(_fading[handle], ticket)) {
         _fading.remove(handle);
-        await _releaseAudio(handle);
+        released = await _releaseAudio(handle);
       }
     }
+    return released;
   }
 
   void _stop(_V2AudioPlayback track, int fadeMs) {
@@ -435,20 +451,32 @@ final class ArtemisV2MediaHost extends MediaBridge {
     if (!_current(track)) return;
     _playbacks.remove(track.play.id);
     final handle = track.handle;
-    if (handle == null) {
+    final retirement = _retirePrevious(track, 0);
+    if (handle == null && retirement == null) {
       track.feedback(track.play.id, status);
       return;
     }
     final generation = _audioGeneration;
+    void report(bool released) {
+      if (generation == _audioGeneration) {
+        track.feedback(
+          track.play.id,
+          released ? status : ArtemisPlaybackStatus.failed,
+        );
+      }
+    }
+
     _run(
-      _releaseAudio(handle).then((released) {
-        if (generation == _audioGeneration) {
-          track.feedback(
-            track.play.id,
-            released ? status : ArtemisPlaybackStatus.failed,
-          );
-        }
-      }),
+      Future.wait([
+        if (handle != null) _releaseAudio(handle),
+        ?retirement,
+      ]).then<void>(
+        (released) => report(released.every((success) => success)),
+        onError: (Object error, StackTrace stack) {
+          report(false);
+          Error.throwWithStackTrace(error, stack);
+        },
+      ),
     );
   }
 
@@ -592,6 +620,7 @@ final class _V2AudioPlayback {
   final ArtemisAudioPlay play;
   final _PlaybackFeedback feedback;
   _AudioHandle? handle;
+  ({_AudioHandle handle, Object ticket})? previous;
   double gain, pan;
   bool ready = false, started = false, stopping = false;
 }

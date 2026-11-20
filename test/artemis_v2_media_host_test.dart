@@ -25,6 +25,8 @@ void main() {
     final sourceFailed = Completer<void>();
     final allowFailedSource = Completer<void>();
     var failOpeningSource = false;
+    Completer<String>? sourceOpening;
+    final allowSource = Completer<void>();
     final stopping = Completer<void>();
     var failNextResume = false;
     String? fadePlayer;
@@ -87,6 +89,11 @@ void main() {
               await audioFailure(id);
               sourceFailed.complete();
               await allowFailedSource.future;
+            }
+            if (sourceOpening case final opening?) {
+              sourceOpening = null;
+              opening.complete(id);
+              await allowSource.future;
             }
           case 'resume':
             resumed.add(id);
@@ -481,7 +488,40 @@ void main() {
       expect(feedback.where((entry) => entry.$1 == '14'), [
         ('14', ArtemisPlaybackStatus.failed),
       ]);
+
+      play('15');
+      await waitFor(
+        () => feedback.contains(('15', ArtemisPlaybackStatus.started)),
+      );
+      final previous = resumed.last;
+      Future<String> replaceWhilePreparing(String id, String replaces) {
+        final opening = sourceOpening = Completer<String>();
+        play(id, replaces: replaces);
+        return opening.future.timeout(const Duration(seconds: 2));
+      }
+
+      final pending = await replaceWhilePreparing('16', '15');
+      final replacement = await replaceWhilePreparing('17', '16');
+      expect(disposed, isNot(contains(previous)));
+      send({
+        'op': 'stop',
+        'playback_ids': ['17'],
+        'time_ms': '0',
+      });
+      await waitFor(
+        () => feedback.contains(('17', ArtemisPlaybackStatus.cancelled)),
+      );
+      expect(disposed, contains(previous));
+      allowSource.complete();
+      await waitFor(
+        () => disposed.contains(pending) && disposed.contains(replacement),
+      );
+      expect(resumed, isNot(anyElement(isIn([pending, replacement]))));
+      expect(feedback.where((entry) => ['16', '17'].contains(entry.$1)), [
+        ('17', ArtemisPlaybackStatus.cancelled),
+      ]);
     } finally {
+      if (!allowSource.isCompleted) allowSource.complete();
       if (!allowVolume.isCompleted) allowVolume.complete();
       if (!allowFadeStop.isCompleted) allowFadeStop.complete();
       if (!allowFailedSource.isCompleted) allowFailedSource.complete();
