@@ -16,7 +16,6 @@ import '../../services/text_translation_service.dart';
 import '../engine_runtime.dart';
 import 'art3m1s/environment_patch.dart';
 import 'art3m1s/media_bridge.dart';
-import 'art3m1s/project_charset.dart';
 import 'art3m1s/project_save_root.dart';
 import 'art3m1s/project_vfs.dart';
 import 'art3m1s/v2_sdk/artemis_file_service.dart';
@@ -139,38 +138,23 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     if (_closed) return null;
     await _releaseProjectSession();
     if (_closed) return null;
-    ProjectVfs open(String charset) => isArchive
-        ? ProjectVfs.openArchive(
-            projectPath,
-            charset: charset,
-            indexSidecars: true,
-          )
-        : ProjectVfs.openDirectory(projectPath, charset: charset);
     _vfs?.close();
-    _vfs = open('Shift_JIS');
+    _vfs = null;
+    final project = ProjectVfs.openWithIni(
+      path: projectPath,
+      isArchive: isArchive,
+      platform: platform,
+    );
+    _vfs = project.files;
     _environmentPatch = environmentPatchEnabled;
-    final ini = _vfs?.readFile('system.ini');
-    if (ini != null && _vfs!.hasArchiveLayers) {
-      _vfs?.close();
-      _vfs = open(ProjectCharset.detect(ini, platform));
-    }
-    return ini;
+    return project.ini;
   });
 
-  Uint8List? _asset(String key, {int? maxBytes}) {
-    final virtual = _environmentPatch
-        ? EnvironmentPatch.virtualFile(key)
-        : null;
-    final bytes = virtual ?? _vfs?.readFile(key, maxBytes: maxBytes);
-    if (bytes == null) return null;
-    final asset =
-        virtual == null &&
-            _environmentPatch &&
-            EnvironmentPatch.canTransform(key)
-        ? EnvironmentPatch.transform(key, bytes)
-        : bytes;
-    return maxBytes != null && asset.length > maxBytes ? null : asset;
-  }
+  Uint8List? _asset(String key, {int? maxBytes}) => _vfs?.readAsset(
+    key,
+    environmentPatchEnabled: _environmentPatch,
+    maxBytes: maxBytes,
+  );
 
   Future<File?> _writeVideoAsset(
     String key,

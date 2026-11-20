@@ -101,20 +101,24 @@ private struct ArtemisMacMetal {
     }
 }
 
+private struct ArtemisMacRenderer {
+    let library: ArtemisMacLibrary
+    let metal: ArtemisMacMetal
+    let handle: OpaquePointer
+}
+
 // Cleanup can move to the main queue once, after the last session reference goes away.
 private struct ArtemisMacNative: @unchecked Sendable {
     let coreLibrary: ArtemisMacLibrary
-    let metalLibrary: ArtemisMacLibrary
     let root: UnsafePointer<ArtRootApiV2>
     let api: ArtRuntimeApiV2
-    let metal: ArtemisMacMetal
     let handle: ArtRuntimeHandle
-    let renderer: OpaquePointer
+    let renderer: ArtemisMacRenderer?
     var surface: CVPixelBuffer?
 
     func close() throws {
-        defer { withExtendedLifetime((coreLibrary, metalLibrary, surface)) {} }
-        let rendererStatus = metal.destroy(renderer)
+        defer { withExtendedLifetime((coreLibrary, renderer, surface)) {} }
+        let rendererStatus = renderer.map { $0.metal.destroy($0.handle) } ?? ArtStatus(ArtSwiftOK)
         let coreStatus = api.destroy(handle)
         try check(rendererStatus, "destroy renderer")
         try check(coreStatus, "destroy", root: root)
@@ -143,11 +147,9 @@ private final class ArtemisMacLifetime {
     private var presented: UInt64 = 0
     private var pollCapacity = 4096
 
-    init(corePath: String, metalPath: String, hostCaps: UInt64, screenshots: Bool = false,
+    init(corePath: String, metalPath: String?, hostCaps: UInt64, screenshots: Bool = false,
          randomSeed: UInt64 = 0, angleDirectory: String? = nil, dxvkDirectory: String? = nil) throws {
         let core = try ArtemisMacLibrary(path: corePath)
-        let metalLibrary = try ArtemisMacLibrary(path: metalPath)
-        let metal = try ArtemisMacMetal(metalLibrary)
         let getAPI = try core.symbol("art3m1s_get_api_v2", as: ArtSwiftGetAPI.self)
         let rootSize = UInt32(MemoryLayout<ArtRootApiV2>.size)
         var rootPointer: UnsafePointer<ArtRootApiV2>?
@@ -170,8 +172,9 @@ private final class ArtemisMacLifetime {
               api.get_state != nil, api.poll_events != nil, api.submit != nil else {
             throw ArtemisMacError.protocolError("Invalid Artemis runtime table")
         }
-        let frames = try queryTable(UInt32(ArtSwiftFrame), ArtFrameApiV2.self)
-        let rendererCaps = if angleDirectory != nil && dxvkDirectory != nil {
+        let rendererCaps: UInt64 = if metalPath == nil {
+            0
+        } else if angleDirectory != nil && dxvkDirectory != nil {
             art_swift_mixed_renderer_caps(screenshots ? 1 : 0)
         } else if angleDirectory != nil {
             art_swift_angle_renderer_caps(screenshots ? 1 : 0)
@@ -185,24 +188,31 @@ private final class ArtemisMacLifetime {
         var handle: ArtRuntimeHandle = 0
         try check(api.create(&config, &handle), "create", root: root)
         do {
-            var renderer: OpaquePointer?
-            if let angleDirectory, let dxvkDirectory {
-                let create = try metalLibrary.symbol("art3m1s_metal_host_v1_create_mixed", as: ArtSwiftMixedCreate.self)
-                try check(dxvkDirectory.withCString { dxvk in
-                    angleDirectory.withCString { angle in create(frames, handle, dxvk, angle, &renderer) }
-                }, "create mixed renderer")
-            } else if let angleDirectory {
-                let create = try metalLibrary.symbol("art3m1s_metal_host_v1_create_angle", as: ArtSwiftAngleCreate.self)
-                try check(angleDirectory.withCString { create(frames, handle, $0, &renderer) }, "create ANGLE renderer")
-            } else if let dxvkDirectory {
-                let create = try metalLibrary.symbol("art3m1s_metal_host_v1_create_dxvk", as: ArtSwiftDxvkCreate.self)
-                try check(dxvkDirectory.withCString { create(frames, handle, $0, &renderer) }, "create DXVK renderer")
-            } else {
-                try check(metal.create(frames, handle, &renderer), "create renderer")
+            var display: ArtemisMacRenderer?
+            if let metalPath {
+                let frames = try queryTable(UInt32(ArtSwiftFrame), ArtFrameApiV2.self)
+                let metalLibrary = try ArtemisMacLibrary(path: metalPath)
+                let metal = try ArtemisMacMetal(metalLibrary)
+                var renderer: OpaquePointer?
+                if let angleDirectory, let dxvkDirectory {
+                    let create = try metalLibrary.symbol("art3m1s_metal_host_v1_create_mixed", as: ArtSwiftMixedCreate.self)
+                    try check(dxvkDirectory.withCString { dxvk in
+                        angleDirectory.withCString { angle in create(frames, handle, dxvk, angle, &renderer) }
+                    }, "create mixed renderer")
+                } else if let angleDirectory {
+                    let create = try metalLibrary.symbol("art3m1s_metal_host_v1_create_angle", as: ArtSwiftAngleCreate.self)
+                    try check(angleDirectory.withCString { create(frames, handle, $0, &renderer) }, "create ANGLE renderer")
+                } else if let dxvkDirectory {
+                    let create = try metalLibrary.symbol("art3m1s_metal_host_v1_create_dxvk", as: ArtSwiftDxvkCreate.self)
+                    try check(dxvkDirectory.withCString { create(frames, handle, $0, &renderer) }, "create DXVK renderer")
+                } else {
+                    try check(metal.create(frames, handle, &renderer), "create renderer")
+                }
+                guard let renderer else { throw ArtemisMacError.protocolError("Missing Metal renderer") }
+                display = ArtemisMacRenderer(library: metalLibrary, metal: metal, handle: renderer)
             }
-            guard let renderer else { throw ArtemisMacError.protocolError("Missing Metal renderer") }
-            lifetime = ArtemisMacLifetime(ArtemisMacNative(coreLibrary: core, metalLibrary: metalLibrary,
-                root: root, api: api, metal: metal, handle: handle, renderer: renderer))
+            lifetime = ArtemisMacLifetime(ArtemisMacNative(coreLibrary: core,
+                root: root, api: api, handle: handle, renderer: display))
         } catch {
             _ = api.destroy(handle)
             throw error
@@ -220,29 +230,38 @@ private final class ArtemisMacLifetime {
         return native
     }
 
+    var hasRenderer: Bool { lifetime.native?.renderer != nil }
+
+    private func liveRenderer() throws -> ArtemisMacRenderer {
+        guard let renderer = try live().renderer else {
+            throw ArtemisMacError.protocolError("The Artemis session has no renderer")
+        }
+        return renderer
+    }
+
     func prepareADE2(source: Data, artifact: Data) throws {
-        let native = try live()
-        let prepare = try native.metalLibrary.symbol("art3m1s_metal_host_v1_prepare_ade2", as: ArtSwiftPrepareADE2.self)
+        let renderer = try liveRenderer()
+        let prepare = try renderer.library.symbol("art3m1s_metal_host_v1_prepare_ade2", as: ArtSwiftPrepareADE2.self)
         try withBytes(source) { source in
             try withBytes(artifact) { artifact in
-                try check(prepare(native.renderer, source, artifact), "prepare DXVK effect")
+                try check(prepare(renderer.handle, source, artifact), "prepare DXVK effect")
             }
         }
     }
 
     func warmGLSL(_ sources: [Data], cacheDirectory: URL? = nil) throws {
-        let native = try live()
+        let renderer = try liveRenderer()
         if let cacheDirectory,
-           let cache = try? native.metalLibrary.symbol("art3m1s_metal_host_v1_set_glsl_cache", as: ArtSwiftGlslCache.self) {
-            _ = cacheDirectory.path.withCString { cache(native.renderer, $0) }
+           let cache = try? renderer.library.symbol("art3m1s_metal_host_v1_set_glsl_cache", as: ArtSwiftGlslCache.self) {
+            _ = cacheDirectory.path.withCString { cache(renderer.handle, $0) }
         }
         guard !sources.isEmpty,
-              let prepare = try? native.metalLibrary.symbol("art3m1s_metal_host_v1_prepare_glsl", as: ArtSwiftPrepareGlsl.self)
+              let prepare = try? renderer.library.symbol("art3m1s_metal_host_v1_prepare_glsl", as: ArtSwiftPrepareGlsl.self)
         else { return }
         let deadline = ProcessInfo.processInfo.systemUptime + 5
         for source in sources {
             if ProcessInfo.processInfo.systemUptime >= deadline { break }
-            _ = withBytes(source) { prepare(native.renderer, $0) }
+            _ = withBytes(source) { prepare(renderer.handle, $0) }
         }
     }
 
@@ -347,10 +366,10 @@ private final class ArtemisMacLifetime {
     }
 
     func setSurface(_ buffer: CVPixelBuffer?) throws {
-        let native = try live()
+        let renderer = try liveRenderer()
         let surface = buffer.flatMap { CVPixelBufferGetIOSurface($0)?.takeUnretainedValue() }
         if buffer != nil && surface == nil { throw ArtemisMacError.protocolError("Pixel buffer has no IOSurface") }
-        let status = native.metal.attach(native.renderer, surface)
+        let status = renderer.metal.attach(renderer.handle, surface)
         lifetime.native?.surface = status == ArtSwiftOK ? buffer : nil
         presented = 0
         try check(status, "attach surface")
@@ -358,9 +377,9 @@ private final class ArtemisMacLifetime {
 
     /// Notify the texture consumer only when this returns a frame ID.
     func present() throws -> UInt64? {
-        let native = try live()
+        let renderer = try liveRenderer()
         var id: UInt64 = 0
-        let status = native.metal.present(native.renderer, presented, &id)
+        let status = renderer.metal.present(renderer.handle, presented, &id)
         if status == ArtSwiftNoData || status == ArtSwiftWouldBlock { return nil }
         try check(status, "present")
         presented = id
@@ -368,7 +387,7 @@ private final class ArtemisMacLifetime {
     }
 
     func capture(frameID: UInt64) throws -> (width: UInt32, height: UInt32, rgba: Data) {
-        let native = try live()
+        let renderer = try liveRenderer()
         let state = try state()
         let (width, height) = (state.stage_width, state.stage_height)
         let (count, overflow) = (UInt64(width) * UInt64(height)).multipliedReportingOverflow(by: 4)
@@ -377,7 +396,7 @@ private final class ArtemisMacLifetime {
         }
         var rgba = Data(count: length)
         let status = rgba.withUnsafeMutableBytes { bytes in
-            native.metal.capture(native.renderer, frameID, width, height,
+            renderer.metal.capture(renderer.handle, frameID, width, height,
                                  bytes.bindMemory(to: UInt8.self).baseAddress, UInt64(bytes.count))
         }
         try check(status, "capture")

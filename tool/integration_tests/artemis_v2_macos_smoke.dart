@@ -286,6 +286,33 @@ end
 __engine:setEventHandler{onEnterFrame='tick', onLoad='on_load'}
 [/lua]
 ''');
+  final captionProject = Directory('${root.path}/caption-probe')..createSync();
+  File(
+    '${captionProject.path}/system.ini',
+  ).writeAsStringSync('[WINDOWS]\nWIDTH=4\nHEIGHT=4\nBOOT=boot.iet\n');
+  File('${captionProject.path}/title.txt').writeAsStringSync('Probe title');
+  File('${captionProject.path}/boot.iet').writeAsStringSync('''
+*top
+[calllua function=read_caption]
+[stop]
+[lua]
+function read_caption(e)
+  local f = io.open(e:var('s.savepath') .. '/should-not-exist', 'w')
+  assert(f == nil)
+  e:tag{'caption', data = assert(e:file('title.txt'))}
+end
+[/lua]
+''');
+  final caption = await EngineRuntimeFactory.probeCaption(
+    engine: GameEngineKind.art3m1s,
+    projectPath: captionProject.path,
+    isPfsArchive: false,
+  );
+  if (caption != 'Probe title') {
+    throw StateError(
+      'Caption probe did not return the project title: $caption',
+    );
+  }
   final windowActions = <EngineWindowAction>[];
   final runtime = EngineRuntimeFactory.create(
     engine: GameEngineKind.art3m1s,

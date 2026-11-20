@@ -74,9 +74,10 @@ private enum ArtemisFlutterError: Error {
             guard let ini = bytes(args["ini"]),
                   let platform = args["platform"] as? String else { throw ArtemisFlutterError.invalidArguments }
             let caps = try number(args["hostCaps"], as: UInt64.self)
+            let headless = args["renderer"] as? String == "none"
             var angle: String?
             switch args["renderer"] as? String {
-            case nil, "metal": angle = nil
+            case nil, "metal", "none": angle = nil
             case "angle":
                 guard let angleDirectory else { throw ArtemisMacError.loader("ANGLE is unavailable") }
                 angle = angleDirectory
@@ -85,7 +86,7 @@ private enum ArtemisFlutterError: Error {
             let screenshots = args["screenshots"] as? Bool ?? false
             let randomSeed = UInt64.random(in: .min ... .max)
             func openRenderer(angle: String? = nil, dxvk: String? = nil) throws -> ArtemisMacSession {
-                try ArtemisMacSession(corePath: corePath, metalPath: metalPath, hostCaps: caps,
+                try ArtemisMacSession(corePath: corePath, metalPath: headless ? nil : metalPath, hostCaps: caps,
                                       screenshots: screenshots, randomSeed: randomSeed,
                                       angleDirectory: angle, dxvkDirectory: dxvk)
             }
@@ -94,8 +95,8 @@ private enum ArtemisFlutterError: Error {
             var preparedHlsl: [Int] = []
             let effects = args["hlslEffects"] as? [[String: Any]] ?? []
             let hlslOnDemand = args["hlslOnDemand"] as? Bool ?? (args["compileHlsl"] as? Bool == true)
-            let requestedMixed = args["mixedShaders"] as? Bool == true
-            if angle == nil || requestedMixed, let dxvkDirectory, hlslOnDemand || !effects.isEmpty {
+            let requestedMixed = !headless && args["mixedShaders"] as? Bool == true
+            if !headless, angle == nil || requestedMixed, let dxvkDirectory, hlslOnDemand || !effects.isEmpty {
                 do {
                     let candidate: ArtemisMacSession
                     var candidateMixed = false
@@ -177,7 +178,8 @@ private enum ArtemisFlutterError: Error {
             try session.core.prepareADE2(source: source, artifact: artifact)
             return nil
         case "surface":
-            guard let width = args["width"] as? Int, let height = args["height"] as? Int,
+            guard session.core.hasRenderer,
+                  let width = args["width"] as? Int, let height = args["height"] as? Int,
                   (1...16384).contains(width), (1...16384).contains(height) else {
                 throw ArtemisFlutterError.invalidArguments
             }

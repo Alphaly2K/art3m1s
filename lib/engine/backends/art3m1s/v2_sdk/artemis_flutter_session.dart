@@ -138,6 +138,7 @@ final class ArtemisFlutterSession {
     required String platform,
     required int hostCaps,
     String? reportedOS,
+    bool headless = false,
     bool angle = false,
     bool mixedShaders = false,
     bool screenshots = false,
@@ -151,7 +152,7 @@ final class ArtemisFlutterSession {
       'platform': platform,
       'hostCaps': hostCaps,
       'reportedOS': ?reportedOS,
-      if (angle) 'renderer': 'angle',
+      if (headless) 'renderer': 'none' else if (angle) 'renderer': 'angle',
       if (mixedShaders) 'mixedShaders': true,
       if ((angle || mixedShaders) && glslSources.isNotEmpty)
         'glslSources': glslSources,

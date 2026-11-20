@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:ffi/ffi.dart';
 
 import '../../../services/logger.dart';
+import 'environment_patch.dart';
 import 'pfs_bridge.dart';
 import 'project_charset.dart';
 
@@ -229,6 +230,29 @@ final class ProjectVfs {
   bool get hasArchiveLayers => _archiveBasePath != null;
 
   /// 打开解包工程：散装文件优先，其次按 id 从大到小叠加同级归档。
+  static ({ProjectVfs files, Uint8List? ini}) openWithIni({
+    required String path,
+    required bool isArchive,
+    required String platform,
+  }) {
+    ProjectVfs open(String charset) => isArchive
+        ? openArchive(path, charset: charset, indexSidecars: true)
+        : openDirectory(path, charset: charset);
+    var files = open('Shift_JIS');
+    try {
+      final ini = files.readFile('system.ini');
+      if (ini != null && files.hasArchiveLayers) {
+        final detected = open(ProjectCharset.detect(ini, platform));
+        files.close();
+        files = detected;
+      }
+      return (files: files, ini: ini);
+    } catch (_) {
+      files.close();
+      rethrow;
+    }
+  }
+
   static ProjectVfs openDirectory(
     String root, {
     String charset = 'Shift_JIS',
@@ -342,6 +366,25 @@ final class ProjectVfs {
       if (bytes != null) return bytes;
     }
     return null;
+  }
+
+  Uint8List? readAsset(
+    String key, {
+    required bool environmentPatchEnabled,
+    int? maxBytes,
+  }) {
+    final virtual = environmentPatchEnabled
+        ? EnvironmentPatch.virtualFile(key)
+        : null;
+    final bytes = virtual ?? readFile(key, maxBytes: maxBytes);
+    if (bytes == null) return null;
+    final asset =
+        virtual == null &&
+            environmentPatchEnabled &&
+            EnvironmentPatch.canTransform(key)
+        ? EnvironmentPatch.transform(key, bytes)
+        : bytes;
+    return maxBytes != null && asset.length > maxBytes ? null : asset;
   }
 
   /// The caller owns the temporary destination, including any incomplete copy.

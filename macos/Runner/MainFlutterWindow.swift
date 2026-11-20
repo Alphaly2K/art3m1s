@@ -34,7 +34,7 @@ class MainFlutterWindow: NSWindow {
       let media = directory.appendingPathComponent("libart3m1s_artemis_media_host.dylib").path
       let frameworks = Bundle.main.privateFrameworksURL
       let dxvk = frameworks?.appendingPathComponent("libart3m1s_artemis_dxvk_host.dylib").path
-      if FileManager.default.fileExists(atPath: core), FileManager.default.fileExists(atPath: metal) {
+      if FileManager.default.fileExists(atPath: core) {
         let host = ArtemisFlutterHost(registry: textureRegistrar.textures, corePath: core, metalPath: metal,
           mediaPath: FileManager.default.fileExists(atPath: media) ? media : nil,
           angleDirectory: directory.path,

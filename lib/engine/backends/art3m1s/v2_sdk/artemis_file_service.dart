@@ -48,13 +48,15 @@ final class ArtemisFileService {
     _root = saveRoot.resolveSymbolicLinksSync();
   }
 
+  ArtemisFileService.assetsOnly({required this.readAsset}) : _root = null;
+
   static const capabilities = 1 | 32;
   static const _maxFileSize = 64 * 1024 * 1024;
   static const _maxChunkSize = 1024 * 1024;
   static const _stagingPrefix = '.artemis-write-';
 
   final ArtemisReadAsset readAsset;
-  late final String _root;
+  late final String? _root;
   int _epoch = 0;
   int _revision = 0;
   bool _accepting = false;
@@ -89,6 +91,13 @@ final class ArtemisFileService {
       final key = metadata['key'];
       if (key is! String || (namespace != 'asset' && namespace != 'save')) {
         throw const _IoFailure('denied');
+      }
+      if (namespace == 'save' && _root == null) {
+        return event.reply(
+          event.kind == _statKind
+              ? {'status': 'ok', 'found': false}
+              : {'status': 'denied'},
+        );
       }
       switch (event.kind) {
         case _statKind:
@@ -313,7 +322,7 @@ final class ArtemisFileService {
         throw const _IoFailure('denied');
       }
     }
-    var path = _root;
+    var path = _root!;
     for (var i = 0; i < parts.length; i++) {
       path = _saveComponent(path, parts[i]);
       final type = FileSystemEntity.typeSync(path, followLinks: false);

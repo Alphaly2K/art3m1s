@@ -3,6 +3,7 @@ import 'dart:io';
 import '../models/game_engine.dart';
 import '../services/logger.dart';
 import 'backends/art3m1s_engine_runtime.dart';
+import 'backends/art3m1s/v2_caption_probe.dart';
 import 'backends/artemis_v2_engine_runtime.dart';
 import 'backends/krkr_engine_runtime.dart';
 import 'backends/rfvp_engine_runtime.dart';
@@ -10,6 +11,9 @@ import 'backends/siglus_engine_runtime.dart';
 import 'engine_runtime.dart';
 
 class EngineRuntimeFactory {
+  static bool get _artemisV2 =>
+      Platform.isMacOS && const bool.fromEnvironment('ARTEMIS_V2');
+
   const EngineRuntimeFactory._();
 
   static EngineRuntime create({
@@ -19,12 +23,10 @@ class EngineRuntimeFactory {
     bool? engineCursorControlEnabled,
   }) {
     return switch (engine) {
-      GameEngineKind.art3m1s
-          when Platform.isMacOS && const bool.fromEnvironment('ARTEMIS_V2') =>
-        ArtemisV2EngineRuntime(
-          onDialogRequested: onDialogRequested,
-          onWindowAction: onWindowAction,
-        ),
+      GameEngineKind.art3m1s when _artemisV2 => ArtemisV2EngineRuntime(
+        onDialogRequested: onDialogRequested,
+        onWindowAction: onWindowAction,
+      ),
       GameEngineKind.art3m1s => Art3m1sEngineRuntime(
         onDialogRequested: onDialogRequested,
         engineCursorControlEnabled: engineCursorControlEnabled,
@@ -47,6 +49,12 @@ class EngineRuntimeFactory {
     String platform = 'WINDOWS',
   }) async {
     switch (engine) {
+      case GameEngineKind.art3m1s when _artemisV2:
+        return probeArtemisV2Caption(
+          projectPath: projectPath,
+          isArchive: isPfsArchive,
+          platform: platform,
+        );
       case GameEngineKind.art3m1s:
         return Art3m1sEngineRuntime().probeCaption(
           projectPath: projectPath,
