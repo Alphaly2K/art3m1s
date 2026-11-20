@@ -57,7 +57,17 @@ jobs:
       - name: Resolve Flutter packages
         run: flutter pub get
       - name: Analyze Flutter Host
-        run: flutter analyze
+        run: |
+          report="$RUNNER_TEMP/flutter-analysis.txt"
+          if ! flutter analyze --no-pub --write="$report"; then
+            if [[ -s "$report" ]]; then
+              awk 'NR <= 12 && NF {
+                gsub(/%/, "%25"); gsub(/\r/, "%0D");
+                print "::error title=Flutter analyzer::" $0
+              }' "$report"
+            fi
+            exit 1
+          fi
       - name: Test Flutter Host
         run: flutter test
 
