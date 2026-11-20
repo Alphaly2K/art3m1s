@@ -150,7 +150,7 @@ final class ArtemisV2MediaHost extends MediaBridge {
         path: asset.path,
         volume: _volumeScale('video'),
       );
-      if (!identical(_videos[play.id], track)) {
+      if (!identical(_videos[play.id], track) && !track.skipping) {
         await track.session.closeVideo(play.id);
       }
     } catch (_) {
@@ -168,7 +168,11 @@ final class ArtemisV2MediaHost extends MediaBridge {
     if (_videos.isEmpty) return;
     for (final event in await session.pollVideos()) {
       final track = _videos[event.id];
-      if (track == null || !identical(track.session, session)) continue;
+      if (track == null ||
+          track.skipping ||
+          !identical(track.session, session)) {
+        continue;
+      }
       if (event.status != ArtemisPlaybackStatus.started) {
         _closeVideo(track, status: event.status, notifyRunner: false);
         continue;
@@ -180,7 +184,9 @@ final class ArtemisV2MediaHost extends MediaBridge {
           view: Texture(textureId: texture),
           aspectRatio: event.width! / event.height!,
           skippable: track.play.skip == 1,
-          onMenuSkip: track.play.skip == 2 ? () => _skip(track) : null,
+          onMenuSkip: track.play.skip == 2
+              ? () => unawaited(_skip(track))
+              : null,
         );
       }
       track.feedback(track.play.id, event.status);
@@ -191,13 +197,23 @@ final class ArtemisV2MediaHost extends MediaBridge {
   Future<void> skipVideo() async {
     final track = _fullscreen;
     if (track != null && track.play.skip == 1) {
-      _skip(track);
+      await _skip(track);
     }
   }
 
-  void _skip(_V2VideoPlayback track) {
-    if (identical(_fullscreen, track)) {
-      _closeVideo(track, status: ArtemisPlaybackStatus.cancelled);
+  Future<void> _skip(_V2VideoPlayback track) async {
+    if (!identical(_fullscreen, track) || track.skipping) return;
+    track.skipping = true;
+    await _run(_confirmVideoSkip(track));
+  }
+
+  Future<void> _confirmVideoSkip(_V2VideoPlayback track) async {
+    var status = ArtemisPlaybackStatus.failed;
+    try {
+      await track.session.closeVideo(track.play.id);
+      status = ArtemisPlaybackStatus.cancelled;
+    } finally {
+      _closeVideo(track, status: status, notifyRunner: false);
     }
   }
 
@@ -206,12 +222,15 @@ final class ArtemisV2MediaHost extends MediaBridge {
     ArtemisPlaybackStatus? status,
     bool notifyRunner = true,
   }) {
+    if (!identical(_videos[track.play.id], track)) return;
     _videos.remove(track.play.id);
     if (identical(_fullscreen, track)) {
       _fullscreen = null;
       videoPlayback.value = null;
     }
-    if (notifyRunner) _run(track.session.closeVideo(track.play.id));
+    if (notifyRunner && !track.skipping) {
+      _run(track.session.closeVideo(track.play.id));
+    }
     if (status != null) track.feedback(track.play.id, status);
   }
 
@@ -447,11 +466,12 @@ final class ArtemisV2MediaHost extends MediaBridge {
 }
 
 final class _V2VideoPlayback {
-  const _V2VideoPlayback(this.session, this.play, this.feedback);
+  _V2VideoPlayback(this.session, this.play, this.feedback);
 
   final ArtemisFlutterSession session;
   final ArtemisVideoPlay play;
   final _PlaybackFeedback feedback;
+  bool skipping = false;
 }
 
 final class _V2AudioPlayback {

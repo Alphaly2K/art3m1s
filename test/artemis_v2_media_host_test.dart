@@ -304,14 +304,16 @@ void main() {
     }
   });
 
-  test('project switch removes extracted video after native close', () async {
+  test('video skips and project cleanup wait for native close', () async {
     const channel = MethodChannel('moe.alphaly.art3m1s/artemis_v2');
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
-    final closing = Completer<void>();
-    final allowClose = Completer<void>();
+    var closing = Completer<void>();
+    var allowClose = Completer<void>();
     var openedVideo = Completer<File>();
     final openVolumes = <double>[];
+    final closed = <String>[];
+    var videoEvents = <Map<String, Object?>>[];
     messenger.setMockMethodCallHandler(channel, (call) async {
       switch (call.method) {
         case 'open':
@@ -327,9 +329,16 @@ void main() {
         case 'videoOpen':
           openVolumes.add(call.arguments['volume'] as double);
           openedVideo.complete(File(call.arguments['path'] as String));
-        case 'videoClose' when !closing.isCompleted:
-          closing.complete();
-          await allowClose.future;
+        case 'videoPoll':
+          final events = videoEvents;
+          videoEvents = [];
+          return events;
+        case 'videoClose':
+          closed.add(call.arguments['playback'] as String);
+          if (!closing.isCompleted) {
+            closing.complete();
+            await allowClose.future;
+          }
       }
       return null;
     });
@@ -339,7 +348,8 @@ void main() {
       hostCaps: ArtemisMediaCommand.capability,
     );
     final host = ArtemisV2MediaHost();
-    void play(String id, int byte) {
+    final feedback = <(String, ArtemisPlaybackStatus)>[];
+    void play(String id, int byte, {required int skip}) {
       host.configureAssetReader((_) => Uint8List.fromList([byte]));
       host.handle(
         opened.session,
@@ -349,10 +359,23 @@ void main() {
           'playback_id': id,
           'key': 'clip.wmv',
           'loop': false,
-          'skip': 0,
+          'skip': skip,
         })!,
-        (_, _) {},
+        (id, status) => feedback.add((id, status)),
       );
+    }
+
+    Future<void> started(String id) async {
+      videoEvents = [
+        {
+          'playback': id,
+          'status': 'started',
+          'texture': 7,
+          'width': 4,
+          'height': 4,
+        },
+      ];
+      await host.pollVideo(opened.session);
     }
 
     try {
@@ -367,9 +390,39 @@ void main() {
         })!,
         (_, _) {},
       );
-      play('1', 1);
+      play('1', 1, skip: 1);
       final first = await openedVideo.future.timeout(timeout);
       expect(await first.readAsBytes(), [1]);
+      await started('1');
+      final skipping = host.skipVideo();
+      await closing.future.timeout(timeout);
+      expect(feedback, [('1', ArtemisPlaybackStatus.started)]);
+      expect(host.videoPlayback.value, isNotNull);
+      videoEvents = [
+        {'playback': '1', 'status': 'ended'},
+      ];
+      await host.pollVideo(opened.session);
+      await host.skipVideo();
+      expect(feedback, [('1', ArtemisPlaybackStatus.started)]);
+      expect(closed, ['1']);
+      allowClose.complete();
+      await skipping.timeout(timeout);
+      expect(feedback, [
+        ('1', ArtemisPlaybackStatus.started),
+        ('1', ArtemisPlaybackStatus.cancelled),
+      ]);
+      expect(host.videoPlayback.value, isNull);
+
+      closing = Completer<void>();
+      allowClose = Completer<void>();
+      openedVideo = Completer<File>();
+      play('2', 1, skip: 2);
+      await openedVideo.future.timeout(timeout);
+      await started('2');
+      await host.skipVideo();
+      expect(closed, ['1']);
+      host.videoPlayback.value!.onMenuSkip!();
+      await closing.future.timeout(timeout);
       final resetting = host.resetProject();
       try {
         await closing.future.timeout(timeout);
@@ -379,13 +432,16 @@ void main() {
         await resetting.timeout(timeout);
       }
       expect(await first.exists(), isFalse);
+      expect(feedback.last, ('2', ArtemisPlaybackStatus.started));
+      expect(closed, ['1', '2']);
 
       openedVideo = Completer<File>();
-      play('2', 2);
+      play('3', 2, skip: 0);
       final second = await openedVideo.future.timeout(timeout);
       expect(await second.readAsBytes(), [2]);
-      expect(openVolumes, [0.4, 1.0]);
+      expect(openVolumes, [0.4, 0.4, 1.0]);
     } finally {
+      if (!allowClose.isCompleted) allowClose.complete();
       await host.dispose();
       await opened.session.close();
       messenger.setMockMethodCallHandler(channel, null);
