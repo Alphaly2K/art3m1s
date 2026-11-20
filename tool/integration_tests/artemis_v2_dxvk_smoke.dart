@@ -222,6 +222,12 @@ ${measure ? _motion : '[stop]'}
         },
       );
 
+      final cacheDirectory = (await cachedEffect(source))!.parent;
+      File entryFor(List<int> bytes) =>
+          File('${cacheDirectory.path}/${sha256.convert(bytes)}.ade2');
+      // The checksum and magic pass the Dart cache checks, but DXVK rejects the body.
+      final corrupt = [...ascii.encode('ADE2'), ...List.filled(20, 0)];
+      final corruptEntry = [...sha256.convert(corrupt).bytes, ...corrupt];
       final dynamicShader = legacy
           ? _legacyShader('float3(fore.b, fore.r, fore.g)')
           : 'float4 main() : SV_Target { return float4(0, 1, 0, 1); }';
@@ -245,6 +251,21 @@ ${measure ? _motion : '[stop]'}
       if (await cachedEffect(dynamicSource) == null) {
         throw StateError('No ADE2 was stored for the dynamic shader.');
       }
+      final dynamicEntry = entryFor(dynamicSource);
+      if (!warm) dynamicEntry.writeAsBytesSync(corruptEntry);
+      final dynamicModified = await dynamicEntry.lastModified();
+      await checkProject('dynamic-cache', [
+        0,
+        255,
+        0,
+        255,
+      ], shaderFile: 'paint.txt');
+      if (await dynamicEntry.length() <= corruptEntry.length) {
+        throw StateError('Runtime did not rebuild the rejected local ADE2.');
+      }
+      if (warm && await dynamicEntry.lastModified() != dynamicModified) {
+        throw StateError('Runtime rewrote an already valid cache entry.');
+      }
       dynamicFile.deleteSync();
 
       final retrySource = utf8.encode('$dynamicShader\n// retry $token');
@@ -255,14 +276,20 @@ ${measure ? _motion : '[stop]'}
       );
       packaged.parent.createSync(recursive: true);
       packaged.writeAsStringSync('invalid ADE2');
+      final retryEntry = entryFor(retrySource);
+      if (!warm) retryEntry.writeAsBytesSync(corruptEntry);
+      final retryModified = await retryEntry.lastModified();
       await checkProject(
         'retry',
         [0, 255, 0, 255],
         beforeStep: () async {
-          if (await cachedEffect(retrySource) == null) {
+          if (await retryEntry.length() <= corruptEntry.length) {
             throw StateError(
-              'Rejected packaged ADE2 was not replaced at startup.',
+              'Rejected packaged and local ADE2 were not replaced at startup.',
             );
+          }
+          if (warm && await retryEntry.lastModified() != retryModified) {
+            throw StateError('Packaged recovery rewrote a valid local cache.');
           }
         },
       );
@@ -270,13 +297,7 @@ ${measure ? _motion : '[stop]'}
 
       final corruptSource = utf8.encode('$dynamicShader\n// corrupt $token');
       shader.writeAsBytesSync(corruptSource);
-      final cacheDirectory = (await cachedEffect(source))!.parent;
-      final entry = File(
-        '${cacheDirectory.path}/${sha256.convert(corruptSource)}.ade2',
-      );
-      // The checksum and magic pass the Dart cache checks, but DXVK rejects the body.
-      final corrupt = [...ascii.encode('ADE2'), ...List.filled(20, 0)];
-      final corruptEntry = [...sha256.convert(corrupt).bytes, ...corrupt];
+      final entry = entryFor(corruptSource);
       if (!warm) entry.writeAsBytesSync(corruptEntry);
       final priorModified = await entry.lastModified();
       await checkProject(

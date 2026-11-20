@@ -282,24 +282,22 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
       }
     }
     if (compiler == null || !session.usesDxvk) return prepared;
+    bool isCurrent() => !_closed && identical(files, _vfs);
     for (final (index, effect) in effects.indexed) {
       if (accepted.contains(index)) continue;
       final remaining = _hlslPrewarmTime - budget.elapsed;
-      if (_closed || !identical(files, _vfs) || remaining <= Duration.zero) {
-        break;
-      }
+      if (!isCurrent() || remaining <= Duration.zero) break;
       final artifact = await compiler.prepare(
         effect.source,
         rejectedArtifact: effect.artifact,
         timeout: remaining,
+        isCurrent: isCurrent,
+        register: (artifact) async =>
+            size + effect.source.length + artifact.length <=
+                _maxHlslPrewarmBytes &&
+            await _registerHlsl(session, effect.source, artifact),
       );
-      if (_closed || !identical(files, _vfs)) break;
-      if (artifact == null ||
-          size + effect.source.length + artifact.length >
-              _maxHlslPrewarmBytes) {
-        continue;
-      }
-      if (await _registerHlsl(session, effect.source, artifact)) {
+      if (artifact != null) {
         prepared.add(sha256.convert(effect.source));
         size += effect.source.length + artifact.length;
       }
@@ -918,11 +916,12 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
           source.length <= ArtemisHlslCompiler.maxSourceBytes &&
           _handledHlsl.length < 256 &&
           _handledHlsl.add(sha256.convert(source))) {
-        final artifact = await compiler.prepare(source);
-        if (!identical(_session, session)) return;
-        if (!_closed && artifact != null) {
-          await _registerHlsl(session, source, artifact);
-        }
+        await compiler.prepare(
+          source,
+          isCurrent: () =>
+              _acceptsSceneServices && identical(_session, session),
+          register: (artifact) => _registerHlsl(session, source, artifact),
+        );
         if (!identical(_session, session)) return;
       }
       _replies.add(event.reply(fileReply.metadata, blob: fileReply.blob));

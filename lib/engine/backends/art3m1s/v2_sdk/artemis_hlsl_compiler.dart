@@ -47,19 +47,34 @@ final class ArtemisHlslCompiler {
     Uint8List source, {
     Uint8List? rejectedArtifact,
     Duration timeout = const Duration(seconds: 5),
+    bool Function()? isCurrent,
+    Future<bool> Function(Uint8List artifact)? register,
   }) async {
     if (source.isEmpty || source.length > maxSourceBytes) return null;
+    final elapsed = Stopwatch()..start();
+    bool canContinue() =>
+        elapsed.elapsed < timeout && (isCurrent == null || isCurrent());
     final cache = _cache;
     final entry = cache == null
         ? null
         : File('${cache.path}/${sha256.convert(source)}.ade2');
     final hit = entry == null ? null : await _load(entry);
-    if (hit != null && !listEquals(hit, rejectedArtifact)) return hit;
-    if (timeout <= Duration.zero) return null;
-    final artifact = await _compile(source, timeout);
-    if (artifact != null && entry != null) {
-      await _store(cache!, entry, artifact);
+    if (!canContinue()) return null;
+    if (hit != null &&
+        !listEquals(hit, rejectedArtifact) &&
+        (register == null || await register(hit))) {
+      return hit;
     }
+    if (!canContinue()) return null;
+    final artifact = await _compile(source, timeout - elapsed.elapsed);
+    if (artifact == null ||
+        !canContinue() ||
+        listEquals(artifact, rejectedArtifact) ||
+        listEquals(artifact, hit) ||
+        (register != null && !await register(artifact))) {
+      return null;
+    }
+    if (entry != null) await _store(cache!, entry, artifact);
     return artifact;
   }
 
