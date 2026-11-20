@@ -10,7 +10,7 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('v2 prewarms shader sidecars when opening an archive project', () async {
+  test('v2 prewarms GLSL and allows HLSL with a .txt suffix', () async {
     const channel = MethodChannel('moe.alphaly.art3m1s/artemis_v2');
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
@@ -21,7 +21,7 @@ void main() {
     File('${project.path}/system.ini').writeAsStringSync(ini);
     final patches = Directory('${project.path}/Patches')..createSync();
     File('${patches.path}/Paint.FRAG').writeAsStringSync(glsl);
-    File('${patches.path}/Effect.FX').writeAsStringSync('test HLSL source');
+    File('${patches.path}/Effect.txt').writeAsStringSync('test HLSL source');
     Map<Object?, Object?>? options;
     messenger.setMockMethodCallHandler(channel, (call) async {
       switch (call.method) {

@@ -96,6 +96,7 @@ void main() { gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0); }
       bool effect = true,
       String shaderFile = 'paint.hlsl',
       int glslLayers = 0,
+      bool liveSidecars = false,
       bool measure = false,
       int layers = 1,
     }) async {
@@ -129,8 +130,8 @@ ${measure ? '' : '[takess]\n[savess file=$tag]'}
 ${measure ? _motion : '[stop]'}
 ''');
       final ini = await runtime.prepareProject(
-        projectPath: game.path,
-        isArchive: false,
+        projectPath: liveSidecars ? '${game.path}/root.pfs' : game.path,
+        isArchive: liveSidecars,
         environmentPatchEnabled: false,
         platform: 'WINDOWS',
       );
@@ -325,6 +326,23 @@ ${measure ? _motion : '[stop]'}
     if (mixed && !profile) {
       glsl.writeAsStringSync(_backdrop);
       await checkProject('mixed', [16, 255, 255, 255], glslLayers: 1);
+      if (artifact == null) {
+        shader.deleteSync();
+        glsl.deleteSync();
+        File(
+          '${game.path}/paint.txt',
+        ).writeAsStringSync('$startupShader\n// mixed fallback $token');
+        await checkProject(
+          'mixed-fallback',
+          [16, 255, 255, 255],
+          shaderFile: 'paint.txt',
+          glslLayers: 1,
+          liveSidecars: true,
+          beforeStep: () async {
+            await glsl.writeAsString('$_backdrop\n// mixed fallback $token');
+          },
+        );
+      }
     }
     if (profile) {
       glsl.deleteSync();

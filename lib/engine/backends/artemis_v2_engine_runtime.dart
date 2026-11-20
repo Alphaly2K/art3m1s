@@ -399,19 +399,20 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     final paths = files?.listFiles() ?? const <String>[];
     final glsl = paths.where(_isGlsl);
     final hasHlsl = paths.any((path) => _isHlsl(path) || _isAde2Path(path));
-    final mixedShaders = !_preferAngle && glsl.isNotEmpty && hasHlsl;
+    // Scripts can load shaders outside the prewarm scan.
+    final mixedShaders = !_preferAngle;
     final portPrefersGlsl = switch (platform.trim().toUpperCase()) {
       'ANDROID' || 'IOS' || 'WASM' || 'SWITCH' => true,
       _ => false,
     };
     final angle =
         _preferAngle || (glsl.isNotEmpty && (portPrefersGlsl || !hasHlsl));
-    final compiler = (angle && !mixedShaders) || files == null
+    final compiler = _preferAngle || files == null
         ? null
         : await (_hlslCompilerDiscovery ??= ArtemisHlslCompiler.bundled());
     if (_closed || !identical(files, _vfs)) return false;
     final hlslBudget = Stopwatch()..start();
-    final hlslEffects = (angle && !mixedShaders) || files == null
+    final hlslEffects = _preferAngle || files == null
         ? const <({Uint8List source, Uint8List artifact})>[]
         : await _prepareHlslEffects(files, paths, compiler, hlslBudget);
     if (_closed || !identical(files, _vfs)) return false;
@@ -431,7 +432,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
       mixedShaders: mixedShaders,
       hlslEffects: hlslEffects,
       compileHlsl: compiler != null,
-      glslSources: angle || mixedShaders ? _knownGlslSources(glsl) : const [],
+      glslSources: _knownGlslSources(glsl),
     );
     try {
       final preparedHlsl = await _finishHlslPrewarm(
