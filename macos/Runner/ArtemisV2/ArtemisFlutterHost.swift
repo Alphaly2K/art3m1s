@@ -74,7 +74,7 @@ private enum ArtemisFlutterError: Error {
             guard let ini = bytes(args["ini"]),
                   let platform = args["platform"] as? String else { throw ArtemisFlutterError.invalidArguments }
             let caps = try number(args["hostCaps"], as: UInt64.self)
-            let angle: String?
+            var angle: String?
             switch args["renderer"] as? String {
             case nil, "metal": angle = nil
             case "angle":
@@ -84,6 +84,11 @@ private enum ArtemisFlutterError: Error {
             }
             let screenshots = args["screenshots"] as? Bool ?? false
             let randomSeed = UInt64.random(in: .min ... .max)
+            func openRenderer(angle: String? = nil, dxvk: String? = nil) throws -> ArtemisMacSession {
+                try ArtemisMacSession(corePath: corePath, metalPath: metalPath, hostCaps: caps,
+                                      screenshots: screenshots, randomSeed: randomSeed,
+                                      angleDirectory: angle, dxvkDirectory: dxvk)
+            }
             var dxvk: ArtemisMacSession?
             var mixed = false
             var preparedHlsl: [Int] = []
@@ -92,24 +97,19 @@ private enum ArtemisFlutterError: Error {
             let requestedMixed = args["mixedShaders"] as? Bool == true
             if angle == nil || requestedMixed, let dxvkDirectory, hlslOnDemand || !effects.isEmpty {
                 do {
-                    func openDXVK(angle: String? = nil) throws -> ArtemisMacSession {
-                        try ArtemisMacSession(corePath: corePath, metalPath: metalPath, hostCaps: caps,
-                                              screenshots: screenshots, randomSeed: randomSeed,
-                                              angleDirectory: angle, dxvkDirectory: dxvkDirectory)
-                    }
                     let candidate: ArtemisMacSession
                     var candidateMixed = false
                     if requestedMixed, let angleDirectory {
                         do {
-                            candidate = try openDXVK(angle: angleDirectory)
+                            candidate = try openRenderer(angle: angleDirectory, dxvk: dxvkDirectory)
                             candidateMixed = true
                         } catch {
                             if angle != nil { throw error }
                             NSLog("Artemis mixed renderer unavailable: %@", String(describing: error))
-                            candidate = try openDXVK()
+                            candidate = try openRenderer(dxvk: dxvkDirectory)
                         }
                     } else {
-                        candidate = try openDXVK()
+                        candidate = try openRenderer(dxvk: dxvkDirectory)
                     }
                     for (index, effect) in effects.prefix(256).enumerated() {
                         guard let source = bytes(effect["source"]), let artifact = bytes(effect["artifact"]) else { continue }
@@ -130,9 +130,16 @@ private enum ArtemisFlutterError: Error {
                     NSLog("Artemis DXVK unavailable: %@", String(describing: error))
                 }
             }
-            let core = try dxvk ?? ArtemisMacSession(corePath: corePath, metalPath: metalPath, hostCaps: caps,
-                                                     screenshots: screenshots, randomSeed: randomSeed,
-                                                     angleDirectory: angle)
+            var fallback: ArtemisMacSession?
+            if dxvk == nil, angle == nil, requestedMixed, let angleDirectory {
+                do {
+                    fallback = try openRenderer(angle: angleDirectory)
+                    angle = angleDirectory
+                } catch {
+                    NSLog("Artemis ANGLE unavailable: %@", String(describing: error))
+                }
+            }
+            let core = try dxvk ?? fallback ?? openRenderer(angle: angle)
             do {
                 if mixed || (dxvk == nil && angle != nil) {
                     let sources = (args["glslSources"] as? [Any] ?? []).prefix(256).compactMap(bytes)
