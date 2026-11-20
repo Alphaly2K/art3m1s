@@ -239,11 +239,14 @@ final class ArtemisFileService {
       throw const _IoFailure('io_error');
     }
     final last = end == size;
-    pending.file.writeAsBytesSync(
-      event.blob,
-      mode: FileMode.append,
-      flush: last,
-    );
+    final output = pending.file.openSync(mode: FileMode.append);
+    try {
+      if (output.lengthSync() != offset) throw const _IoFailure('io_error');
+      output.writeFromSync(event.blob);
+      if (last) output.flushSync();
+    } finally {
+      output.closeSync();
+    }
     pending.offset = end;
     if (last) _commitWrite(pending);
     return event.reply({
