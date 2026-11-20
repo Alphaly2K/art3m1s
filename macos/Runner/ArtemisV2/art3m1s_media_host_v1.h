@@ -30,7 +30,8 @@ typedef struct ArtMediaHostApiV1 {
     uint32_t size;
     /* Open a Host-provided local ASF or Ogg video. NULL means open failed. */
     ArtMediaVideo *(*open_video)(const char *path);
-    /* 1 = frame, 0 = end, negative = error. Bytes expire at next call or close. */
+    /* 1 = frame, 0 = end, negative = error. Bytes expire at next call or close.
+       At end, pts_us can carry the end time of an implicit image hold. */
     int32_t (*next_video)(ArtMediaVideo *video, ArtMediaFrame *output);
     void (*close_video)(ArtMediaVideo *video);
     /* 1 = opened, 0 = absent audio track, negative = error. */

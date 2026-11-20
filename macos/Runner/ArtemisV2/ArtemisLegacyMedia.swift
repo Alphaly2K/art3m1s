@@ -146,7 +146,10 @@ final class ArtemisLegacyMediaLibrary: @unchecked Sendable {
                 let result = try await reader.readVideo(count: count)
                 guard let self, self.generation == generation else { return }
                 self.frames.append(contentsOf: result.frames)
-                self.videoEnded = result.eof
+                if let end = result.holdEnd {
+                    self.videoEnded = true
+                    self.videoUntil = max(self.videoUntil, end)
+                }
                 self.readingVideo = false
             } catch {
                 guard let self, self.generation == generation else { return }
@@ -256,21 +259,21 @@ private final class LegacyReader: @unchecked Sendable {
         }
     }
 
-    func readVideo(count: Int) async throws -> (frames: [LegacyVideoFrame], eof: Bool) {
+    func readVideo(count: Int) async throws -> (frames: [LegacyVideoFrame], holdEnd: Double?) {
         try await onQueue {
             guard let video = self.video else { throw LegacyError.decode }
             var frames: [LegacyVideoFrame] = []
             for _ in 0..<count {
                 var frame = ArtMediaFrame()
                 let status = self.library.api.next_video(video, &frame)
-                if status == 0 { return (frames, true) }
+                if status == 0 { return (frames, Double(frame.pts_us) / 1_000_000) }
                 guard status == 1 else { throw LegacyError.decode }
                 frames.append(LegacyVideoFrame(
                     buffer: try makePixelBuffer(frame), pts: Double(frame.pts_us) / 1_000_000,
                     duration: frame.duration_us > 0 ? Double(frame.duration_us) / 1_000_000 : 1.0 / 30
                 ))
             }
-            return (frames, false)
+            return (frames, nil)
         }
     }
 
