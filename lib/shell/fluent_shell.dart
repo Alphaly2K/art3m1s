@@ -486,7 +486,7 @@ class _FluentAboutPage extends StatelessWidget {
             _FluentSettingRow(
               label: 'Rust / Native',
               caption:
-                  'art3m1s-core · asb-interpreter · pfs-upk-rust · mlua/Lua 5.1 · '
+                  'art3m1s-core · asb-interpreter · pfs-upk-rust · mlua/Luau · '
                   'glow · image · encoding_rs · jis0208 · ANGLE',
               control: SizedBox.shrink(),
             ),

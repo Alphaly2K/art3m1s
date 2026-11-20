@@ -71,7 +71,7 @@ class AboutScreen extends StatelessWidget {
             'asb-interpreter',
             'asb-decrypt',
             'pfs-upk-rust',
-            'mlua / Lua 5.1',
+            'mlua / Luau',
             'glow',
             'image',
             'encoding_rs',
