@@ -448,7 +448,8 @@ private func withBytes<T>(_ data: Data, _ body: (ArtBytes) throws -> T) rethrows
 
 private func decodeEvents(_ data: Data, end: Int, count: UInt32, runtime: ArtRuntimeHandle,
                           sessionID: UUID) throws -> [ArtemisMacEvent] {
-    let headerSize = 64
+    let envelopeSize = Int(ArtSwiftEventEnvelopeBytes)
+    let headerSize = envelopeSize + Int(ArtSwiftEventBodyHeaderBytes)
     return try data.withUnsafeBytes { bytes in
         var offset = 0
         var events: [ArtemisMacEvent] = []
@@ -460,11 +461,12 @@ private func decodeEvents(_ data: Data, end: Int, count: UInt32, runtime: ArtRun
                 throw ArtemisMacError.protocolError("Truncated Artemis event")
             }
             let recordSize = Int(uint(0, as: UInt32.self))
-            let metaSize = Int(uint(56, as: UInt32.self))
-            let blobSize = Int(uint(60, as: UInt32.self))
+            let metaSize = Int(uint(envelopeSize, as: UInt32.self))
+            let blobSize = Int(uint(envelopeSize + 4, as: UInt32.self))
             guard recordSize == headerSize + metaSize + blobSize, recordSize <= end - offset,
-                  uint(4, as: UInt16.self) == 2, uint(16, as: UInt64.self) == runtime,
-                  uint(48, as: UInt32.self) == UInt32(recordSize - 56) else {
+                  uint(4, as: UInt16.self) == UInt16(ArtSwiftEventEnvelopeVersion),
+                  uint(16, as: UInt64.self) == runtime,
+                  uint(48, as: UInt32.self) == UInt32(recordSize - envelopeSize) else {
                 throw ArtemisMacError.protocolError("Invalid Artemis event envelope")
             }
             let metaStart = offset + headerSize

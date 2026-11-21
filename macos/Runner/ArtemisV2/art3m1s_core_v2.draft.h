@@ -34,6 +34,14 @@ typedef uint64_t ArtFrameToken;
 #define ART_ABI_V2_MAJOR UINT32_C(2)
 #define ART_SUBMIT_SCHEMA_VERSION UINT16_C(1)
 
+/* poll_events record prefix: little-endian envelope followed by two body lengths. */
+#define ART_EVENT_ENVELOPE_VERSION UINT16_C(2)
+#define ART_EVENT_ENVELOPE_BYTES UINT32_C(56)
+#define ART_EVENT_BODY_HEADER_BYTES UINT32_C(8)
+#define ART_EVENT_FLAG_REQUIRES_REPLY UINT32_C(1)
+#define ART_EVENT_FLAG_CRITICAL UINT32_C(2)
+#define ART_EVENT_FLAG_JSON_BLOB UINT32_C(256)
+
 #define ART_HOST_CAP_IO UINT64_C(1)
 #define ART_HOST_CAP_UI UINT64_C(2)
 #define ART_HOST_CAP_MEDIA UINT64_C(4)
