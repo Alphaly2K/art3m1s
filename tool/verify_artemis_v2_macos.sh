@@ -59,10 +59,21 @@ exports=$(/usr/bin/nm -arch "$arch" -gUj "$mac/libart3m1s_artemis_core.dylib")
 [[ "$exports" == _art3m1s_get_api_v2 ]] || fail 'expected only art3m1s_get_api_v2 from Core'
 verify_exports "$mac/libart3m1s_artemis_media_host.dylib" art3m1s_artemis_media_get_api_v1
 
+metal_host="$mac/libart3m1s_artemis_metal_host.dylib"
+/usr/bin/otool -arch "$arch" -l "$metal_host" | awk '
+  $1 == "cmd" { command = $2 }
+  $1 == "name" && $2 == "/System/Library/Frameworks/MetalFX.framework/Versions/A/MetalFX" {
+    found = (command == "LC_LOAD_WEAK_DYLIB")
+  }
+  END { exit !found }
+' || fail 'Metal Host must weak-link MetalFX'
+
 metal_exports=(
   art3m1s_metal_host_v1_create art3m1s_metal_host_v1_destroy
   art3m1s_metal_host_v1_set_surface art3m1s_metal_host_v1_present art3m1s_metal_host_v1_capture
   art3m1s_metal_host_v1_create_angle art3m1s_metal_host_v1_prepare_glsl art3m1s_metal_host_v1_set_glsl_cache
+  art3m1s_metal_host_v1_create_mixed
+  art3m1s_metal_host_v1_supports_spatial_upscaling art3m1s_metal_host_v1_set_spatial_upscale
 )
 compiler_present=
 if [[ -n ${ARTEMIS_V2_HLSL_COMPILER_DIR:-} || -e "$mac/artemis-hlsl-compile" ||
@@ -85,10 +96,10 @@ if [[ -n ${ARTEMIS_V2_DXVK_RUNTIME_DIR:-} || -e "$frameworks/$dxvk_bridge" ||
     art_dxvk_program_create art_dxvk_program_destroy \
     art_dxvk_targets_create art_dxvk_targets_destroy art_dxvk_draw
   metal_exports+=(
-    art3m1s_metal_host_v1_create_dxvk art3m1s_metal_host_v1_create_mixed art3m1s_metal_host_v1_prepare_ade2
+    art3m1s_metal_host_v1_create_dxvk art3m1s_metal_host_v1_prepare_ade2
   )
 fi
-verify_exports "$mac/libart3m1s_artemis_metal_host.dylib" "${metal_exports[@]}"
+verify_exports "$metal_host" "${metal_exports[@]}"
 
 if [[ -n $compiler_present ]]; then
   for name in artemis-hlsl-compile libvkd3d-utils.1.dylib libvkd3d-shader.1.dylib libvkd3d.1.dylib; do
