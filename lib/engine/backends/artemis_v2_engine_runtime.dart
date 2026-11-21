@@ -10,6 +10,7 @@ import 'package:flutter/services.dart' show PlatformException;
 
 import '../../models/game_engine.dart';
 import '../../models/input_gate.dart';
+import '../../models/render_output.dart';
 import '../../services/logger.dart';
 import '../../services/script_http_client.dart';
 import '../../services/text_translation_service.dart';
@@ -93,6 +94,9 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
   int get stageWidth => _width;
   @override
   int get stageHeight => _height;
+  @override
+  bool get supportsSpatialUpscaling =>
+      _session?.supportsSpatialUpscaling ?? false;
   @override
   int? get sharedTextureId => _textureID;
   @override
@@ -639,7 +643,20 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     if (session == null || _closed || !_residency.isRunning) return null;
     final (width, height) = (outputWidth ?? _width, outputHeight ?? _height);
     final revision = ++_surfaceRevision;
-    final id = await session.setSurface(width, height);
+    final spatialScale =
+        session.supportsSpatialUpscaling && width > _width && height > _height
+        ? authoredSceneRenderScale(
+            stageWidth: _width,
+            stageHeight: _height,
+            outputWidth: width,
+            outputHeight: height,
+          )
+        : null;
+    final id = await session.setSurface(
+      width,
+      height,
+      spatialScale: spatialScale,
+    );
     if (_closed || revision != _surfaceRevision) return null;
     _outputWidth = width;
     _outputHeight = height;

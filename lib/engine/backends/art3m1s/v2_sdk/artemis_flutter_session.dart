@@ -120,10 +120,15 @@ final class ArtemisFlutterEvent {
 /// save, media, and UI services.
 final class ArtemisFlutterSession {
   static const _channel = MethodChannel('moe.alphaly.art3m1s/artemis_v2');
-  ArtemisFlutterSession._(this._id, this.usesDxvk);
+  ArtemisFlutterSession._(
+    this._id,
+    this.usesDxvk,
+    this.supportsSpatialUpscaling,
+  );
 
   final String _id;
   final bool usesDxvk;
+  final bool supportsSpatialUpscaling;
   bool _closed = false;
 
   static Future<
@@ -174,6 +179,7 @@ final class ArtemisFlutterSession {
     final session = ArtemisFlutterSession._(
       result['session'] as String,
       result['dxvk'] == true,
+      result['spatialUpscaling'] == true,
     );
     try {
       return (
@@ -193,8 +199,12 @@ final class ArtemisFlutterSession {
     return _channel.invokeMethod<T>(name, {'session': _id, ...args});
   }
 
-  Future<int> setSurface(int width, int height) async =>
-      (await _call<int>('surface', {'width': width, 'height': height}))!;
+  Future<int> setSurface(int width, int height, {double? spatialScale}) async =>
+      (await _call<int>('surface', {
+        'width': width,
+        'height': height,
+        'spatialScale': ?spatialScale,
+      }))!;
 
   Future<void> detachSurface() => _call<void>('detach');
 

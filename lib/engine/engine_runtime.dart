@@ -226,6 +226,7 @@ abstract interface class EngineRuntime {
 }
 
 /// A runtime whose native presentation is driven asynchronously by the player.
+/// [EngineRuntime.enableSharedTexture] configures the output and its scaling together.
 abstract interface class AsyncTextureRuntime implements EngineRuntime {
   /// Advance the due logical frames and present the latest output once.
   Future<bool> advanceTextureBatch(Iterable<int> frameDeltasMs);

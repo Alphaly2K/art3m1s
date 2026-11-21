@@ -64,6 +64,8 @@ typedef __typeof__(art3m1s_metal_host_v1_create_mixed) *ArtSwiftMixedCreate;
 typedef __typeof__(art3m1s_metal_host_v1_prepare_ade2) *ArtSwiftPrepareADE2;
 typedef __typeof__(art3m1s_metal_host_v1_destroy) *ArtSwiftMetalDestroy;
 typedef __typeof__(art3m1s_metal_host_v1_set_surface) *ArtSwiftMetalSurface;
+typedef __typeof__(art3m1s_metal_host_v1_supports_spatial_upscaling) *ArtSwiftMetalSupportsSpatial;
+typedef __typeof__(art3m1s_metal_host_v1_set_spatial_upscale) *ArtSwiftMetalSetSpatial;
 typedef __typeof__(art3m1s_metal_host_v1_present) *ArtSwiftMetalPresent;
 typedef __typeof__(art3m1s_metal_host_v1_capture) *ArtSwiftMetalCapture;
 

@@ -691,7 +691,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
           outputWidth: extent.width,
           outputHeight: extent.height,
         );
-        _configureRenderOutput(extent);
+        if (_bridge is! AsyncTextureRuntime) _configureRenderOutput(extent);
         // The external texture ID changes on every recreation. Rebuild now;
         // visibility is restored only after Core presents its first new frame.
         if (mounted && !_closing) setState(() {});

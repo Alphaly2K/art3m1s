@@ -88,10 +88,11 @@ private enum ArtemisFlutterError: Error {
             }
             let screenshots = args["screenshots"] as? Bool ?? false
             let randomSeed = UInt64.random(in: .min ... .max)
-            func openRenderer(angle: String? = nil, dxvk: String? = nil) throws -> ArtemisMacSession {
+            func openRenderer(angle: String? = nil, dxvk: String? = nil,
+                              angleEffectsOnly: Bool = false) throws -> ArtemisMacSession {
                 try ArtemisMacSession(corePath: corePath, metalPath: headless ? nil : metalPath, hostCaps: caps,
                                       screenshots: screenshots, randomSeed: randomSeed,
-                                      angleDirectory: angle, dxvkDirectory: dxvk)
+                                      angleDirectory: angle, dxvkDirectory: dxvk, angleEffectsOnly: angleEffectsOnly)
             }
             let effects = args["hlslEffects"] as? [[String: Any]] ?? []
             let prewarmMilliseconds = min(5000, max(0, args["hlslPrewarmMilliseconds"] as? Int ?? 5000))
@@ -101,17 +102,16 @@ private enum ArtemisFlutterError: Error {
             let hlslOnDemand = args["hlslOnDemand"] as? Bool ?? (args["compileHlsl"] as? Bool == true)
             let canTryDXVK = !headless && (!prefersAngle || requestedMixed) && (hlslOnDemand || !effects.isEmpty)
             let dxvk = canTryDXVK ? dxvkDirectory : nil
-            var candidates: [(angle: String?, dxvk: String?)] = []
+            var candidates: [(angle: String?, dxvk: String?, angleEffectsOnly: Bool)] = []
             if requestedMixed, let angleDirectory, let dxvk {
-                candidates.append((angleDirectory, dxvk))
+                candidates.append((angleDirectory, dxvk, false))
             }
-            if requestedMixed, prefersAngle, let angleDirectory {
-                candidates.append((angleDirectory, nil))
-            }
-            if let dxvk { candidates.append((nil, dxvk)) }
-            if requestedMixed, !prefersAngle, let angleDirectory {
-                candidates.append((angleDirectory, nil))
-            }
+            let glslCandidates = (requestedMixed ? angleDirectory : nil).map { directory in
+                [(directory, nil as String?, true), (directory, nil as String?, false)]
+            } ?? []
+            if prefersAngle { candidates.append(contentsOf: glslCandidates) }
+            if let dxvk { candidates.append((nil, dxvk, false)) }
+            if !prefersAngle { candidates.append(contentsOf: glslCandidates) }
 
             var selected: ArtemisMacSession?
             var usesAngle = prefersAngle && !requestedMixed
@@ -119,7 +119,8 @@ private enum ArtemisFlutterError: Error {
             var preparedHlsl: [Int] = []
             for candidate in candidates {
                 do {
-                    let session = try openRenderer(angle: candidate.angle, dxvk: candidate.dxvk)
+                    let session = try openRenderer(angle: candidate.angle, dxvk: candidate.dxvk,
+                                                   angleEffectsOnly: candidate.angleEffectsOnly)
                     if candidate.dxvk != nil {
                         for (index, effect) in effects.prefix(256).enumerated() {
                             if ProcessInfo.processInfo.systemUptime >= hlslDeadline { break }
@@ -160,6 +161,7 @@ private enum ArtemisFlutterError: Error {
                 var result = try state(core)
                 result["session"] = id
                 result["dxvk"] = usesDXVK
+                result["spatialUpscaling"] = core.supportsSpatialUpscaling
                 result["preparedHlsl"] = preparedHlsl
                 sessions[id] = Session(core)
                 return result
@@ -187,9 +189,13 @@ private enum ArtemisFlutterError: Error {
                   (1...16384).contains(width), (1...16384).contains(height) else {
                 throw ArtemisFlutterError.invalidArguments
             }
+            let scale = args["spatialScale"] as? Double ?? 0
+            guard scale == 0 || (0.1...1.0).contains(scale) else {
+                throw ArtemisFlutterError.invalidArguments
+            }
             try detach(session)
             let texture = try Texture(width: width, height: height)
-            try session.core.setSurface(texture.buffer)
+            try session.core.setSurface(texture.buffer, spatialScale: Float(scale))
             let textureID = registry.register(texture)
             session.texture = (textureID, texture)
             return textureID

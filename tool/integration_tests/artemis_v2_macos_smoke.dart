@@ -362,8 +362,17 @@ end
     if (!await runtime.loadProjectBytes(ini!)) {
       throw StateError('Cannot open v2 project.');
     }
-    final texture = await runtime.enableSharedTexture();
-    if (texture == null) throw StateError('No Flutter texture.');
+    final spatial = runtime.supportsSpatialUpscaling;
+    final output = spatial ? 8 : 4;
+    final texture = await runtime.enableSharedTexture(
+      outputWidth: output,
+      outputHeight: output,
+    );
+    if (texture == null ||
+        runtime.sharedTextureWidth != output ||
+        runtime.sharedTextureHeight != output) {
+      throw StateError('The initial Flutter texture has the wrong extent.');
+    }
     final boundaryKey = GlobalKey();
     runApp(
       Center(
@@ -539,6 +548,20 @@ end
       height: 2,
       blue: true,
     );
+    if (spatial) {
+      final original = await runtime.enableSharedTexture();
+      if (original == null ||
+          original == texture ||
+          runtime.sharedTextureWidth != 4 ||
+          runtime.sharedTextureHeight != 4 ||
+          !await runtime.advanceTexture(16)) {
+        throw StateError('Original-size presentation did not resume.');
+      }
+      runApp(Center(child: Texture(textureId: original)));
+      stdout.writeln(
+        'Artemis v2 spatial output and original-size redraw passed',
+      );
+    }
     await WidgetsBinding.instance.endOfFrame;
     await runtime.setSessionState(EngineSessionState.suspended);
     if (runtime.hasActiveSharedTexture) {

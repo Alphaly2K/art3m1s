@@ -36,8 +36,10 @@ ArtStatus art3m1s_metal_host_v1_prepare_glsl(ArtMetalHost *host, ArtBytes source
  * initializes the DXVK device. */
 ArtStatus art3m1s_metal_host_v1_create_dxvk(const ArtFrameApiV2 *frames, ArtRuntimeHandle runtime,
                                            const char *directory, ArtMetalHost **out);
-/* Negotiate ART_MIXED_HOST_V1_RENDERER_CAPS and supply both runtime directories.
- * Both effect languages can be used in the same frame. */
+/* Metal renders the frame, with ANGLE for GLSL effects and optional DXVK for
+ * HLSL effects. Supply absolute UTF-8 runtime directories. If dxvk_directory
+ * is NULL, negotiate ART_ANGLE_HOST_V1_RENDERER_CAPS. Otherwise negotiate
+ * ART_MIXED_HOST_V1_RENDERER_CAPS to use both languages in the same frame. */
 ArtStatus art3m1s_metal_host_v1_create_mixed(const ArtFrameApiV2 *frames, ArtRuntimeHandle runtime,
                                             const char *dxvk_directory, const char *angle_directory,
                                             ArtMetalHost **out);
@@ -50,6 +52,16 @@ ArtStatus art3m1s_metal_host_v1_destroy(ArtMetalHost *host);
 /* Supply a BGRA IOSurface and keep it alive until detached or destroyed.
  * NULL detaches. A failed replacement leaves the adapter detached. */
 ArtStatus art3m1s_metal_host_v1_set_surface(ArtMetalHost *host, IOSurfaceRef surface);
+
+/* Writes 1 if this renderer's device supports spatial upscaling, or 0 otherwise. */
+ArtStatus art3m1s_metal_host_v1_supports_spatial_upscaling(ArtMetalHost *host, uint8_t *out_supported);
+
+/* Set the output-relative render scale in [0.1, 1] for spatial upscaling.
+ * Rendering stays at least as large as the stage. Pass 0 to restore native
+ * rendering. Unsupported renderers reject a nonzero scale. Capture stays at
+ * the logical stage size. Set before attaching the surface to size the target
+ * once, then pass after_frame_id = 0 to present the latest frame. */
+ArtStatus art3m1s_metal_host_v1_set_spatial_upscale(ArtMetalHost *host, float render_scale);
 
 /* ART_OK means a complete image is available to the surface consumer. Only
  * then is out_frame_id nonzero. ART_NO_DATA leaves the image untouched. Pass

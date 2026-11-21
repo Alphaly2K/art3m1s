@@ -91,6 +91,8 @@ private struct ArtemisMacMetal {
     let attach: ArtSwiftMetalSurface
     let present: ArtSwiftMetalPresent
     let capture: ArtSwiftMetalCapture
+    let supportsSpatial: ArtSwiftMetalSupportsSpatial?
+    let setSpatial: ArtSwiftMetalSetSpatial?
 
     init(_ library: ArtemisMacLibrary) throws {
         create = try library.symbol("art3m1s_metal_host_v1_create", as: ArtSwiftMetalCreate.self)
@@ -98,6 +100,9 @@ private struct ArtemisMacMetal {
         attach = try library.symbol("art3m1s_metal_host_v1_set_surface", as: ArtSwiftMetalSurface.self)
         present = try library.symbol("art3m1s_metal_host_v1_present", as: ArtSwiftMetalPresent.self)
         capture = try library.symbol("art3m1s_metal_host_v1_capture", as: ArtSwiftMetalCapture.self)
+        supportsSpatial = try? library.symbol("art3m1s_metal_host_v1_supports_spatial_upscaling",
+                                              as: ArtSwiftMetalSupportsSpatial.self)
+        setSpatial = try? library.symbol("art3m1s_metal_host_v1_set_spatial_upscale", as: ArtSwiftMetalSetSpatial.self)
     }
 }
 
@@ -148,7 +153,8 @@ private final class ArtemisMacLifetime {
     private var pollCapacity = 4096
 
     init(corePath: String, metalPath: String?, hostCaps: UInt64, screenshots: Bool = false,
-         randomSeed: UInt64 = 0, angleDirectory: String? = nil, dxvkDirectory: String? = nil) throws {
+         randomSeed: UInt64 = 0, angleDirectory: String? = nil, dxvkDirectory: String? = nil,
+         angleEffectsOnly: Bool = false) throws {
         let core = try ArtemisMacLibrary(path: corePath)
         let getAPI = try core.symbol("art3m1s_get_api_v2", as: ArtSwiftGetAPI.self)
         let rootSize = UInt32(MemoryLayout<ArtRootApiV2>.size)
@@ -194,11 +200,15 @@ private final class ArtemisMacLifetime {
                 let metalLibrary = try ArtemisMacLibrary(path: metalPath)
                 let metal = try ArtemisMacMetal(metalLibrary)
                 var renderer: OpaquePointer?
-                if let angleDirectory, let dxvkDirectory {
+                if let angleDirectory, dxvkDirectory != nil || angleEffectsOnly {
                     let create = try metalLibrary.symbol("art3m1s_metal_host_v1_create_mixed", as: ArtSwiftMixedCreate.self)
-                    try check(dxvkDirectory.withCString { dxvk in
-                        angleDirectory.withCString { angle in create(frames, handle, dxvk, angle, &renderer) }
-                    }, "create mixed renderer")
+                    let status = angleDirectory.withCString { angle in
+                        if let dxvkDirectory {
+                            return dxvkDirectory.withCString { create(frames, handle, $0, angle, &renderer) }
+                        }
+                        return create(frames, handle, nil, angle, &renderer)
+                    }
+                    try check(status, "create Metal renderer with shader effects")
                 } else if let angleDirectory {
                     let create = try metalLibrary.symbol("art3m1s_metal_host_v1_create_angle", as: ArtSwiftAngleCreate.self)
                     try check(angleDirectory.withCString { create(frames, handle, $0, &renderer) }, "create ANGLE renderer")
@@ -364,10 +374,22 @@ private final class ArtemisMacLifetime {
                                 runtime: native.handle, sessionID: sessionID)
     }
 
-    func setSurface(_ buffer: CVPixelBuffer?) throws {
+    var supportsSpatialUpscaling: Bool {
+        guard let renderer = lifetime.native?.renderer, renderer.metal.setSpatial != nil,
+              let supports = renderer.metal.supportsSpatial else { return false }
+        var supported: UInt8 = 0
+        return supports(renderer.handle, &supported) == ArtSwiftOK && supported == 1
+    }
+
+    func setSurface(_ buffer: CVPixelBuffer?, spatialScale: Float = 0) throws {
         let renderer = try liveRenderer()
         let surface = buffer.flatMap { CVPixelBufferGetIOSurface($0)?.takeUnretainedValue() }
         if buffer != nil && surface == nil { throw ArtemisMacError.protocolError("Pixel buffer has no IOSurface") }
+        if buffer != nil, let setSpatial = renderer.metal.setSpatial {
+            try check(setSpatial(renderer.handle, spatialScale), "configure spatial upscaling")
+        } else if spatialScale != 0 {
+            throw ArtemisMacError.protocolError("Renderer does not support spatial upscaling")
+        }
         let status = renderer.metal.attach(renderer.handle, surface)
         lifetime.native?.surface = status == ArtSwiftOK ? buffer : nil
         presented = 0
