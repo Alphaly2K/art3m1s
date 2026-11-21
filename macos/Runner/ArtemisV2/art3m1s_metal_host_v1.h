@@ -41,8 +41,9 @@ ArtStatus art3m1s_metal_host_v1_create_dxvk(const ArtFrameApiV2 *frames, ArtRunt
 ArtStatus art3m1s_metal_host_v1_create_mixed(const ArtFrameApiV2 *frames, ArtRuntimeHandle runtime,
                                             const char *dxvk_directory, const char *angle_directory,
                                             ArtMetalHost **out);
-/* Prepare a program for the exact HLSL source bytes before frames use it.
- * Both byte ranges are borrowed for this call only. */
+/* Prepare a program for the exact HLSL source bytes. Both byte ranges are
+ * borrowed for this call only. If the latest frame has already been drawn,
+ * call present with after_frame_id = 0 to redraw it with the new program. */
 ArtStatus art3m1s_metal_host_v1_prepare_ade2(ArtMetalHost *host, ArtBytes source, ArtBytes artifact);
 ArtStatus art3m1s_metal_host_v1_destroy(ArtMetalHost *host);
 

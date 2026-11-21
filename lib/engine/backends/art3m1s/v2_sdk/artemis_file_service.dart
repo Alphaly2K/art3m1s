@@ -34,9 +34,12 @@ const _statKind = 1,
     _abortKind = 6;
 
 /// Resolve a normalized asset key and its optional modification time in the
-/// Host's existing resource layers. Return null when the winning asset
-/// cannot be read within [maxBytes].
+/// Host's existing resource layers. A callback may also accept a named
+/// `int? maxBytes` parameter and return null if the asset exceeds that limit.
 typedef ArtemisReadAsset =
+    ({Uint8List bytes, DateTime? modified})? Function(String key);
+
+typedef _BoundedAssetReader =
     ({Uint8List bytes, DateTime? modified})? Function(
       String key, {
       int? maxBytes,
@@ -56,6 +59,7 @@ final class ArtemisFileService {
 
   static const capabilities = 1 | 32;
   static const _maxFileSize = 64 * 1024 * 1024;
+  static final _maxWireSize = (BigInt.one << 64) - BigInt.one;
   static const _maxChunkSize = 1024 * 1024;
   static const _stagingPrefix = '.artemis-write-';
 
@@ -158,8 +162,23 @@ final class ArtemisFileService {
     DateTime? modified;
     if (namespace == 'asset') {
       final budget = event.metadata['max_read_bytes'];
-      final maxBytes = budget == null ? null : _decimal(budget, _maxFileSize);
-      final asset = readAsset(key, maxBytes: maxBytes);
+      int? maxBytes;
+      if (budget != null) {
+        if (budget is! String ||
+            budget.length > 20 ||
+            !_unsignedDecimal.hasMatch(budget)) {
+          throw const _IoFailure('io_error');
+        }
+        final limit = BigInt.parse(budget);
+        if (limit > _maxWireSize) throw const _IoFailure('io_error');
+        maxBytes = limit > BigInt.from(_maxFileSize)
+            ? _maxFileSize
+            : limit.toInt();
+      }
+      final reader = readAsset;
+      final asset = reader is _BoundedAssetReader
+          ? reader(key, maxBytes: maxBytes)
+          : reader(key);
       if (asset != null) {
         if (asset.bytes.length > (maxBytes ?? _maxFileSize)) {
           throw const _IoFailure('denied');

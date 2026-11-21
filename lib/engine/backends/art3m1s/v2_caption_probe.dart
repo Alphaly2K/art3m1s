@@ -45,7 +45,7 @@ Future<String?> probeArtemisV2Caption({
     );
     session = opened.session;
     service = ArtemisFileService.assetsOnly(
-      readAsset: (key, {maxBytes}) {
+      readAsset: (key, {int? maxBytes}) {
         final bytes = readAsset(key, maxBytes: maxBytes);
         return bytes == null ? null : (bytes: bytes, modified: null);
       },

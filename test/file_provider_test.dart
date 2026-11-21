@@ -115,7 +115,7 @@ void main() {
     final files = ProjectVfs.openDirectory(project.path);
     addTearDown(files.close);
     final service = ArtemisFileService.assetsOnly(
-      readAsset: (key, {maxBytes}) {
+      readAsset: (key, {int? maxBytes}) {
         final bytes = files.readFile(key, maxBytes: maxBytes);
         return bytes == null ? null : (bytes: bytes, modified: null);
       },

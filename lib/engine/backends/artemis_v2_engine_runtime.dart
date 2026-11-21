@@ -532,7 +532,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
       }
       _files = ArtemisFileService(
         saveRoot: layout.directory,
-        readAsset: (key, {maxBytes}) {
+        readAsset: (key, {int? maxBytes}) {
           final asset = _asset(key, maxBytes: maxBytes);
           return asset == null ? null : (bytes: asset, modified: null);
         },

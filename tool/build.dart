@@ -652,6 +652,7 @@ void _checkArtemisV2Bindings(Directory project, Directory core) {
   };
   const dartCopies = {
     'artemis_flutter_session.dart': 'tools/host-bindings/flutter',
+    'artemis_file_service.dart': 'tools/host-bindings/dart/lib',
     'artemis_media.dart': 'tools/host-bindings/dart/lib',
   };
   final copies = {
