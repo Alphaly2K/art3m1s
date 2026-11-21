@@ -44,9 +44,9 @@ final class ArtemisFlutterEvent {
       epoch = wire['epoch'] as String,
       sequence = wire['sequence'] as String,
       request = wire['request'] as String,
-      metadata =
-          jsonDecode(utf8.decode(wire['metadata'] as Uint8List))
-              as Map<String, Object?>,
+      metadata = jsonDecode(
+        utf8.decode(wire['metadata'] as Uint8List),
+      ) as Map<String, Object?>,
       blob = wire['blob'] as Uint8List;
 
   final String _owner;
@@ -130,6 +130,20 @@ final class ArtemisFlutterSession {
   final bool usesDxvk;
   final bool supportsSpatialUpscaling;
   bool _closed = false;
+
+  static Future<bool> hasProductionRuntime() async {
+    try {
+      return await _channel.invokeMethod<bool>(
+            'hasProductionRuntime',
+            const {},
+          ) ??
+          false;
+    } on MissingPluginException {
+      return false;
+    } on PlatformException {
+      return false;
+    }
+  }
 
   static Future<bool> hasDxvkRuntime() async {
     try {

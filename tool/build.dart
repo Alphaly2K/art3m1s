@@ -536,15 +536,17 @@ Future<void> _buildMacos(
   BuildOptions options,
 ) async {
   final krkrSource = Platform.environment['KRKRSDL3_SOURCE_DIR'];
-  if (options.artemisV2 &&
-      (Platform.environment['ARTEMIS_V2_HLSL_COMPILER_DIR']?.isNotEmpty ??
-          false) &&
-      (Platform.environment['ARTEMIS_V2_DXVK_RUNTIME_DIR']?.isEmpty ?? true)) {
+  final hasCompiler =
+      Platform.environment['ARTEMIS_V2_HLSL_COMPILER_DIR']?.isNotEmpty ?? false;
+  final hasDxvk =
+      Platform.environment['ARTEMIS_V2_DXVK_RUNTIME_DIR']?.isNotEmpty ?? false;
+  final bundleArtemisV2 = options.artemisV2 || hasDxvk;
+  if (hasCompiler && !hasDxvk) {
     throw UsageException(
       'ARTEMIS_V2_HLSL_COMPILER_DIR requires ARTEMIS_V2_DXVK_RUNTIME_DIR',
     );
   }
-  if (options.artemisV2) _checkArtemisV2Bindings(project, core);
+  if (bundleArtemisV2) _checkArtemisV2Bindings(project, core);
   final ffmpegPrefix = Directory('${project.path}/.build/ffmpeg-macos/prefix');
   if (!_ffmpegMacosReady(ffmpegPrefix)) {
     await _run(
@@ -603,7 +605,7 @@ Future<void> _buildMacos(
   await _run('${project.path}/scripts/build_angle.sh', const <String>[
     'macos',
   ], workingDirectory: project);
-  final artemisRuntime = options.artemisV2
+  final artemisRuntime = bundleArtemisV2
       ? await _buildArtemisV2Macos(project, core, ffmpegPrefix, suffix)
       : '';
   await _run(
@@ -625,7 +627,7 @@ Future<void> _buildMacos(
   if (options.krkr) {
     await _bundleKrkrMacos(project, core, options.profile, krkrSource!);
   }
-  if (options.artemisV2) {
+  if (bundleArtemisV2) {
     await _run('bash', [
       'tool/verify_artemis_v2_macos.sh',
       _macosApp(project, options.profile).path,

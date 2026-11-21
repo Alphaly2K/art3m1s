@@ -6,6 +6,7 @@ import 'package:macos_window_utils/macos/ns_window_button_type.dart';
 import 'package:macos_window_utils/macos_window_utils.dart';
 import 'package:window_manager/window_manager.dart';
 
+import 'engine/engine_runtime_factory.dart';
 import 'services/app_info.dart';
 import 'services/app_data_paths.dart';
 import 'services/logger.dart';
@@ -76,6 +77,10 @@ void main(List<String> args) async {
     StorageService.ensureInitialized,
   );
   await StartupDiagnostics.step('app-info', AppInfo.init);
+  await StartupDiagnostics.step(
+    'artemis-runtime',
+    EngineRuntimeFactory.initialize,
+  );
   Log.info('Art3m1s 启动');
 
   // 崩溃/错误上报：默认关闭，用户在设置中明确开启且构建注入了 DSN 才启用。

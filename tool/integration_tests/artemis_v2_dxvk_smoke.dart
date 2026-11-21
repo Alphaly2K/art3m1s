@@ -82,9 +82,10 @@ void main() { gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0); }
     ).writeAsBytesSync(artifact);
   }
 
+  await EngineRuntimeFactory.initialize();
   final runtime = EngineRuntimeFactory.create(engine: GameEngineKind.art3m1s);
   if (runtime is! ArtemisV2EngineRuntime) {
-    throw StateError('Build with --dart-define=ARTEMIS_V2=true.');
+    throw StateError('Bundle the complete runtime or enable the v2 preview.');
   }
   try {
     await runtime.initialize();

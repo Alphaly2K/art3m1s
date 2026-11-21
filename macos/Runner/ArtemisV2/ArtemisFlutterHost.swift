@@ -70,11 +70,27 @@ private enum ArtemisFlutterError: Error {
         sessions.removeAll()
     }
 
+    private var hasProductionRuntime: Bool {
+        guard let mediaPath, let angleDirectory, let dxvkDirectory else { return false }
+        let files = FileManager.default
+        let compilerDirectory = (corePath as NSString).deletingLastPathComponent
+        let required = [corePath, metalPath, mediaPath,
+                        "\(angleDirectory)/libEGL.dylib", "\(angleDirectory)/libGLESv2.dylib",
+                        "\(dxvkDirectory)/libart3m1s_artemis_dxvk_host.dylib",
+                        "\(dxvkDirectory)/libdxvk_d3d11.0.dylib", "\(dxvkDirectory)/libdxvk_dxgi.0.dylib",
+                        "\(dxvkDirectory)/libMoltenVK.dylib", "\(dxvkDirectory)/libSDL3.0.dylib",
+                        "\(compilerDirectory)/libvkd3d-utils.1.dylib", "\(compilerDirectory)/libvkd3d-shader.1.dylib",
+                        "\(compilerDirectory)/libvkd3d.1.dylib"]
+        return required.allSatisfy { files.isReadableFile(atPath: $0) } &&
+            files.isExecutableFile(atPath: "\(compilerDirectory)/artemis-hlsl-compile")
+    }
+
     func handle(_ call: FlutterMethodCall) throws -> Any? {
         guard let args = call.arguments as? [String: Any] else {
             throw ArtemisFlutterError.invalidArguments
         }
         if call.method == "hasDxvkRuntime" { return dxvkDirectory != nil }
+        if call.method == "hasProductionRuntime" { return hasProductionRuntime }
         if call.method == "open" {
             guard let ini = bytes(args["ini"]),
                   let platform = args["platform"] as? String else { throw ArtemisFlutterError.invalidArguments }

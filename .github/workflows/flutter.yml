@@ -12,7 +12,7 @@ on:
         type: boolean
         default: false
       artemis_v2_shaders:
-        description: Build the Artemis v2 preview with DXVK and the HLSL compiler (macOS 15+)
+        description: Bundle DXVK and the HLSL compiler (v2 selected on macOS 15+)
         type: boolean
         default: false
 
@@ -134,7 +134,10 @@ jobs:
           path: art3m1s/build/app/outputs/flutter-apk/app-release.apk
 
   apple:
-    runs-on: ${{ inputs.artemis_v2_shaders && 'macos-15' || 'macos-latest' }}
+    runs-on: ${{ (github.event_name == 'push' || inputs.artemis_v2_shaders) && 'macos-15' || 'macos-latest' }}
+    env:
+      ARTEMIS_V2_SHADERS: ${{ github.event_name == 'push' || inputs.artemis_v2_shaders }}
+      ARTEMIS_V2_PREVIEW: ${{ inputs.artemis_v2 }}
     steps:
       - name: Checkout art3m1s-core
         uses: actions/checkout@v4
@@ -175,7 +178,7 @@ jobs:
         working-directory: art3m1s
         run: bash tool/native_host_tests/run.sh
       - name: Build macOS Artemis v2 shader runtime
-        if: ${{ inputs.artemis_v2_shaders }}
+        if: ${{ env.ARTEMIS_V2_SHADERS == 'true' }}
         working-directory: art3m1s-core
         run: |
           brew install bison cmake glslang make meson ninja pkg-config
@@ -191,7 +194,6 @@ jobs:
         working-directory: art3m1s
         env:
           CORE_SRC: ${{ github.workspace }}/art3m1s-core
-          ARTEMIS_V2_PREVIEW: ${{ inputs.artemis_v2 || inputs.artemis_v2_shaders }}
         run: |
           if [[ "$ARTEMIS_V2_PREVIEW" == true ]]; then
             dart run tool/build.dart macos --release --siglus --artemis-v2
@@ -199,29 +201,29 @@ jobs:
             dart run tool/build.dart macos --release --siglus
           fi
       - name: Upload macOS app
-        if: ${{ !inputs.artemis_v2 && !inputs.artemis_v2_shaders }}
+        if: ${{ env.ARTEMIS_V2_SHADERS != 'true' && env.ARTEMIS_V2_PREVIEW != 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: Art3m1s-macos-arm64
           path: art3m1s/build/macos/Build/Products/Release/*.app
-      - name: Archive macOS Artemis v2 preview
-        if: ${{ inputs.artemis_v2 || inputs.artemis_v2_shaders }}
+      - name: Archive macOS Artemis v2 app
+        if: ${{ env.ARTEMIS_V2_SHADERS == 'true' || env.ARTEMIS_V2_PREVIEW == 'true' }}
         working-directory: art3m1s
         run: |
           ditto -c -k --sequesterRsrc --keepParent \
             build/macos/Build/Products/Release/art3m1s.app build/Art3m1s-macos-arm64-artemis-v2.zip
-      - name: Verify macOS Artemis v2 preview archive
-        if: ${{ inputs.artemis_v2 || inputs.artemis_v2_shaders }}
+      - name: Verify macOS Artemis v2 archive
+        if: ${{ env.ARTEMIS_V2_SHADERS == 'true' || env.ARTEMIS_V2_PREVIEW == 'true' }}
         working-directory: art3m1s
         run: |
           if ! command -v ffmpeg >/dev/null; then brew install ffmpeg; fi
           bash tool/verify_artemis_v2_archive.sh \
             build/Art3m1s-macos-arm64-artemis-v2.zip "${{ github.workspace }}/art3m1s-core" --compile-only
-      - name: Upload macOS Artemis v2 preview
-        if: ${{ inputs.artemis_v2 || inputs.artemis_v2_shaders }}
+      - name: Upload macOS Artemis v2 archive
+        if: ${{ env.ARTEMIS_V2_SHADERS == 'true' || env.ARTEMIS_V2_PREVIEW == 'true' }}
         uses: actions/upload-artifact@v4
         with:
-          name: Art3m1s-macos-arm64-artemis-v2
+          name: ${{ github.event_name == 'push' && 'Art3m1s-macos-arm64' || 'Art3m1s-macos-arm64-artemis-v2' }}
           path: art3m1s/build/Art3m1s-macos-arm64-artemis-v2.zip
           if-no-files-found: error
       - name: Build iOS

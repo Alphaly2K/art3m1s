@@ -4,6 +4,7 @@ import '../models/game_engine.dart';
 import '../services/logger.dart';
 import 'backends/art3m1s_engine_runtime.dart';
 import 'backends/art3m1s/v2_caption_probe.dart';
+import 'backends/art3m1s/v2_sdk/artemis_flutter_session.dart';
 import 'backends/artemis_v2_engine_runtime.dart';
 import 'backends/krkr_engine_runtime.dart';
 import 'backends/rfvp_engine_runtime.dart';
@@ -11,8 +12,21 @@ import 'backends/siglus_engine_runtime.dart';
 import 'engine_runtime.dart';
 
 class EngineRuntimeFactory {
+  static const _artemisOverride = bool.hasEnvironment('ARTEMIS_V2');
+  static bool _hasProductionArtemis = false;
+
   static bool get _artemisV2 =>
-      Platform.isMacOS && const bool.fromEnvironment('ARTEMIS_V2');
+      Platform.isMacOS &&
+      (_artemisOverride
+          ? const bool.fromEnvironment('ARTEMIS_V2')
+          : _hasProductionArtemis);
+
+  static Future<void> initialize() async {
+    if (Platform.isMacOS && !_artemisOverride) {
+      _hasProductionArtemis =
+          await ArtemisFlutterSession.hasProductionRuntime();
+    }
+  }
 
   const EngineRuntimeFactory._();
 
