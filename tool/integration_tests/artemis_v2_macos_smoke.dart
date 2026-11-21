@@ -36,6 +36,29 @@ Future<void> main() async {
 }
 
 Future<void> _run(Directory root, HttpServer server) async {
+  final titleProbe = Directory('${root.path}/title-probe')..createSync();
+  File(
+    '${titleProbe.path}/system.ini',
+  ).writeAsStringSync('[WINDOWS]\nWIDTH=4\nHEIGHT=4\nBOOT=boot.iet\n');
+  File('${titleProbe.path}/boot.iet').writeAsStringSync(r'''
+*top
+[var name=t.title data=fixture]
+[var name=t.accepted data=1]
+[dialog title=Name varname=t.accepted textfield=t.title]
+[seplay id=probe file=unused.wav]
+[wait se=probe]
+[caption data="$t.accepted + ':' + t.title"]
+[stop]
+''');
+  final importedTitle = await EngineRuntimeFactory.probeCaption(
+    engine: GameEngineKind.art3m1s,
+    projectPath: titleProbe.path,
+    isPfsArchive: false,
+  );
+  if (importedTitle != '0:fixture') {
+    throw StateError('Headless title probe did not skip unavailable services.');
+  }
+
   var cancelStarted = false;
   HttpResponse? delayedTranslation;
   server.listen((request) async {
