@@ -28,6 +28,7 @@ Future<void> _run(Directory root) async {
   final game = Directory('${root.path}/game')..createSync();
   final saves = Directory('${root.path}/saves')..createSync();
   final runtimeOnly = Platform.environment['ARTEMIS_ANGLE_TEST_RUNTIME'] == '1';
+  final spatial = Platform.environment['ARTEMIS_ANGLE_TEST_SPATIAL'] == '1';
   File(
     '${game.path}/system.ini',
   ).writeAsStringSync('[IOS]\nWIDTH=4\nHEIGHT=4\nBOOT=boot.iet\n');
@@ -87,7 +88,12 @@ float4 main() : SV_Target { return float4(1.0, 0.0, 0.0, 1.0); }
       throw StateError('ANGLE project failed to open.');
     }
     if (runtimeOnly) writeShaders();
-    final texture = await runtime.enableSharedTexture();
+    if (spatial && !runtime.supportsSpatialUpscaling) {
+      throw StateError('The Metal renderer did not offer spatial upscaling.');
+    }
+    final texture = spatial
+        ? await runtime.enableSharedTexture(outputWidth: 8, outputHeight: 8)
+        : await runtime.enableSharedTexture();
     if (texture == null) throw StateError('No Flutter texture.');
     final boundaryKey = GlobalKey();
     runApp(
@@ -108,11 +114,13 @@ float4 main() : SV_Target { return float4(1.0, 0.0, 0.0, 1.0); }
       if (await runtime.advanceTexture(16)) {
         final (top, bottom) = await _colors(await _composition(boundaryKey));
         if (top[1] > 32 && top[1] < 223 && top[2] > 32 && top[2] < 223) {
-          if (top[0] != 0 ||
+          // MetalFX can sharpen the color boundary between the two halves.
+          final tolerance = spatial ? 8 : 1;
+          if (top[0] > (spatial ? tolerance : 0) ||
               bottom[0] < 32 ||
-              (bottom[0] - top[2]).abs() > 1 ||
-              bottom[1] != top[1] ||
-              bottom[2] != top[2] ||
+              (bottom[0] - top[2]).abs() > tolerance ||
+              (bottom[1] - top[1]).abs() > (spatial ? tolerance : 0) ||
+              (bottom[2] - top[2]).abs() > (spatial ? tolerance : 0) ||
               top[3] != 255 ||
               bottom[3] != 255) {
             throw StateError('Incorrect transition pixels: $top, $bottom.');
@@ -134,6 +142,7 @@ float4 main() : SV_Target { return float4(1.0, 0.0, 0.0, 1.0); }
     const green = [0, 255, 0, 255];
     await _expect(await _loadPng(saves, 'after'), green, green);
     await _expect(await _composition(boundaryKey), green, green);
+    if (spatial) stdout.writeln('Spatial GLSL presentation passed');
   } finally {
     await runtime.close();
   }
@@ -151,7 +160,12 @@ Future<ui.Image> _loadPng(Directory saves, String name) async {
     await File('${saves.path}/save/$name.png').readAsBytes(),
   );
   try {
-    return (await codec.getNextFrame()).image;
+    final image = (await codec.getNextFrame()).image;
+    if (image.width != 4 || image.height != 4) {
+      image.dispose();
+      throw StateError('The screenshot does not match the logical stage size.');
+    }
+    return image;
   } finally {
     codec.dispose();
   }
