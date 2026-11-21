@@ -145,7 +145,7 @@ final class ArtemisFileService {
   /// Commit a Host-produced save artifact, such as a screenshot.
   String replaceSave(int epoch, String key, Uint8List bytes) {
     if (_closed || !_accepting || _epoch != epoch) return 'cancelled';
-    if (bytes.length > _maxFileSize) return 'denied';
+    if (_root == null || bytes.length > _maxFileSize) return 'denied';
     try {
       _replaceSave(key, bytes);
       return 'ok';
