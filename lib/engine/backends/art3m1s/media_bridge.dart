@@ -870,6 +870,8 @@ class _AudioHandle {
   double _effectiveVolume = 1;
   double _volumeScale = 1;
 
+  bool get canReportStarted => !_hostSuspended && _hostSuspensionChange == null;
+
   static Future<_AudioHandle> create({
     required String? id,
     required File? file,

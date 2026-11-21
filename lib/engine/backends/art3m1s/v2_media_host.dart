@@ -394,7 +394,7 @@ final class ArtemisV2MediaHost extends MediaBridge {
       await handle.play();
       if (!_current(track) || track.stopping) return;
       track.ready = true;
-      if (!_suspended) _started(track);
+      _reportStartedIfReady(track);
       if (play.fadeMs > 0) {
         _runAudio(track, handle.fadeTo(track.gain, play.fadeMs));
       }
@@ -439,6 +439,16 @@ final class ArtemisV2MediaHost extends MediaBridge {
 
   bool _current(_V2AudioPlayback track) =>
       identical(_playbacks[track.play.id], track);
+
+  void _reportStartedIfReady(_V2AudioPlayback track) {
+    if (!_suspended &&
+        track.ready &&
+        !track.stopping &&
+        _current(track) &&
+        track.handle?.canReportStarted == true) {
+      _started(track);
+    }
+  }
 
   void _started(_V2AudioPlayback track) {
     if (!track.started) {
@@ -503,9 +513,7 @@ final class ArtemisV2MediaHost extends MediaBridge {
     Future<void> suspendTrack(_V2AudioPlayback track) async {
       try {
         await track.handle?.setHostSuspended(suspended);
-        if (!_suspended && track.ready && !track.stopping && _current(track)) {
-          _started(track);
-        }
+        if (!suspended) _reportStartedIfReady(track);
       } catch (_) {
         _finish(track, ArtemisPlaybackStatus.failed);
       }
