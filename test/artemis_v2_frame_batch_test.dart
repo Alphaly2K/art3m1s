@@ -202,6 +202,112 @@ void main() {
     }
   });
 
+  test('v2 redraws at the stage size after a failed upscale request', () async {
+    const channel = MethodChannel('moe.alphaly.art3m1s/artemis_v2');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final saves = Directory.systemTemp.createTempSync('artemis-surface-');
+    final runtime = ArtemisV2EngineRuntime()..setSaveDir(saves.path);
+    final requests = <(int, int, double?)>[];
+    final resizeEntered = Completer<void>();
+    final allowResize = Completer<void>();
+    var opening = true;
+    var presentations = 0;
+    const state = {
+      'session': '1',
+      'epoch': '1',
+      'width': 4,
+      'height': 4,
+      'phase': 1,
+      'waitFlags': 0,
+      'exitRequested': false,
+      'spatialUpscaling': true,
+    };
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      switch (call.method) {
+        case 'open':
+          return state;
+        case 'poll':
+          if (!opening) return <Object>[];
+          opening = false;
+          return [
+            {
+              'owner': '1',
+              'domain': 1,
+              'kind': 1,
+              'epoch': '1',
+              'sequence': '1',
+              'request': '0',
+              'metadata': Uint8List.fromList(
+                utf8.encode('{"save_path":"save"}'),
+              ),
+              'blob': Uint8List(0),
+            },
+          ];
+        case 'surface':
+          final width = call.arguments['width'] as int;
+          requests.add((
+            width,
+            call.arguments['height'] as int,
+            call.arguments['spatialScale'] as double?,
+          ));
+          if (width == 8) throw PlatformException(code: 'surface_failed');
+          if (width == 16) {
+            resizeEntered.complete();
+            await allowResize.future;
+            throw PlatformException(code: 'stale_surface_failed');
+          }
+          return requests.length;
+        case 'step':
+          return {...state, 'backpressured': false, 'stepFlags': 0};
+        case 'present':
+          return '${++presentations}';
+        case 'close':
+          return null;
+        default:
+          throw StateError('Unexpected method: ${call.method}');
+      }
+    });
+    try {
+      expect(await runtime.loadProjectBytes(Uint8List(0)), isTrue);
+      expect(await runtime.enableSharedTexture(), 1);
+      expect(
+        await runtime.enableSharedTexture(outputWidth: 8, outputHeight: 8),
+        3,
+      );
+      expect(runtime.sharedTextureWidth, 4);
+      expect(runtime.sharedTextureHeight, 4);
+      expect(await runtime.advanceTexture(16), isTrue);
+      expect(presentations, 1);
+
+      final earlier = runtime.enableSharedTexture(
+        outputWidth: 16,
+        outputHeight: 16,
+      );
+      await resizeEntered.future.timeout(const Duration(seconds: 2));
+      expect(
+        await runtime.enableSharedTexture(outputWidth: 6, outputHeight: 6),
+        5,
+      );
+      allowResize.complete();
+      expect(await earlier, isNull);
+      expect(runtime.sharedTextureId, 5);
+      expect(runtime.sharedTextureWidth, 6);
+      expect(requests, [
+        (4, 4, null),
+        (8, 8, 0.5),
+        (4, 4, null),
+        (16, 16, 0.25),
+        (6, 6, 2 / 3),
+      ]);
+    } finally {
+      if (!allowResize.isCompleted) allowResize.complete();
+      await runtime.close();
+      messenger.setMockMethodCallHandler(channel, null);
+      saves.deleteSync(recursive: true);
+    }
+  });
+
   test('v2 warns once per unsupported shader language', () async {
     const channel = MethodChannel('moe.alphaly.art3m1s/artemis_v2');
     final messenger =

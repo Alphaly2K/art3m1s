@@ -647,23 +647,44 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
   }) async {
     final session = _session;
     if (session == null || _closed || !_residency.isRunning) return null;
-    final (width, height) = (outputWidth ?? _width, outputHeight ?? _height);
+    final stage = (_width, _height);
+    var (width, height) = (outputWidth ?? stage.$1, outputHeight ?? stage.$2);
     final revision = ++_surfaceRevision;
+    bool isCurrent() =>
+        !_closed &&
+        identical(session, _session) &&
+        revision == _surfaceRevision;
+
     final spatialScale =
-        session.supportsSpatialUpscaling && width > _width && height > _height
+        session.supportsSpatialUpscaling &&
+            width > stage.$1 &&
+            height > stage.$2
         ? authoredSceneRenderScale(
-            stageWidth: _width,
-            stageHeight: _height,
+            stageWidth: stage.$1,
+            stageHeight: stage.$2,
             outputWidth: width,
             outputHeight: height,
           )
         : null;
-    final id = await session.setSurface(
-      width,
-      height,
-      spatialScale: spatialScale,
-    );
-    if (_closed || revision != _surfaceRevision) return null;
+    int id;
+    try {
+      id = await session.setSurface(width, height, spatialScale: spatialScale);
+    } on PlatformException catch (error) {
+      if (!isCurrent()) return null;
+      _textureID = null;
+      if ((width, height) == stage) rethrow;
+      Log.warn(
+        '[ArtemisV2] output resize failed (${error.code}), using stage size',
+      );
+      (width, height) = stage;
+      try {
+        id = await session.setSurface(width, height);
+      } on PlatformException {
+        if (!isCurrent()) return null;
+        rethrow;
+      }
+    }
+    if (!isCurrent()) return null;
     _outputWidth = width;
     _outputHeight = height;
     return _textureID = id;
