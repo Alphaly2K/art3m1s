@@ -22,6 +22,7 @@ Future<void> main() async {
   final temp = await Directory.systemTemp.createTemp('artemis-v2-app-');
   final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
   try {
+    await EngineRuntimeFactory.initialize();
     await _run(temp, server);
     stdout.writeln('Artemis v2 Flutter application smoke passed');
   } catch (error, stack) {
@@ -334,7 +335,7 @@ end
     onWindowAction: windowActions.add,
   );
   if (runtime is! ArtemisV2EngineRuntime) {
-    throw StateError('Build with ARTEMIS_V2 enabled.');
+    throw StateError('Bundle the complete runtime or enable the v2 preview.');
   }
   try {
     await runtime.initialize();

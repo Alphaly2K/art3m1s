@@ -32,15 +32,19 @@ class EngineRuntimeFactory {
 
   static EngineRuntime create({
     required GameEngineKind engine,
+    int renderBackend = 3,
     void Function(EngineDialogRequest request)? onDialogRequested,
     void Function(EngineWindowAction action)? onWindowAction,
     bool? engineCursorControlEnabled,
   }) {
     return switch (engine) {
-      GameEngineKind.art3m1s when _artemisV2 => ArtemisV2EngineRuntime(
-        onDialogRequested: onDialogRequested,
-        onWindowAction: onWindowAction,
-      ),
+      GameEngineKind.art3m1s
+          when _artemisV2 &&
+              (_artemisOverride || renderBackend == 3 || renderBackend == 6) =>
+        ArtemisV2EngineRuntime(
+          onDialogRequested: onDialogRequested,
+          onWindowAction: onWindowAction,
+        ),
       GameEngineKind.art3m1s => Art3m1sEngineRuntime(
         onDialogRequested: onDialogRequested,
         engineCursorControlEnabled: engineCursorControlEnabled,

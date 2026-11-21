@@ -42,8 +42,9 @@ dart run tool/build.dart [all|ios|ios-obsolete|macos|android|windows|linux] \
 `krkr` 与 `siglus` 参数均需要额外的环境变量，详情参考错误信息。
 需要 H.264 UCI 视频时，设置目标平台的 `FFMPEG_DIR` 后重新构建。
 
-主分支的 macOS 构建包含 Artemis v2 和着色器组件。应用在 macOS 15 或更高版本自动使用 v2，
-旧系统继续使用 v1。`dart run tool/build.dart macos --release --artemis-v2` 可显式构建 v2 预览。
+主分支的 macOS 构建包含 Artemis v2 和着色器组件。macOS 15 或更高版本的 Metal 和 ANGLE / Metal
+设置自动使用 v2。旧系统以及 CGL、GL 设置继续使用 v1。可用
+`dart run tool/build.dart macos --release --artemis-v2` 显式构建 v2 预览。
 手动运行 Flutter 工作流时，`artemis_v2` 用于显式启用预览，`artemis_v2_shaders` 用于打包着色器组件。
 
 启用 `krkr` 参数时，参考下方环境变量设置：

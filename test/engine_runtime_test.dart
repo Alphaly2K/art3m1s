@@ -5,13 +5,17 @@ import 'package:art3m1s/engine/backends/art3m1s/file_provider.dart';
 import 'package:art3m1s/engine/engine_runtime_factory.dart';
 import 'package:art3m1s/engine/engine_runtime.dart';
 import 'package:art3m1s/engine/backends/art3m1s_engine_runtime.dart';
+import 'package:art3m1s/engine/backends/artemis_v2_engine_runtime.dart';
 import 'package:art3m1s/engine/backends/rfvp_engine_runtime.dart';
 import 'package:art3m1s/engine/backends/krkr_engine_runtime.dart';
 import 'package:art3m1s/engine/backends/siglus_engine_runtime.dart';
 import 'package:art3m1s/models/game_engine.dart';
+import 'package:flutter/services.dart' show MethodChannel;
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   test('engine ids keep legacy entries on Artemis', () {
     expect(GameEngineKind.fromId(null), GameEngineKind.art3m1s);
     expect(GameEngineKind.fromId('unknown'), GameEngineKind.art3m1s);
@@ -54,6 +58,37 @@ void main() {
     expect(runtime.kind, GameEngineKind.art3m1s);
     runtime.shutdown();
   });
+
+  test('macOS Artemis keeps explicit legacy renderers on v1', () async {
+    const channel = MethodChannel('moe.alphaly.art3m1s/artemis_v2');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      expect(call.method, 'hasProductionRuntime');
+      return true;
+    });
+    try {
+      await EngineRuntimeFactory.initialize();
+      for (final backend in [0, 1, 3, 6]) {
+        final runtime = EngineRuntimeFactory.create(
+          engine: GameEngineKind.art3m1s,
+          renderBackend: backend,
+        );
+        try {
+          if (backend == 0 || backend == 1) {
+            expect(runtime, isA<Art3m1sEngineRuntime>());
+          } else {
+            expect(runtime, isA<ArtemisV2EngineRuntime>());
+          }
+        } finally {
+          runtime.shutdown();
+        }
+      }
+    } finally {
+      messenger.setMockMethodCallHandler(channel, null);
+      await EngineRuntimeFactory.initialize();
+    }
+  }, skip: !Platform.isMacOS);
 
   test(
     'Artemis media keeps its own asset reader for resident sessions',

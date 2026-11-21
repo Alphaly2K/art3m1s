@@ -16,6 +16,7 @@ import '../models/game_entry.dart';
 import '../models/input_gate.dart';
 import '../navigation/player_page_route.dart';
 import '../providers/library_provider.dart';
+import '../providers/settings_provider.dart';
 import '../screens/player_screen.dart';
 import '../services/app_data_paths.dart';
 import '../services/game_importer.dart';
@@ -595,6 +596,10 @@ class LibraryActions {
             .update(configured.path, krkrEntryXp3: selected);
         configured = configured.copyWith(krkrEntryXp3: selected);
       }
+    }
+    if (Platform.isMacOS && configured.engine == GameEngineKind.art3m1s) {
+      await ref.read(settingsProvider.notifier).ready;
+      if (!context.mounted) return;
     }
     await ref.read(libraryProvider.notifier).markPlayed(configured.path);
     if (!context.mounted) return;

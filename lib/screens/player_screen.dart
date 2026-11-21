@@ -107,6 +107,7 @@ class PlayerScreen extends ConsumerStatefulWidget {
 class _PlayerScreenState extends ConsumerState<PlayerScreen>
     with WidgetsBindingObserver, SingleTickerProviderStateMixin {
   late final EngineRuntime _bridge;
+  late final int? _artemisMacBackend;
   late final Ticker _gameTicker;
   late final DateTime _sessionStartedAt;
   late final GlobalKey _gameCaptureKey = GlobalKey(debugLabel: 'game-capture');
@@ -174,8 +175,13 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     Log.startRuntimeSession();
     _sessionReadyToRun = widget.sessionState.isRunning;
     _sessionStartedAt = DateTime.now();
+    _artemisMacBackend =
+        Platform.isMacOS && widget.engine == GameEngineKind.art3m1s
+        ? ref.read(settingsProvider).backend
+        : null;
     _bridge = EngineRuntimeFactory.create(
       engine: widget.engine,
+      renderBackend: _artemisMacBackend ?? 3,
       onDialogRequested: _showEngineDialog,
       onWindowAction: _handleEngineWindowAction,
     );
@@ -486,7 +492,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     _bridge.configureInputGate(config.inputGate);
 
     _bridge.registerFileReader();
-    final renderBackend = ref.read(settingsProvider).backend;
+    final renderBackend =
+        _artemisMacBackend ?? ref.read(settingsProvider).backend;
     _bridge.createRuntime(_stageW, _stageH, backend: renderBackend);
     // 机种上报覆盖（runtime 已建、项目未加载；空串=跟随平台）。
     _bridge.setReportedOs(config.reportedOs);
