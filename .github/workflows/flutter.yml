@@ -178,7 +178,7 @@ jobs:
         if: ${{ inputs.artemis_v2_shaders }}
         working-directory: art3m1s-core
         run: |
-          brew install bison glslang make meson ninja pkg-config sdl3
+          brew install bison cmake glslang make meson ninja pkg-config
           export PATH="$(brew --prefix bison)/bin:$PATH"
           shader_dir="$RUNNER_TEMP/artemis-shaders"
           bash scripts/build-host-shaders-macos.sh "$shader_dir"
