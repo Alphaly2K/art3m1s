@@ -54,7 +54,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libudev-dev nasm libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev libxss-dev libwayland-dev libxkbcommon-dev libgl1-mesa-dev libegl1-mesa-dev
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y autoconf autoconf-archive automake libtool \
+            libasound2-dev libudev-dev nasm libx11-dev libxext-dev libxrandr-dev \
+            libxcursor-dev libxi-dev libxfixes-dev libxss-dev libwayland-dev \
+            libxkbcommon-dev libgl1-mesa-dev libegl1-mesa-dev
       - name: Cache native dependencies
         uses: actions/cache@v4
         with:
