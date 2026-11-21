@@ -21,6 +21,22 @@ app_minimum=$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$app/C
 app_executable=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")
 # The optional shader runtime is selected on macOS 15 and newer.
 shader_minimum=15.0
+legacy_minimum=12.0
+
+version_at_most() {
+  awk -v minimum="$1" -v maximum="$2" 'BEGIN {
+    if (minimum !~ /^[0-9]+\.[0-9]+(\.[0-9]+)?$/ || maximum !~ /^[0-9]+\.[0-9]+(\.[0-9]+)?$/) exit 1
+    split(minimum, required, ".")
+    split(maximum, supported, ".")
+    for (i = 1; i <= 3; i++) {
+      if (required[i] + 0 != supported[i] + 0) exit (required[i] + 0 > supported[i] + 0)
+    }
+  }'
+}
+
+if ! version_at_most "$app_minimum" "$legacy_minimum"; then
+  fail "launcher advertises macOS $app_minimum and must support macOS $legacy_minimum"
+fi
 
 verify_minimum() {
   local binary=$1 maximum=$2 minimum
@@ -29,14 +45,7 @@ verify_minimum() {
     $1 == "minos" && command == "LC_BUILD_VERSION" { print $2 }
     $1 == "version" && command == "LC_VERSION_MIN_MACOSX" { print $2 }
   ')
-  if ! awk -v minimum="$minimum" -v maximum="$maximum" 'BEGIN {
-    if (minimum !~ /^[0-9]+\.[0-9]+(\.[0-9]+)?$/ || maximum !~ /^[0-9]+\.[0-9]+(\.[0-9]+)?$/) exit 1
-    split(minimum, required, ".")
-    split(maximum, supported, ".")
-    for (i = 1; i <= 3; i++) {
-      if (required[i] + 0 != supported[i] + 0) exit (required[i] + 0 > supported[i] + 0)
-    }
-  }'; then
+  if ! version_at_most "$minimum" "$maximum"; then
     fail "${binary##*/} requires macOS ${minimum:-unknown}, bundle target is $maximum"
   fi
 }
