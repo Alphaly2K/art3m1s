@@ -181,6 +181,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
   }
 
   static const _ade2Folder = 'artemis-shaders/ade2/';
+  static const _maxPrewarmCandidates = 256;
   static const _maxHlslPrewarmBytes = 16 * 1024 * 1024;
   static const _maxGlslSourceBytes = 256 * 1024;
   static const _maxGlslPrewarmBytes = 4 * 1024 * 1024;
@@ -201,7 +202,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     final effects = <({Uint8List source, Uint8List artifact})>[];
     final seen = <String>{};
     var size = 0;
-    for (final path in paths.where(_isAde2Path)) {
+    for (final path in paths.where(_isAde2Path).take(_maxPrewarmCandidates)) {
       final remaining = _maxHlslPrewarmBytes - size;
       if (remaining <= 0 || budget.elapsed >= _hlslPrewarmTime) break;
       final entry = entryPattern.firstMatch(path.substring(_ade2Folder.length));
@@ -226,7 +227,6 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
         seen.add(entry[2]!);
         effects.add((source: source, artifact: artifact));
         size += source.length + artifact.length;
-        if (effects.length == 256) break;
       } on FileSystemException {
         continue;
       }
@@ -254,12 +254,12 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
       0,
       (size, effect) => size + effect.source.length + effect.artifact.length,
     );
-    for (final path in paths.where(_isHlsl)) {
+    for (final path in paths.where(_isHlsl).take(_maxPrewarmCandidates)) {
       final remaining = _maxHlslPrewarmBytes - size;
       if (remaining <= 0 ||
           _closed ||
           !identical(_vfs, files) ||
-          attempted.length >= 256 ||
+          attempted.length >= _maxPrewarmCandidates ||
           budget.elapsed >= _hlslPrewarmTime) {
         break;
       }
@@ -399,7 +399,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     final sources = <Uint8List>[];
     final seen = <Digest>{};
     var size = 0;
-    for (final path in paths.take(256)) {
+    for (final path in paths.take(_maxPrewarmCandidates)) {
       final remaining = _maxGlslPrewarmBytes - size;
       if (remaining <= 0 || budget.elapsed >= _glslPrewarmTime) break;
       try {
