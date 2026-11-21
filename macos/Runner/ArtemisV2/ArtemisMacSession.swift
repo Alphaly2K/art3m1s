@@ -187,26 +187,21 @@ private final class ArtemisMacLifetime {
         } else {
             art_swift_renderer_caps(screenshots ? 1 : 0)
         }
-        var requestedHostCaps = hostCaps
-        let browserCap = UInt64(ArtSwiftOpenBrowserCapability)
-        if hostCaps & browserCap != 0 {
-            let id = UInt32(ArtSwiftCapabilities)
-            let size = UInt32(MemoryLayout<ArtCapabilitiesV2>.size)
-            var table: UnsafeRawPointer?
-            let status = query(id, UInt32(ArtSwiftMajor), size, &table)
-            if status == ArtSwiftUnsupported {
-                requestedHostCaps &= ~browserCap
-            } else {
-                try check(status, "query capabilities", root: root)
-                guard let table else { throw ArtemisMacError.protocolError("Missing Artemis capabilities table") }
-                let capabilities = table.assumingMemoryBound(to: ArtCapabilitiesV2.self).pointee
-                guard art_swift_header_valid(capabilities.header, id, size) != 0 else {
-                    throw ArtemisMacError.protocolError("Invalid Artemis capabilities table")
-                }
-                if capabilities.host_service_caps & browserCap == 0 {
-                    requestedHostCaps &= ~browserCap
-                }
+        let capabilitiesID = UInt32(ArtSwiftCapabilities)
+        let capabilitiesSize = UInt32(MemoryLayout<ArtCapabilitiesV2>.size)
+        var capabilitiesTable: UnsafeRawPointer?
+        let capabilitiesStatus = query(capabilitiesID, UInt32(ArtSwiftMajor), capabilitiesSize, &capabilitiesTable)
+        let requestedHostCaps: UInt64
+        if capabilitiesStatus == ArtSwiftUnsupported {
+            requestedHostCaps = hostCaps & ~UInt64(ArtSwiftOpenBrowserCapability)
+        } else {
+            try check(capabilitiesStatus, "query capabilities", root: root)
+            guard let capabilitiesTable else { throw ArtemisMacError.protocolError("Missing Artemis capabilities table") }
+            let capabilities = capabilitiesTable.assumingMemoryBound(to: ArtCapabilitiesV2.self).pointee
+            guard art_swift_header_valid(capabilities.header, capabilitiesID, capabilitiesSize) != 0 else {
+                throw ArtemisMacError.protocolError("Invalid Artemis capabilities table")
             }
+            requestedHostCaps = hostCaps & capabilities.host_service_caps
         }
         var config = ArtCreateInfo(struct_size: UInt32(MemoryLayout<ArtCreateInfo>.size), flags: 0,
                                    host_service_caps: requestedHostCaps,
