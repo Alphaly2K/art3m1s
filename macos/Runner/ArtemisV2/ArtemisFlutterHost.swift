@@ -604,7 +604,7 @@ private final class VideoTexture: NSObject, FlutterTexture {
 
 private func rgbaPixels(_ buffer: CVPixelBuffer, width: Int, height: Int) throws -> Data {
     guard CVPixelBufferGetPixelFormatType(buffer) == kCVPixelFormatType_32BGRA,
-          (1...16384).contains(width), (1...16384).contains(height), width * height * 4 <= 64 * 1024 * 1024,
+          (1...8192).contains(width), (1...8192).contains(height), width * height * 4 <= 64 * 1024 * 1024,
           CVPixelBufferLockBaseAddress(buffer, .readOnly) == kCVReturnSuccess else {
         throw ArtemisFlutterError.invalidArguments
     }

@@ -58,13 +58,13 @@ sealed class ArtemisMediaCommand {
     if (this case ArtemisVideoPlay(:final id, layer: final String _)) {
       if (frame <= 0 ||
           width <= 0 ||
+          width > 8192 ||
           height <= 0 ||
+          height > 8192 ||
           rgba.length > 64 * 1024 * 1024 ||
-          width > rgba.length ~/ 4 ||
-          height > rgba.length ~/ 4 ||
           width * height * 4 != rgba.length) {
         throw ArgumentError(
-          'Expected a numbered frame of tightly packed RGBA8',
+          'Expected a numbered RGBA8 frame with dimensions up to 8192',
         );
       }
       return {
