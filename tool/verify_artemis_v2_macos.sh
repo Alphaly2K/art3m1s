@@ -42,11 +42,11 @@ verify_minimum() {
 }
 
 verify_binary() {
-  local binary=$1 maximum=${2:-$app_minimum} loads dep path
+  local binary=$1 maximum=${2:-$app_minimum} loads command dep path
   [[ -f "$binary" ]] || fail "missing ${binary##*/}"
   verify_minimum "$binary" "$maximum"
-  loads=$(/usr/bin/otool -arch "$arch" -L "$binary")
-  while IFS= read -r dep; do
+  loads=$(/usr/bin/otool -arch "$arch" -l "$binary")
+  while IFS=$'\t' read -r command dep; do
     case "$dep" in
       /usr/lib/*|/System/Library/*) continue ;;
       @loader_path/*) path="${binary%/*}/${dep#@loader_path/}" ;;
@@ -58,7 +58,17 @@ verify_binary() {
       *) fail "${binary##*/} references external library $dep" ;;
     esac
     [[ -f "$path" ]] || fail "${binary##*/} cannot find $dep in the bundle"
-  done < <(printf '%s\n' "$loads" | awk '/^[[:space:]]/ { sub(/^[[:space:]]+/, ""); sub(/ \(compatibility version.*$/, ""); print }')
+    if [[ "$command" != LC_LOAD_WEAK_DYLIB ]]; then
+      verify_minimum "$path" "$maximum"
+    fi
+  done < <(printf '%s\n' "$loads" | awk '
+    $1 == "cmd" { command = $2 }
+    $1 == "name" && command ~ /^(LC_LOAD_DYLIB|LC_LOAD_WEAK_DYLIB|LC_REEXPORT_DYLIB|LC_LOAD_UPWARD_DYLIB|LC_LAZY_LOAD_DYLIB)$/ {
+      sub(/^[[:space:]]*name /, "")
+      sub(/ \(offset [0-9]+\)$/, "")
+      print command "\t" $0
+    }
+  ')
 }
 
 verify_exports() {
@@ -71,9 +81,10 @@ verify_exports() {
   done
 }
 
-verify_minimum "$mac/$app_executable" "$app_minimum"
+verify_binary "$mac/$app_executable"
 
-for name in libart3m1s_artemis_core.dylib libart3m1s_artemis_metal_host.dylib \
+for name in libart3m1s_core.dylib libpfs_upk.dylib \
+    libart3m1s_artemis_core.dylib libart3m1s_artemis_metal_host.dylib \
     libart3m1s_artemis_media_host.dylib libEGL.dylib libGLESv2.dylib; do
   verify_binary "$mac/$name"
 done
