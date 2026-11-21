@@ -23,7 +23,7 @@ final class ArtemisV2MediaHost extends MediaBridge {
   final _videoAssets = <String, Future<File>>{};
   final _fading = <_AudioHandle, Object>{};
   final _work = <Future<void>>{};
-  final _audioReleases = <Future<void>>{};
+  final _audioReleases = <_AudioHandle, Future<bool>>{};
   Future<void>? _audioReset;
   int _audioGeneration = 0;
   _V2VideoPlayback? _fullscreen;
@@ -391,6 +391,16 @@ final class ArtemisV2MediaHost extends MediaBridge {
       await handle.setHostSuspended(_suspended);
       await handle.setEffectiveVolume(play.fadeMs > 0 ? 0 : track.gain);
       await _audioReset;
+      while (_current(track) && !track.stopping) {
+        final releases = [
+          for (final entry in _audioReleases.entries)
+            if (entry.key.channel == handle.channel &&
+                entry.key.id == handle.id)
+              entry.value,
+        ];
+        if (releases.isEmpty) break;
+        await Future.wait(releases);
+      }
       if (!_current(track) || track.stopping) return;
       await handle.play();
       if (!_current(track) || track.stopping) return;
@@ -597,7 +607,9 @@ final class ArtemisV2MediaHost extends MediaBridge {
       _releaseAudio(handle);
     }
     if (_audioReleases.isEmpty) return;
-    final reset = _audioReset = Future.wait(_audioReleases).then<void>((_) {});
+    final reset = _audioReset = Future.wait(
+      _audioReleases.values,
+    ).then<void>((_) {});
     unawaited(
       reset.whenComplete(() {
         if (identical(_audioReset, reset)) _audioReset = null;
@@ -606,15 +618,18 @@ final class ArtemisV2MediaHost extends MediaBridge {
   }
 
   Future<bool> _releaseAudio(_AudioHandle handle) {
-    var released = false;
-    final work = _run(
-      handle.dispose().then<void>((_) {
-        released = true;
-      }),
-    );
-    _audioReleases.add(work);
-    unawaited(work.whenComplete(() => _audioReleases.remove(work)));
-    return work.then((_) => released);
+    return _audioReleases.putIfAbsent(handle, () {
+      var released = false;
+      final work = _run(
+        handle.dispose().then<void>((_) {
+          released = true;
+        }),
+      );
+      return work.then((_) {
+        _audioReleases.remove(handle);
+        return released;
+      });
+    });
   }
 
   Future<void> _run(Future<void> operation) {

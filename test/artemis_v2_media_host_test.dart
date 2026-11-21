@@ -37,6 +37,9 @@ void main() {
     String? rejectedPausePlayer;
     String? rejectedPanPlayer;
     String? rejectedReleasePlayer;
+    String? replacingPlayer;
+    final replacementStopping = Completer<void>();
+    final allowReplacementStop = Completer<void>();
 
     Future<void> waitFor(bool Function() ready) async {
       if (!ready()) {
@@ -109,6 +112,9 @@ void main() {
             if (id == rejectedPausePlayer) {
               throw PlatformException(code: 'pause_failed');
             }
+          case 'stop' when id == replacingPlayer:
+            replacementStopping.complete();
+            await allowReplacementStop.future;
           case 'stop' when id == fadePlayer:
             if (!fadeStopping.isCompleted) fadeStopping.complete();
             await allowFadeStop.future;
@@ -592,7 +598,40 @@ void main() {
         ('18', ArtemisPlaybackStatus.started),
         ('19', ArtemisPlaybackStatus.started),
       ]);
+
+      replacingPlayer = current;
+      send({
+        'op': 'stop',
+        'playback_ids': ['19'],
+        'time_ms': '0',
+      });
+      await replacementStopping.future.timeout(const Duration(seconds: 2));
+      final openedPlayers = volumes.keys.toSet();
+      play('20');
+      send(playCommand('21', channel: 'se'));
+      await waitFor(
+        () => feedback.contains(('21', ArtemisPlaybackStatus.started)),
+      );
+      await waitFor(
+        () =>
+            volumes.entries
+                .where(
+                  (entry) =>
+                      !openedPlayers.contains(entry.key) &&
+                      entry.value.length >= 2,
+                )
+                .length ==
+            2,
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(feedback, isNot(contains(('20', ArtemisPlaybackStatus.started))));
+      allowReplacementStop.complete();
+      await waitFor(
+        () => feedback.contains(('20', ArtemisPlaybackStatus.started)),
+      );
+      expect(disposed, contains(current));
     } finally {
+      if (!allowReplacementStop.isCompleted) allowReplacementStop.complete();
       if (!allowSource.isCompleted) allowSource.complete();
       if (!allowVolume.isCompleted) allowVolume.complete();
       if (!allowFadeStop.isCompleted) allowFadeStop.complete();
