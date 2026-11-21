@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:art3m1s/engine/backends/artemis_v2_engine_runtime.dart';
+import 'package:art3m1s/engine/engine_runtime.dart';
 import 'package:art3m1s/services/logger.dart';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/services.dart';
@@ -881,6 +882,9 @@ void main() {
         final videoOpened = Completer<void>();
         final videoClosing = Completer<void>();
         final allowVideoClose = Completer<void>();
+        final videoPaused = Completer<void>();
+        final detachStarted = Completer<void>();
+        final allowDetach = Completer<void>();
         final calls = <String>[];
         final closedVideos = <String>[];
         const playback = '9223372036854775809';
@@ -958,6 +962,11 @@ void main() {
                 final data = jsonDecode(
                   utf8.decode(wire['metadata'] as Uint8List),
                 );
+                if (wire['domain'] == 2) {
+                  expect(wire['kind'], 4);
+                  expect(data, isEmpty);
+                  continue;
+                }
                 expect(data['playback_id'], playback);
                 calls.add(data['status'] as String);
               }
@@ -968,7 +977,14 @@ void main() {
             case 'present':
               calls.add('present');
               return '1';
-            case 'videoSuspend' || 'close':
+            case 'videoSuspend':
+              if (call.arguments['suspended'] == true) videoPaused.complete();
+              return null;
+            case 'detach':
+              detachStarted.complete();
+              await allowDetach.future;
+              return null;
+            case 'close':
               return null;
             default:
               throw StateError('Unexpected method: ${call.method}');
@@ -993,6 +1009,26 @@ void main() {
           expect(runtime.media.videoPlayback.value, isNotNull);
 
           const timeout = Duration(seconds: 2);
+          if (!pollFails) {
+            final suspending = runtime.setSessionState(
+              EngineSessionState.suspended,
+            );
+            try {
+              await detachStarted.future.timeout(timeout);
+              await videoPaused.future.timeout(timeout);
+              expect(runtime.sharedTextureId, isNull);
+              expect(await runtime.advanceTextureBatch([16]), isFalse);
+              expect(steps, 3);
+            } finally {
+              allowDetach.complete();
+              await suspending;
+            }
+            expect(
+              await runtime.setSessionState(EngineSessionState.active),
+              EngineSessionState.active,
+            );
+            expect(await runtime.enableSharedTexture(), 0);
+          }
           await runtime.advanceTextureBatch([16]).timeout(timeout);
           if (pollFails) {
             await videoClosing.future.timeout(timeout);

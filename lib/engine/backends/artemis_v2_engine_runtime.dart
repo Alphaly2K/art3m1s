@@ -120,12 +120,15 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     _residency = state == EngineSessionState.hibernated
         ? EngineSessionState.suspended
         : state;
-    if (_residency.releasesPresentation) {
+    final releaseSurface = _residency.releasesPresentation;
+    if (releaseSurface) {
       _surfaceRevision++;
       _textureID = null;
-      await _session?.detachSurface();
     }
-    await media.setSuspended(!_canRun);
+    await Future.wait([
+      media.setSuspended(!_canRun),
+      if (releaseSurface) ?_session?.detachSurface(),
+    ]);
     return _residency;
   }
 
