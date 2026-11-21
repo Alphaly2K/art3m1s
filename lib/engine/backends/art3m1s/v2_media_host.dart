@@ -102,14 +102,14 @@ final class ArtemisV2MediaHost extends MediaBridge {
             case ArtemisAudioAction.stop:
               _stop(track, timeMs);
             case ArtemisAudioAction.gain:
-              track.gain = _gain(value, fallback: track.gain);
+              if (value != null) track.gain = _artemisGain(value);
               final handle = track.handle;
               if (handle != null) {
                 handle.gain = track.gain;
                 _runAudio(track, handle.fadeTo(track.gain, timeMs));
               }
             case ArtemisAudioAction.pan:
-              track.pan = _pan(value);
+              track.pan = _artemisPan(value ?? 0);
               final handle = track.handle;
               if (handle != null) {
                 _runAudio(track, handle.panTo(track.pan, timeMs));
@@ -652,8 +652,8 @@ final class _V2VideoPlayback {
 
 final class _V2AudioPlayback {
   _V2AudioPlayback(this.play, this.feedback)
-    : gain = _gain(play.gain),
-      pan = _pan(play.pan);
+    : gain = _artemisGain(play.gain ?? 1000),
+      pan = _artemisPan(play.pan ?? 0);
 
   final ArtemisAudioPlay play;
   final _PlaybackFeedback feedback;
@@ -662,3 +662,7 @@ final class _V2AudioPlayback {
   double gain, pan;
   bool ready = false, started = false, stopping = false;
 }
+
+double _artemisGain(int value) => math.max(0, value) / 1000;
+
+double _artemisPan(int value) => value.clamp(-1000, 1000) / 1000;

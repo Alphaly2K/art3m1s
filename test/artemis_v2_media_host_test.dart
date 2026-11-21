@@ -134,6 +134,7 @@ void main() {
             }
             (balances[id] ??= []).add(call.arguments['balance'] as double);
             changes.add(null);
+            changes.add(null);
         }
         return null;
       },
@@ -182,6 +183,7 @@ void main() {
       String? replaces,
       String? loopKey,
       int? gain,
+      int? pan,
       String channel = 'bgm',
     }) => {
       'op': 'play',
@@ -192,6 +194,7 @@ void main() {
       'loop': true,
       'loop_key': loopKey,
       'gain': gain,
+      'pan': pan,
       'fade_ms': replaces == null ? '0' : '4000',
       'skippable': false,
       'crossfade': replaces != null,
@@ -201,11 +204,13 @@ void main() {
         send(playCommand(id, replaces: replaces, loopKey: loopKey, gain: gain));
 
     try {
-      play('1', loopKey: 'loop.wav');
+      send(playCommand('1', loopKey: 'loop.wav', gain: 1, pan: -1));
       await waitFor(
         () => feedback.contains(('1', ArtemisPlaybackStatus.started)),
       );
       final intro = resumed.single;
+      expect(volumes[intro]!.last, 0.001);
+      expect(balances[intro]!.last, -0.001);
       await host.setSuspended(true);
       expect(paused, [intro]);
       await audioEvent(intro, {'event': 'audio.onComplete'});
@@ -216,6 +221,8 @@ void main() {
       expect(resumed, hasLength(2));
       final loop = resumed.last;
       expect(loop, isNot(intro));
+      expect(volumes[loop]!.last, 0.001);
+      expect(balances[loop]!.last, -0.001);
       await audioEvent(loop, {'event': 'audio.onComplete'});
       await audioEvent(intro, {'event': 'audio.onComplete'});
       await audioFailure(intro);
@@ -344,6 +351,26 @@ void main() {
       );
       final fresh = resumed.last;
       expect(volumes[fresh]!.last, closeTo(0.4, 0.0001));
+      send({
+        'op': 'gain',
+        'playback_ids': ['4'],
+        'value': 1,
+        'time_ms': '0',
+      });
+      await waitFor(() => volumes[fresh]!.last == 0.0005);
+      send({
+        'op': 'pan',
+        'playback_ids': ['4'],
+        'value': 1,
+        'time_ms': '0',
+      });
+      await waitFor(() => balances[fresh]!.last == 0.001);
+      send({
+        'op': 'gain',
+        'playback_ids': ['4'],
+        'value': 800,
+        'time_ms': '0',
+      });
       host.setAvoidMuted(true);
       await waitFor(() => volumes[fresh]!.last == 0);
       send({'op': 'volume', 'channel': 'bgm', 'level': 500});
@@ -356,7 +383,7 @@ void main() {
       stopGate = Completer<void>();
       send({
         'op': 'restore',
-        'plays': [playCommand('5')],
+        'plays': [playCommand('5', gain: 1, pan: 1)],
         'stop_video': false,
       });
       send(playCommand('6', channel: 'se'));
@@ -381,6 +408,10 @@ void main() {
             feedback.contains(('6', ArtemisPlaybackStatus.started)),
       );
       expect(resumed.length, beforeRestore + 2);
+      final restored = resumed
+          .skip(beforeRestore)
+          .singleWhere((id) => balances[id]!.last == 0.001);
+      expect(volumes[restored]!.last, 0.0000625);
       expect(disposed, contains(fresh));
 
       play('7');
