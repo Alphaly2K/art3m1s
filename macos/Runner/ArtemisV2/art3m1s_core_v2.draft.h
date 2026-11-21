@@ -101,6 +101,8 @@ typedef uint64_t ArtFrameToken;
 #define ART_IO_WRITE_ABORT UINT32_C(6)
 #define ART_RUNTIME_SHUTDOWN UINT32_C(16)
 #define ART_RUNTIME_SET_DEFAULT_FONT UINT32_C(17)
+/* Submit with {"request_id":"..."} targeting a pending IO request. */
+#define ART_RUNTIME_CANCEL_IO UINT32_C(18)
 #define ART_INPUT_KEY UINT32_C(1)
 #define ART_INPUT_POINTER UINT32_C(2)
 #define ART_INPUT_TOUCH UINT32_C(3)

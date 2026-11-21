@@ -17,6 +17,8 @@ enum {
     ArtSwiftRuntimeClosed = ART_RUNTIME_CLOSED_EVENT,
     ArtSwiftFrame = ART_INTERFACE_FRAME,
     ArtSwiftCapabilities = ART_INTERFACE_CAPABILITIES,
+    ArtSwiftRuntimeDomain = ART_DOMAIN_RUNTIME,
+    ArtSwiftCancelIo = ART_RUNTIME_CANCEL_IO,
     ArtSwiftOpenBrowserCapability = ART_HOST_CAP_OPEN_BROWSER,
     ArtSwiftSubmitVersion = ART_SUBMIT_SCHEMA_VERSION,
     ArtSwiftEventEnvelopeVersion = ART_EVENT_ENVELOPE_VERSION,

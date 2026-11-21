@@ -349,6 +349,23 @@ final class ArtemisFlutterSession {
     }))!;
   }
 
+  /// Cancels a delivered file IO request. Drain events and retry after false.
+  Future<bool> cancelIo(ArtemisFlutterEvent event) {
+    if (!event.requiresReply || event.domain != 3) {
+      throw ArgumentError('Expected a file IO request');
+    }
+    return submit([
+      ArtemisFlutterMessage._({
+        'owner': event._owner,
+        'domain': 1,
+        'kind': 18,
+        'epoch': event.epoch,
+        'request': '0',
+        'metadata': _encode({'request_id': event.request}),
+      }),
+    ]);
+  }
+
   Future<void> close() async {
     if (_closed) return;
     final pending = _call<void>('close');

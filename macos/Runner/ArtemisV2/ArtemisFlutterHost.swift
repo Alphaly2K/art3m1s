@@ -332,6 +332,13 @@ private enum ArtemisFlutterError: Error {
                 if let source = args["owner"] as? String, source != owner {
                     throw ArtemisFlutterError.staleReply
                 }
+                if domain == UInt16(ArtSwiftRuntimeDomain), kind == UInt32(ArtSwiftCancelIo),
+                   let fields = (try? JSONSerialization.jsonObject(with: metadata)) as? [String: Any],
+                   let target = (fields["request_id"] as? String).flatMap(UInt64.init),
+                   let original = session.requests[target], original.epoch == epoch,
+                   original.domain == UInt16(ArtSwiftIo) {
+                    acceptedRequests.append(target)
+                }
                 return ArtemisMacMessage(domain: domain, kind: kind, epoch: epoch, metadata: metadata, blob: blob)
             }
             guard args["owner"] as? String == owner,
