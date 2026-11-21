@@ -116,15 +116,12 @@ __engine:setEventHandler{onSave='capture_window'}
     await _until('the minimized session writes its autosave', autosave.exists);
     final globals = File('${data.path}/saves/fixture/save/saveg.dat');
     Map readGlobals() => jsonDecode(globals.readAsStringSync()) as Map;
-    await _until('the script saves its observed window state', globals.exists);
-    final background = readGlobals();
-    if (background['observed_fullscreen'] != 1 ||
-        background['saved_minimized'] != 1) {
-      throw StateError(
-        'Window queries: fullscreen=${background['observed_fullscreen']}, '
-        'minimized during save=${background['saved_minimized']}.',
-      );
-    }
+    await _until('the script saves its minimized window state', () async {
+      if (!await globals.exists()) return false;
+      final background = readGlobals();
+      return background['observed_fullscreen'] == 1 &&
+          background['saved_minimized'] == 1;
+    });
     final checkpoint = File('${data.path}/saves/fixture/save/restored');
     await Future<void>.delayed(const Duration(milliseconds: 1800));
     if (await checkpoint.exists()) {

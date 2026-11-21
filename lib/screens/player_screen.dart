@@ -156,6 +156,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   bool _appActive = true;
   bool _windowMinimized = false;
   NSWindowDelegateHandle? _windowDelegate;
+  bool _artemisFullscreen = false;
+  Completer<void>? _artemisFullscreenExit;
   bool _sessionReadyToRun = false;
   bool _gameLoopStarted = false;
   bool _ps5MenuOpen = false;
@@ -190,7 +192,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       _windowDelegate = WindowManipulator.addNSWindowDelegate(
         _ArtemisPlayerWindowDelegate(
           _setWindowMinimized,
-          (fullscreen) => _bridge.setWindowStateBits(fullscreen: fullscreen),
+          _setArtemisFullscreen,
         ),
       );
     }
@@ -376,7 +378,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         windowManager.isMinimized(),
       ]);
       if (!mounted || _closing) return;
-      _bridge.setWindowStateBits(fullscreen: fullscreen);
+      _setArtemisFullscreen(fullscreen);
       _setWindowMinimized(minimized);
     }
 
@@ -1113,8 +1115,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
           case EngineWindowAction.minimize:
             final shell = _desktopShell;
             if (Platform.isMacOS && shell != null) {
-              // AppKit cannot miniaturize a native fullscreen window.
-              if (!await shell.exitPlayerFullScreen(this) ||
+              if (!await _exitFullscreenForMinimize(shell) ||
                   !_canHandleEngineWindowAction) {
                 return;
               }
@@ -1127,6 +1128,33 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         Log.warn('[Player] Window action failed: $error');
       }
     });
+  }
+
+  void _setArtemisFullscreen(bool fullscreen) {
+    _artemisFullscreen = fullscreen;
+    _bridge.setWindowStateBits(fullscreen: fullscreen);
+    if (!fullscreen) {
+      _artemisFullscreenExit?.complete();
+      _artemisFullscreenExit = null;
+    }
+  }
+
+  Future<bool> _exitFullscreenForMinimize(DesktopShellController shell) async {
+    // AppKit can report a cleared fullscreen flag before its animation ends.
+    Completer<void>? exited;
+    if (_bridge is ArtemisV2EngineRuntime &&
+        (_artemisFullscreen || await windowManager.isFullScreen())) {
+      exited = _artemisFullscreenExit = Completer<void>();
+    }
+    try {
+      if (!await shell.exitPlayerFullScreen(this)) return false;
+      await exited?.future.timeout(const Duration(seconds: 2));
+      return true;
+    } finally {
+      if (identical(_artemisFullscreenExit, exited)) {
+        _artemisFullscreenExit = null;
+      }
+    }
   }
 
   Future<void> _syncArtemisFullscreen() async {
