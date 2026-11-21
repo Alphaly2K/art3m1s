@@ -19,7 +19,8 @@ if [[ ! -f "$mac/art3m1s" || ! -x "$mac/art3m1s" ]]; then
 fi
 bash "$tool_dir/verify_artemis_v2_macos.sh" "$app"
 
-/usr/bin/xcrun clang -std=c11 -Wall -Wextra -Werror -pedantic -I"$2/doc/abi" \
+/usr/bin/xcrun clang -std=c11 -Wall -Wextra -Werror -pedantic -pthread \
+  -DARTEMIS_THREAD_SMOKE -I"$2/doc/abi" \
   "$2/tools/host-smoke/artemis_v2.c" -L"$mac" -lart3m1s_artemis_core \
   -Wl,-rpath,"$mac" -o "$scratch/artemis-v2-smoke"
 "$scratch/artemis-v2-smoke"
