@@ -16,6 +16,7 @@ final class ArtemisV2MediaHost extends MediaBridge {
 
   final ArtemisVideoAssetWriter? writeVideoAsset;
   int _videoAssetGeneration = 0;
+  int _suspensionRevision = 0;
   final _playbacks = <String, _V2AudioPlayback>{};
   final _videos = <String, _V2VideoPlayback>{};
   final _pendingAudioAssets = <String, Future<File?>>{};
@@ -510,6 +511,12 @@ final class ArtemisV2MediaHost extends MediaBridge {
 
   @override
   Future<void> setSuspended(bool suspended) async {
+    final revision = ++_suspensionRevision;
+    final videos = <ArtemisFlutterSession, List<_V2VideoPlayback>>{};
+    for (final track in _videos.values) {
+      if (!track.closing) (videos[track.session] ??= []).add(track);
+    }
+
     Future<void> suspendTrack(_V2AudioPlayback track) async {
       try {
         await track.handle?.setHostSuspended(suspended);
@@ -519,13 +526,36 @@ final class ArtemisV2MediaHost extends MediaBridge {
       }
     }
 
+    Future<void> suspendRetiredAudio(_AudioHandle handle) async {
+      try {
+        await handle.setHostSuspended(suspended);
+      } catch (error) {
+        Log.warn('[ArtemisV2] retired audio suspension: $error');
+        if (_fading.remove(handle) != null) await _releaseAudio(handle);
+      }
+    }
+
+    Future<void> suspendVideos(
+      ArtemisFlutterSession session,
+      List<_V2VideoPlayback> tracks,
+    ) async {
+      try {
+        await session.suspendVideos(suspended);
+      } catch (error) {
+        if (revision != _suspensionRevision) return;
+        Log.warn('[ArtemisV2] video suspension: $error');
+        await Future.wait([
+          for (final track in tracks)
+            _run(_closeVideoThenReport(track, ArtemisPlaybackStatus.failed)),
+        ]);
+      }
+    }
+
     await Future.wait([
-      super.setSuspended(suspended),
+      _run(super.setSuspended(suspended)),
       for (final track in _playbacks.values) suspendTrack(track),
-      for (final handle in _fading.keys) handle.setHostSuspended(suspended),
-      for (final session
-          in _videos.values.map((track) => track.session).toSet())
-        session.suspendVideos(suspended),
+      for (final handle in _fading.keys) suspendRetiredAudio(handle),
+      for (final entry in videos.entries) suspendVideos(entry.key, entry.value),
     ]);
   }
 

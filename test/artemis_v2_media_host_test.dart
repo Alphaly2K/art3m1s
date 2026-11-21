@@ -34,6 +34,7 @@ void main() {
     final allowVolume = Completer<void>();
     final fadeStopping = Completer<void>();
     final allowFadeStop = Completer<void>();
+    String? rejectedPausePlayer;
     String? rejectedPanPlayer;
     String? rejectedReleasePlayer;
 
@@ -105,6 +106,9 @@ void main() {
             await resumeGate?.future;
           case 'pause':
             paused.add(id);
+            if (id == rejectedPausePlayer) {
+              throw PlatformException(code: 'pause_failed');
+            }
           case 'stop' when id == fadePlayer:
             if (!fadeStopping.isCompleted) fadeStopping.complete();
             await allowFadeStop.future;
@@ -537,6 +541,26 @@ void main() {
       expect(feedback.where((entry) => ['16', '17'].contains(entry.$1)), [
         ('17', ArtemisPlaybackStatus.cancelled),
       ]);
+
+      play('18');
+      await waitFor(
+        () => feedback.contains(('18', ArtemisPlaybackStatus.started)),
+      );
+      final retired = rejectedPausePlayer = resumed.last;
+      send(playCommand('19', replaces: '18')..['fade_ms'] = '4000');
+      await waitFor(
+        () => feedback.contains(('19', ArtemisPlaybackStatus.started)),
+      );
+      final current = resumed.last;
+      await host.setSuspended(true);
+      expect(disposed, contains(retired));
+      expect(disposed, isNot(contains(current)));
+      await host.setSuspended(false);
+      expect(resumed.last, current);
+      expect(feedback.where((entry) => ['18', '19'].contains(entry.$1)), [
+        ('18', ArtemisPlaybackStatus.started),
+        ('19', ArtemisPlaybackStatus.started),
+      ]);
     } finally {
       if (!allowSource.isCompleted) allowSource.complete();
       if (!allowVolume.isCompleted) allowVolume.complete();
@@ -560,6 +584,10 @@ void main() {
     final openVolumes = <double>[];
     final closed = <String>[];
     var videoEvents = <Map<String, Object?>>[];
+    var failVideoResume = false;
+    final videoPauseEntered = Completer<void>();
+    final allowVideoPause = Completer<void>();
+    var holdVideoPause = false;
     messenger.setMockMethodCallHandler(channel, (call) async {
       switch (call.method) {
         case 'open':
@@ -575,6 +603,17 @@ void main() {
         case 'videoOpen':
           openVolumes.add(call.arguments['volume'] as double);
           openedVideo.complete(File(call.arguments['path'] as String));
+        case 'videoSuspend':
+          if (holdVideoPause && call.arguments['suspended'] == true) {
+            holdVideoPause = false;
+            videoPauseEntered.complete();
+            await allowVideoPause.future;
+            throw PlatformException(code: 'video_pause_failed');
+          }
+          if (failVideoResume && call.arguments['suspended'] == false) {
+            failVideoResume = false;
+            throw PlatformException(code: 'video_resume_failed');
+          }
         case 'videoPoll':
           final events = videoEvents;
           videoEvents = [];
@@ -708,6 +747,25 @@ void main() {
       expect(await second.readAsBytes(), [2]);
       expect(openVolumes, [0.4, 0.4, 1.0]);
       expect(copyCount, 2);
+      await started('3');
+      holdVideoPause = true;
+      final oldPause = host.setSuspended(true);
+      await videoPauseEntered.future.timeout(timeout);
+      await host.setSuspended(false);
+      allowVideoPause.complete();
+      await oldPause.timeout(timeout);
+      expect(closed, ['1', '2']);
+      expect(host.videoPlayback.value, isNotNull);
+
+      await host.setSuspended(true);
+      failVideoResume = true;
+      await host.setSuspended(false);
+      expect(closed, ['1', '2', '3']);
+      expect(host.videoPlayback.value, isNull);
+      expect(feedback.where((entry) => entry.$1 == '3'), [
+        ('3', ArtemisPlaybackStatus.started),
+        ('3', ArtemisPlaybackStatus.failed),
+      ]);
 
       openedVideo = Completer<File>();
       play('4', 3, skip: 0, key: 'pending.wmv');
@@ -719,6 +777,7 @@ void main() {
       expect(openedVideo.isCompleted, isFalse);
       expect(feedback.map((event) => event.$1), isNot(contains('4')));
     } finally {
+      if (!allowVideoPause.isCompleted) allowVideoPause.complete();
       if (!continueCopy.isCompleted) continueCopy.complete();
       if (!allowClose.isCompleted) allowClose.complete();
       await host.dispose();
