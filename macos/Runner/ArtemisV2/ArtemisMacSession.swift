@@ -249,7 +249,7 @@ private final class ArtemisMacLifetime {
         }
     }
 
-    func warmGLSL(_ sources: [Data], cacheDirectory: URL? = nil) throws {
+    func warmGLSL(_ sources: [Data], cacheDirectory: URL?, deadline: TimeInterval) throws {
         let renderer = try liveRenderer()
         if let cacheDirectory,
            let cache = try? renderer.library.symbol("art3m1s_metal_host_v1_set_glsl_cache", as: ArtSwiftGlslCache.self) {
@@ -258,7 +258,6 @@ private final class ArtemisMacLifetime {
         guard !sources.isEmpty,
               let prepare = try? renderer.library.symbol("art3m1s_metal_host_v1_prepare_glsl", as: ArtSwiftPrepareGlsl.self)
         else { return }
-        let deadline = ProcessInfo.processInfo.systemUptime + 5
         for source in sources {
             if ProcessInfo.processInfo.systemUptime >= deadline { break }
             _ = withBytes(source) { prepare(renderer.handle, $0) }

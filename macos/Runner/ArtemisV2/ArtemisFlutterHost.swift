@@ -96,6 +96,8 @@ private enum ArtemisFlutterError: Error {
             let effects = args["hlslEffects"] as? [[String: Any]] ?? []
             let prewarmMilliseconds = min(5000, max(0, args["hlslPrewarmMilliseconds"] as? Int ?? 5000))
             let hlslDeadline = ProcessInfo.processInfo.systemUptime + Double(prewarmMilliseconds) / 1000
+            let glslPrewarmMilliseconds = min(5000, max(0, args["glslPrewarmMilliseconds"] as? Int ?? 5000))
+            let glslDeadline = ProcessInfo.processInfo.systemUptime + Double(glslPrewarmMilliseconds) / 1000
             let hlslOnDemand = args["hlslOnDemand"] as? Bool ?? (args["compileHlsl"] as? Bool == true)
             let canTryDXVK = !headless && (!prefersAngle || requestedMixed) && (hlslOnDemand || !effects.isEmpty)
             let dxvk = canTryDXVK ? dxvkDirectory : nil
@@ -151,7 +153,7 @@ private enum ArtemisFlutterError: Error {
                             .appendingPathComponent(identifier, isDirectory: true)
                             .appendingPathComponent("artemis-angle", isDirectory: true)
                     }
-                    try core.warmGLSL(sources, cacheDirectory: cacheDirectory)
+                    try core.warmGLSL(sources, cacheDirectory: cacheDirectory, deadline: glslDeadline)
                 }
                 try core.openProject(ini, platform: platform, reportedOS: args["reportedOS"] as? String)
                 let id = UUID().uuidString

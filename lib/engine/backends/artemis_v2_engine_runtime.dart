@@ -181,6 +181,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
   static const _maxGlslSourceBytes = 256 * 1024;
   static const _maxGlslPrewarmBytes = 4 * 1024 * 1024;
   static const _hlslPrewarmTime = Duration(seconds: 5);
+  static const _glslPrewarmTime = Duration(seconds: 5);
   static const _maxRuntimeHlslPrograms = 256;
   static const _maxRecentHlslFailures = 256;
 
@@ -390,13 +391,13 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
   static bool _isGlsl(String path) =>
       const {'.glsl', '.frag', '.fsh', '.fs'}.any(path.endsWith);
 
-  List<Uint8List> _knownGlslSources(Iterable<String> paths) {
+  List<Uint8List> _knownGlslSources(Iterable<String> paths, Stopwatch budget) {
     final sources = <Uint8List>[];
     final seen = <Digest>{};
     var size = 0;
     for (final path in paths.take(256)) {
       final remaining = _maxGlslPrewarmBytes - size;
-      if (remaining <= 0) break;
+      if (remaining <= 0 || budget.elapsed >= _glslPrewarmTime) break;
       try {
         final source = _asset(
           path,
@@ -483,6 +484,8 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
         ? const <({Uint8List source, Uint8List artifact})>[]
         : await _prepareHlslEffects(files, paths, compiler, hlslBudget);
     if (_closed || !identical(files, _vfs)) return false;
+    final glslBudget = Stopwatch()..start();
+    final glslSources = _knownGlslSources(glsl, glslBudget);
     final opened = await ArtemisFlutterSession.open(
       ini: iniContent,
       platform: platform,
@@ -499,7 +502,8 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
       mixedShaders: mixedShaders,
       hlslEffects: hlslEffects,
       hlslOnDemand: !_preferAngle && files != null,
-      glslSources: _knownGlslSources(glsl),
+      glslSources: glslSources,
+      glslPrewarmBudget: _glslPrewarmTime - glslBudget.elapsed,
       hlslPrewarmBudget: _hlslPrewarmTime - hlslBudget.elapsed,
     );
     try {
