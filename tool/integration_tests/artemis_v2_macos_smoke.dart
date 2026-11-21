@@ -11,6 +11,7 @@ import 'package:art3m1s/engine/engine_runtime.dart';
 import 'package:art3m1s/engine/engine_runtime_factory.dart';
 import 'package:art3m1s/models/game_engine.dart';
 import 'package:art3m1s/models/translation_settings.dart';
+import 'package:art3m1s/services/logger.dart';
 import 'package:art3m1s/services/text_translation_service.dart';
 import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/rendering.dart' show RenderRepaintBoundary;
@@ -194,6 +195,7 @@ Future<void> _run(Directory root, HttpServer server) async {
   File('${game.path}/boot.iet').writeAsStringSync('''
 *top
 [calllua function=boot]
+[video file=../invalid.wmv]
 [lyc id=1 width=4 height=4 color=ff00ff00]
 [takess]
 [lydel id=1]
@@ -383,6 +385,7 @@ end
     );
     runtime.setSaveDir(gameSaves.path);
     runtime.createRuntime(4, 4);
+    final firstLog = Log.entries.length;
     if (!await runtime.loadProjectBytes(ini!)) {
       throw StateError('Cannot open v2 project.');
     }
@@ -530,6 +533,15 @@ end
         !File('${saves.path}/numbered').existsSync() ||
         File('${saves.path}/slot').readAsStringSync() != 'confirmed') {
       throw StateError('The v2 project did not persist and present.');
+    }
+    if (!Log.entries
+        .skip(firstLog)
+        .any(
+          (entry) =>
+              entry.message ==
+              '[ArtemisV2] video playback skipped: invalid asset key',
+        )) {
+      throw StateError('The Runner did not receive the Core script warning.');
     }
     if (!Directory('${saves.path}/protected.png').existsSync()) {
       throw StateError('The screenshot save replaced a directory.');
