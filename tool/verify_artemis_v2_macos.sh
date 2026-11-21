@@ -17,9 +17,34 @@ fail() {
   exit 1
 }
 
+app_minimum=$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$app/Contents/Info.plist")
+app_executable=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")
+# The optional shader runtime is selected on macOS 15 and newer.
+shader_minimum=15.0
+
+verify_minimum() {
+  local binary=$1 maximum=$2 minimum
+  minimum=$(/usr/bin/vtool -arch "$arch" -show-build "$binary" | awk '
+    $1 == "cmd" { command = $2 }
+    $1 == "minos" && command == "LC_BUILD_VERSION" { print $2 }
+    $1 == "version" && command == "LC_VERSION_MIN_MACOSX" { print $2 }
+  ')
+  if ! awk -v minimum="$minimum" -v maximum="$maximum" 'BEGIN {
+    if (minimum !~ /^[0-9]+\.[0-9]+(\.[0-9]+)?$/ || maximum !~ /^[0-9]+\.[0-9]+(\.[0-9]+)?$/) exit 1
+    split(minimum, required, ".")
+    split(maximum, supported, ".")
+    for (i = 1; i <= 3; i++) {
+      if (required[i] + 0 != supported[i] + 0) exit (required[i] + 0 > supported[i] + 0)
+    }
+  }'; then
+    fail "${binary##*/} requires macOS ${minimum:-unknown}, bundle target is $maximum"
+  fi
+}
+
 verify_binary() {
-  local binary=$1 loads dep path
+  local binary=$1 maximum=${2:-$app_minimum} loads dep path
   [[ -f "$binary" ]] || fail "missing ${binary##*/}"
+  verify_minimum "$binary" "$maximum"
   loads=$(/usr/bin/otool -arch "$arch" -L "$binary")
   while IFS= read -r dep; do
     case "$dep" in
@@ -45,6 +70,8 @@ verify_exports() {
       fail "${binary##*/} is missing export $symbol"
   done
 }
+
+verify_minimum "$mac/$app_executable" "$app_minimum"
 
 for name in libart3m1s_artemis_core.dylib libart3m1s_artemis_metal_host.dylib \
     libart3m1s_artemis_media_host.dylib libEGL.dylib libGLESv2.dylib; do
@@ -86,7 +113,7 @@ if [[ -n ${ARTEMIS_V2_DXVK_RUNTIME_DIR:-} || -e "$frameworks/$dxvk_bridge" ||
     -e "$resources/ArtemisDXVK-Licenses" || -n $compiler_present ]]; then
   for name in "$dxvk_bridge" libdxvk_d3d11.0.dylib \
       libdxvk_dxgi.0.dylib libMoltenVK.dylib libSDL3.0.dylib; do
-    verify_binary "$frameworks/$name"
+    verify_binary "$frameworks/$name" "$shader_minimum"
   done
   for name in DXVK.txt MoltenVK.txt SDL3.txt dxbc-spirv.txt libdisplay-info.txt; do
     [[ -s "$resources/ArtemisDXVK-Licenses/$name" ]] || fail "missing DXVK dependency notice $name"
@@ -103,7 +130,7 @@ verify_exports "$metal_host" "${metal_exports[@]}"
 
 if [[ -n $compiler_present ]]; then
   for name in artemis-hlsl-compile libvkd3d-utils.1.dylib libvkd3d-shader.1.dylib libvkd3d.1.dylib; do
-    verify_binary "$mac/$name"
+    verify_binary "$mac/$name" "$shader_minimum"
   done
   [[ -x "$mac/artemis-hlsl-compile" ]] || fail 'HLSL compiler is not executable'
   [[ -s "$resources/ArtemisHLSL/licenses/vkd3d-COPYING.txt" ]] || fail 'missing HLSL compiler license'
