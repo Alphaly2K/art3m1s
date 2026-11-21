@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:art3m1s/engine/backends/art3m1s/project_vfs.dart';
+import 'package:art3m1s/engine/backends/art3m1s_engine_runtime.dart';
 import 'package:art3m1s/engine/backends/artemis_v2_engine_runtime.dart';
 import 'package:art3m1s/engine/engine_runtime.dart';
 import 'package:art3m1s/engine/engine_runtime_factory.dart';
@@ -24,8 +25,13 @@ Future<void> main() async {
   final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
   try {
     await EngineRuntimeFactory.initialize();
-    await _run(temp, server);
-    stdout.writeln('Artemis v2 Flutter application smoke passed');
+    if (Platform.environment['ARTEMIS_EXPECT_LEGACY_FALLBACK'] == '1') {
+      await _runLegacyFallback(temp);
+      stdout.writeln('Artemis v1 Flutter application fallback smoke passed');
+    } else {
+      await _run(temp, server);
+      stdout.writeln('Artemis v2 Flutter application smoke passed');
+    }
   } catch (error, stack) {
     stderr.writeln('$error\n$stack');
     exitCode = 1;
@@ -34,6 +40,27 @@ Future<void> main() async {
     await temp.delete(recursive: true);
   }
   exit(exitCode);
+}
+
+Future<void> _runLegacyFallback(Directory project) async {
+  const engine = GameEngineKind.art3m1s;
+  if (EngineRuntimeFactory.create(engine: engine) is! Art3m1sEngineRuntime) {
+    throw StateError('The production selector did not choose Artemis v1.');
+  }
+  File(
+    '${project.path}/system.ini',
+  ).writeAsStringSync('[WINDOWS]\nWIDTH=4\nHEIGHT=4\nBOOT=boot.iet\n');
+  File(
+    '${project.path}/boot.iet',
+  ).writeAsStringSync('*top\n[caption data=legacy_ready]\n[stop]\n');
+  final title = await EngineRuntimeFactory.probeCaption(
+    engine: engine,
+    projectPath: project.path,
+    isPfsArchive: false,
+  );
+  if (title != 'legacy_ready') {
+    throw StateError('Artemis v1 did not return the script title: $title');
+  }
 }
 
 Future<void> _run(Directory root, HttpServer server) async {
