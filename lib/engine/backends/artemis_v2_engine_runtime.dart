@@ -76,7 +76,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
   int? _textureID;
   int _surfaceRevision = 0;
   bool _environmentPatch = false;
-  bool _appBackgrounded = false;
+  int _appLifecycle = 2;
   bool _closed = false;
   bool _finishingSession = false;
   static const _normalWindow = (fullscreen: false, minimized: false);
@@ -85,7 +85,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
 
   bool get _acceptsSceneServices => !_closed && !_finishingSession;
   bool get _canRun =>
-      _acceptsSceneServices && !_appBackgrounded && _residency.isRunning;
+      _acceptsSceneServices && _appLifecycle == 2 && _residency.isRunning;
 
   @override
   bool get isInitialized => !_closed;
@@ -1167,22 +1167,24 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
 
   @override
   void notifyLifecycle(int state) {
-    if (_closed || state < 0 || state > 2) return;
-    final backgrounded = state != 2;
-    if (_appBackgrounded == backgrounded) return;
-    if (backgrounded) _input(4, const {});
-    _appBackgrounded = backgrounded;
+    if (_closed || state < 0 || state > 2 || _appLifecycle == state) return;
+    final wasForeground = _appLifecycle == 2;
+    final foreground = state == 2;
+    if (wasForeground && !foreground) _input(4, const {});
+    _appLifecycle = state;
     final session = _session;
     if (state == 1 && session != null && _acceptsSceneServices) {
       _backgroundAutosave ??= _saveOnBackground(session).whenComplete(() {
         _backgroundAutosave = null;
       });
     }
-    unawaited(
-      media.setSuspended(!_canRun).catchError((Object error) {
-        Log.warn('[ArtemisV2] media lifecycle: $error');
-      }),
-    );
+    if (wasForeground != foreground) {
+      unawaited(
+        media.setSuspended(!_canRun).catchError((Object error) {
+          Log.warn('[ArtemisV2] media lifecycle: $error');
+        }),
+      );
+    }
   }
 
   Future<void> _saveOnBackground(ArtemisFlutterSession session) async {

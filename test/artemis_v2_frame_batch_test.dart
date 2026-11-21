@@ -821,6 +821,8 @@ void main() {
         runtime.feedKey(70, true);
         final advancing = runtime.advanceTextureBatch([16, 17]);
         await submitStarted.future.timeout(const Duration(seconds: 2));
+        runtime.notifyLifecycle(0);
+        runtime.notifyLifecycle(1);
         runtime.notifyLifecycle(1);
         releaseSubmit.complete();
         expect(await advancing, isFalse);
