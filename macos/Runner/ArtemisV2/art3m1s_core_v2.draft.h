@@ -31,6 +31,7 @@ typedef uint64_t ArtFrameToken;
 #define ART_API_MAGIC UINT64_C(0x415254334D324150)
 #define ART_INTERFACE_RUNTIME UINT32_C(1)
 #define ART_INTERFACE_FRAME UINT32_C(2)
+#define ART_INTERFACE_CAPABILITIES UINT32_C(3)
 #define ART_ABI_V2_MAJOR UINT32_C(2)
 #define ART_SUBMIT_SCHEMA_VERSION UINT16_C(1)
 
@@ -245,6 +246,13 @@ typedef struct ArtFrameApiV2 {
     ArtStatus (*texture_rgba)(ArtRuntimeHandle, ArtFrameToken, uint32_t index,
                               ArtBytes *out_pixels);
 } ArtFrameApiV2;
+
+/* Optional information table. Its masks list the bits accepted by create. */
+typedef struct ArtCapabilitiesV2 {
+    ArtApiHeader header;
+    uint64_t host_service_caps;
+    uint64_t renderer_caps;
+} ArtCapabilitiesV2;
 
 typedef struct ArtRootApiV2 {
     ArtApiHeader header;
