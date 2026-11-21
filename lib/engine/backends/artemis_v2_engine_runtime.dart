@@ -976,6 +976,18 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
   }
 
   Future<void> _event(ArtemisFlutterEvent event) async {
+    if (event.domain == 7 && event.kind == 3 && !event.requiresReply) {
+      if (!_closed && event.epoch == _state?.epoch) {
+        final line = utf8.decode(event.blob, allowMalformed: true);
+        switch (event.metadata['level']) {
+          case 'warn':
+            Log.warn('[ArtemisV2] $line');
+          case 'debug' when Log.debugEnabled:
+            Log.debug('[ArtemisV2] $line');
+        }
+      }
+      return;
+    }
     if (event.domain == 7 && event.kind == 2 && !event.requiresReply) {
       if (!_closed && event.epoch == _state?.epoch && Log.debugEnabled) {
         final line = utf8.decode(event.blob, allowMalformed: true);

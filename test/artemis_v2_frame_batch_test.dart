@@ -524,6 +524,22 @@ void main() {
             sequence: '8',
             metadata: '{"url":"https://example.invalid/current"}',
           ),
+          event(
+            domain: 7,
+            kind: 3,
+            epoch: '1',
+            sequence: '9',
+            metadata: '{"level":"warn"}',
+            blob: utf8.encode('Script fixture stale'),
+          ),
+          event(
+            domain: 7,
+            kind: 3,
+            epoch: '2',
+            sequence: '10',
+            metadata: '{"level":"warn"}',
+            blob: utf8.encode('Script fixture current'),
+          ),
         ],
         'close' => null,
         _ => throw StateError('Unexpected method: ${call.method}'),
@@ -534,6 +550,13 @@ void main() {
       final start = Log.entries.length;
       expect(await runtime.loadProjectBytes(Uint8List(0)), isTrue);
       expect(browserRequests, [('2', 'https://example.invalid/current')]);
+      expect(
+        Log.entries
+            .skip(start)
+            .map((entry) => entry.message)
+            .where((message) => message.startsWith('[ArtemisV2] Script fixture')),
+        ['[ArtemisV2] Script fixture current'],
+      );
       expect(
         Log.entries
             .skip(start)
