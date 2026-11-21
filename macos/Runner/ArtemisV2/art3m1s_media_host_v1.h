@@ -41,7 +41,9 @@ typedef struct ArtMediaHostApiV1 {
     void (*close_audio)(ArtMediaAudio *audio);
 } ArtMediaHostApiV1;
 
-/* Serialize all calls for each opened handle. */
+/* The API table is immutable. Separate decoders can run concurrently. For each
+ * handle, serialize next, close, and reads of the borrowed buffer. Copy its
+ * contents before handing them off if the decoder can advance or close. */
 const ArtMediaHostApiV1 *art3m1s_artemis_media_get_api_v1(void);
 
 #ifdef __cplusplus

@@ -18,8 +18,10 @@ extern "C" {
 
 typedef struct ArtMetalHost ArtMetalHost;
 
-/* All calls run on the Core runtime's owner thread. Keep the runtime and its
- * library alive until destroy. The adapter never steps or destroys the runtime. */
+/* All calls run on the Core runtime's owner thread. Destroy the adapter before
+ * the owner exits and before destroying the Core runtime or unloading its library.
+ * A live adapter rejects wrong-thread calls with ART_E_THREAD and reentrant calls
+ * on the same handle with ART_E_STATE. A destroyed handle returns ART_E_HANDLE. */
 ArtStatus art3m1s_metal_host_v1_create(const ArtFrameApiV2 *frames, ArtRuntimeHandle runtime,
                                       ArtMetalHost **out);
 /* ANGLE/Metal uses GLES shaders. Supply an absolute UTF-8 directory containing

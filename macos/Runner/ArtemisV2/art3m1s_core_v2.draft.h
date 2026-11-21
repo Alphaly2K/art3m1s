@@ -212,7 +212,8 @@ typedef struct ArtPollResult {
 } ArtPollResult;
 
 /* Packet is immutable and valid until release(rt, token), including across step.
- * A token pins all referenced CPU resource revisions, never platform objects.
+ * A token pins all referenced CPU resource revisions. Finish all reads of the
+ * packet and texture bytes before releasing the token.
  */
 typedef struct ArtFrameView {
     uint32_t struct_size;
@@ -223,6 +224,11 @@ typedef struct ArtFrameView {
     ArtBytes packet;
 } ArtFrameView;
 
+/* A runtime belongs to the OS thread that calls create. Run all calls for that
+ * handle (including Frame API and destroy) on that thread. ART_E_THREAD is
+ * returned for a live handle used from another thread with valid arguments.
+ * Separate runtimes can run concurrently. Destroy before the owner thread exits.
+ * Destroy returns ART_E_STATE while any frame token remains outstanding. */
 typedef struct ArtRuntimeApiV2 {
     ArtApiHeader header;
     ArtStatus (*create)(const ArtCreateInfo *, ArtRuntimeHandle *out_runtime);
@@ -254,6 +260,8 @@ typedef struct ArtCapabilitiesV2 {
     uint64_t renderer_caps;
 } ArtCapabilitiesV2;
 
+/* Root and interface tables are immutable and can be queried on any thread
+ * while the Core library is loaded. Use separate writable outputs for concurrent calls. */
 typedef struct ArtRootApiV2 {
     ArtApiHeader header;
     ArtStatus (*query_interface)(uint32_t interface_id, uint32_t abi_major,
