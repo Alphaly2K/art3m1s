@@ -468,9 +468,15 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     await _releaseProjectSession();
     if (_closed) return false;
     final files = _vfs;
+    final canUseDxvk =
+        !_preferAngle &&
+        files != null &&
+        await ArtemisFlutterSession.hasDxvkRuntime();
+    if (_closed || !identical(files, _vfs)) return false;
     final paths = files?.listFiles() ?? const <String>[];
     final glsl = paths.where(_isGlsl);
-    final hasHlsl = paths.any((path) => _isHlsl(path) || _isAde2Path(path));
+    final hasHlsl =
+        canUseDxvk && paths.any((path) => _isHlsl(path) || _isAde2Path(path));
     // Scripts can load shaders outside the prewarm scan.
     final mixedShaders = !_preferAngle;
     final portPrefersGlsl = switch (platform.trim().toUpperCase()) {
@@ -479,14 +485,14 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     };
     final angle =
         _preferAngle || (glsl.isNotEmpty && (portPrefersGlsl || !hasHlsl));
-    final compiler = _preferAngle || files == null
-        ? null
-        : await (_hlslCompilerDiscovery ??= ArtemisHlslCompiler.bundled());
+    final compiler = canUseDxvk
+        ? await (_hlslCompilerDiscovery ??= ArtemisHlslCompiler.bundled())
+        : null;
     if (_closed || !identical(files, _vfs)) return false;
     final hlslBudget = Stopwatch()..start();
-    final hlslEffects = _preferAngle || files == null
-        ? const <({Uint8List source, Uint8List artifact})>[]
-        : await _prepareHlslEffects(files, paths, compiler, hlslBudget);
+    final hlslEffects = canUseDxvk
+        ? await _prepareHlslEffects(files, paths, compiler, hlslBudget)
+        : const <({Uint8List source, Uint8List artifact})>[];
     if (_closed || !identical(files, _vfs)) return false;
     final glslBudget = Stopwatch()..start();
     final glslSources = _knownGlslSources(glsl, glslBudget);
@@ -505,7 +511,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
       angle: angle,
       mixedShaders: mixedShaders,
       hlslEffects: hlslEffects,
-      hlslOnDemand: !_preferAngle && files != null,
+      hlslOnDemand: canUseDxvk,
       glslSources: glslSources,
       glslPrewarmBudget: _glslPrewarmTime - glslBudget.elapsed,
       hlslPrewarmBudget: _hlslPrewarmTime - hlslBudget.elapsed,

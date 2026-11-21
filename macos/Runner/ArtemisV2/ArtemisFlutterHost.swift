@@ -30,7 +30,11 @@ private enum ArtemisFlutterError: Error {
         self.metalPath = metalPath
         self.mediaPath = mediaPath
         self.angleDirectory = angleDirectory
-        self.dxvkDirectory = dxvkDirectory
+        if #available(macOS 15.0, *) {
+            self.dxvkDirectory = dxvkDirectory
+        } else {
+            self.dxvkDirectory = nil
+        }
         self.registry = registry
     }
 
@@ -70,6 +74,7 @@ private enum ArtemisFlutterError: Error {
         guard let args = call.arguments as? [String: Any] else {
             throw ArtemisFlutterError.invalidArguments
         }
+        if call.method == "hasDxvkRuntime" { return dxvkDirectory != nil }
         if call.method == "open" {
             guard let ini = bytes(args["ini"]),
                   let platform = args["platform"] as? String else { throw ArtemisFlutterError.invalidArguments }

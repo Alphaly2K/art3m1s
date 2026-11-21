@@ -131,6 +131,15 @@ final class ArtemisFlutterSession {
   final bool supportsSpatialUpscaling;
   bool _closed = false;
 
+  static Future<bool> hasDxvkRuntime() async {
+    try {
+      return await _channel.invokeMethod<bool>('hasDxvkRuntime', const {}) ??
+          false;
+    } on MissingPluginException {
+      return false;
+    }
+  }
+
   static Future<
     ({
       ArtemisFlutterSession session,

@@ -27,6 +27,8 @@ void main() {
     Map<Object?, Object?>? options;
     messenger.setMockMethodCallHandler(channel, (call) async {
       switch (call.method) {
+        case 'hasDxvkRuntime':
+          return false;
         case 'open':
           options = call.arguments as Map<Object?, Object?>;
           return {
@@ -69,6 +71,8 @@ void main() {
       expect(await runtime.loadProjectBytes(bytes!), isTrue);
       expect(options?['mixedShaders'], isTrue);
       expect(options?['glslSources'], [utf8.encode(glsl)]);
+      expect(options?['hlslOnDemand'], isNull);
+      expect(options?['hlslEffects'], isNull);
     } finally {
       await runtime.close();
       messenger.setMockMethodCallHandler(channel, null);
@@ -125,6 +129,8 @@ void main() {
     };
     messenger.setMockMethodCallHandler(channel, (call) async {
       switch (call.method) {
+        case 'hasDxvkRuntime':
+          return true;
         case 'open':
           expect(call.arguments['hlslOnDemand'], isTrue);
           expect(call.arguments['hlslEffects'], hasLength(256));
@@ -376,6 +382,8 @@ void main() {
         File('${project.path}/system.ini').writeAsStringSync(ini);
         messenger.setMockMethodCallHandler(channel, (call) async {
           switch (call.method) {
+            case 'hasDxvkRuntime':
+              return false;
             case 'open':
               final id = ++opened;
               if (id == 2) {
@@ -919,6 +927,8 @@ void main() {
         };
         messenger.setMockMethodCallHandler(channel, (call) async {
           switch (call.method) {
+            case 'hasDxvkRuntime':
+              return false;
             case 'open':
               return state;
             case 'surface':
