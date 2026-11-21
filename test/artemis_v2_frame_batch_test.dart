@@ -202,6 +202,77 @@ void main() {
     }
   });
 
+  test('v2 can step after Core rejects an invalid font override', () async {
+    const channel = MethodChannel('moe.alphaly.art3m1s/artemis_v2');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final saves = Directory.systemTemp.createTempSync('artemis-font-');
+    final runtime = ArtemisV2EngineRuntime()
+      ..setSaveDir(saves.path)
+      ..setFontOverride(Uint8List.fromList([0, 1, 2]));
+    const state = {
+      'session': '1',
+      'epoch': '1',
+      'width': 4,
+      'height': 4,
+      'phase': 1,
+      'waitFlags': 0,
+      'exitRequested': false,
+    };
+    var opened = false;
+    var rejected = false;
+    var stepped = false;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      switch (call.method) {
+        case 'open':
+          return state;
+        case 'poll':
+          if (opened) return [];
+          opened = true;
+          return [
+            {
+              'owner': '1',
+              'domain': 1,
+              'kind': 1,
+              'epoch': '1',
+              'sequence': '1',
+              'request': '0',
+              'metadata': Uint8List.fromList(
+                utf8.encode('{"save_path":"save"}'),
+              ),
+              'blob': Uint8List(0),
+            },
+          ];
+        case 'submit':
+          final batch = call.arguments['batch'] as List<Object?>;
+          final message = batch.single as Map<Object?, Object?>;
+          if (message['kind'] == 17) {
+            expect(message['blob'], [0, 1, 2]);
+            rejected = true;
+            throw PlatformException(code: 'artemis_v2');
+          }
+          return true;
+        case 'step':
+          stepped = true;
+          return {...state, 'backpressured': false, 'stepFlags': 0};
+        case 'close':
+          return null;
+        default:
+          throw StateError('Unexpected method: ${call.method}');
+      }
+    });
+    try {
+      expect(await runtime.loadProjectBytes(Uint8List(0)), isTrue);
+      expect(rejected, isTrue);
+      await runtime.advanceTexture(16);
+      expect(stepped, isTrue);
+    } finally {
+      await runtime.close();
+      messenger.setMockMethodCallHandler(channel, null);
+      saves.deleteSync(recursive: true);
+    }
+  });
+
   test('v2 redraws at the stage size after a failed upscale request', () async {
     const channel = MethodChannel('moe.alphaly.art3m1s/artemis_v2');
     final messenger =

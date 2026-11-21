@@ -582,8 +582,13 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
         metadata: const {},
         blob: font,
       );
-      if (!await opened.session.submit([message])) {
-        throw StateError('Could not submit the default font');
+      try {
+        if (!await opened.session.submit([message])) {
+          Log.warn('[ArtemisV2] Font override was not accepted');
+        }
+      } on PlatformException catch (error) {
+        if (error.code != 'artemis_v2') rethrow;
+        Log.warn('[ArtemisV2] Font override was rejected: ${error.message}');
       }
     }
     return !_closed;
