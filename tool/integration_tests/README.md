@@ -24,13 +24,13 @@ build/macos/Build/Products/Debug/art3m1s.app/Contents/MacOS/art3m1s
 ```
 
 冒烟自建游戏、存档目录、音视频和本地 HTTP 服务，验证 v1 可加载及 v2 保存、截图、HTTP 取消、
-翻译补丁和翻页后迟到的译文、音效结束和读档恢复、H.264 与 WMV 图层呈现、全屏循环和跳过，
+翻译补丁和翻页后迟到的译文、音效结束和读档恢复、H.264 与 AVI 图层呈现、WMV 全屏循环和跳过，
 以及项目切换后的解码失败处理。
-需要 macOS 桌面、Metal 设备，以及 `PATH` 中支持 `libx264`、`wmv2`、`wmav2` 编码的 `ffmpeg`。
+需要 macOS 桌面、Metal 设备，以及 `PATH` 中支持 `libx264`、`wmv2`、`wmav2`、`msmpeg4v3` 编码的 `ffmpeg`。
 无需提供游戏文件。
 
 设置 `ARTEMIS_V2_THEORA_FIXTURE` 指向 Core 测试中的 `blue-theora.ogv`，可用无音轨 Ogg
-替换图层 WMV，复用相同的呈现、截图和完成回调断言。全屏片段仍使用 WMV。
+替换图层 AVI，复用相同的呈现、截图和完成回调断言。全屏片段仍使用 WMV。
 
 验证 v2 的 ANGLE/Metal 可选后端时，沿用上述构建命令，把 `--target` 改为
 `tool/integration_tests/artemis_v2_angle_smoke.dart`，再运行生成的应用。该入口使用包内 ANGLE

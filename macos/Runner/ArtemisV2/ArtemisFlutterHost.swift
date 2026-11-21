@@ -209,7 +209,7 @@ private enum ArtemisFlutterError: Error {
             let url = URL(fileURLWithPath: path)
             let loop = args["loop"] as? Bool == true
             let source: ArtemisVideoSource
-            if ["asf", "wmv", "ogv", "ogg"].contains(url.pathExtension.lowercased()), let mediaPath {
+            if ["asf", "avi", "wmv", "ogv", "ogg"].contains(url.pathExtension.lowercased()), let mediaPath {
                 let library = try mediaLibrary ?? ArtemisLegacyMediaLibrary(path: mediaPath)
                 mediaLibrary = library
                 source = ArtemisLegacyVideoSource(library: library, path: path, loop: loop,

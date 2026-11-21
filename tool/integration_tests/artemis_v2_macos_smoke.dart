@@ -123,9 +123,24 @@ Future<void> _run(Directory root, HttpServer server) async {
     );
   }
   final theoraFixture = Platform.environment['ARTEMIS_V2_THEORA_FIXTURE'];
-  final layerClip = theoraFixture == null ? 'legacy.wmv' : 'legacy.ogv';
+  final layerClip = theoraFixture == null ? 'legacy.avi' : 'legacy.ogv';
   if (theoraFixture != null) {
     await File(theoraFixture).copy('${game.path}/$layerClip');
+  } else {
+    final avi = await Process.run('ffmpeg', [
+      '-nostdin',
+      '-v',
+      'error',
+      '-i',
+      '${game.path}/legacy.wmv',
+      '-an',
+      '-c:v',
+      'msmpeg4v3',
+      '${game.path}/$layerClip',
+    ]);
+    if (avi.exitCode != 0) {
+      throw StateError('Cannot generate AVI fixture: ${avi.stderr}');
+    }
   }
   final looseLayerClip = File('${game.path}/$layerClip');
   final range = Uint8List(2 * 1024 * 1024 + 257);
