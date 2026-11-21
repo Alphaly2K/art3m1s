@@ -94,6 +94,8 @@ private enum ArtemisFlutterError: Error {
                                       angleDirectory: angle, dxvkDirectory: dxvk)
             }
             let effects = args["hlslEffects"] as? [[String: Any]] ?? []
+            let prewarmMilliseconds = min(5000, max(0, args["hlslPrewarmMilliseconds"] as? Int ?? 5000))
+            let hlslDeadline = ProcessInfo.processInfo.systemUptime + Double(prewarmMilliseconds) / 1000
             let hlslOnDemand = args["hlslOnDemand"] as? Bool ?? (args["compileHlsl"] as? Bool == true)
             let canTryDXVK = !headless && (!prefersAngle || requestedMixed) && (hlslOnDemand || !effects.isEmpty)
             let dxvk = canTryDXVK ? dxvkDirectory : nil
@@ -118,6 +120,7 @@ private enum ArtemisFlutterError: Error {
                     let session = try openRenderer(angle: candidate.angle, dxvk: candidate.dxvk)
                     if candidate.dxvk != nil {
                         for (index, effect) in effects.prefix(256).enumerated() {
+                            if ProcessInfo.processInfo.systemUptime >= hlslDeadline { break }
                             guard let source = bytes(effect["source"]), let artifact = bytes(effect["artifact"]) else { continue }
                             do {
                                 try session.prepareADE2(source: source, artifact: artifact)

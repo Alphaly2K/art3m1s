@@ -146,6 +146,7 @@ final class ArtemisFlutterSession {
     List<Uint8List> glslSources = const [],
     bool compileHlsl = false,
     bool hlslOnDemand = false,
+    Duration? hlslPrewarmBudget,
   }) async {
     final result = (await _channel.invokeMapMethod<Object?, Object?>('open', {
       'ini': ini,
@@ -159,6 +160,8 @@ final class ArtemisFlutterSession {
       'screenshots': screenshots,
       if ((!angle || mixedShaders) && compileHlsl) 'compileHlsl': true,
       if ((!angle || mixedShaders) && hlslOnDemand) 'hlslOnDemand': true,
+      if ((!angle || mixedShaders) && hlslPrewarmBudget != null)
+        'hlslPrewarmMilliseconds': hlslPrewarmBudget.inMilliseconds,
       if ((!angle || mixedShaders) && hlslEffects.isNotEmpty)
         'hlslEffects': [
           for (final effect in hlslEffects)

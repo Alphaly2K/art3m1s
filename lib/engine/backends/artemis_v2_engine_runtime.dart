@@ -497,6 +497,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
       hlslEffects: hlslEffects,
       hlslOnDemand: !_preferAngle && files != null,
       glslSources: _knownGlslSources(glsl),
+      hlslPrewarmBudget: _hlslPrewarmTime - hlslBudget.elapsed,
     );
     try {
       final preparedHlsl = await _finishHlslPrewarm(
