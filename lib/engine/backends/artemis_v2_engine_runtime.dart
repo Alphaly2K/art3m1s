@@ -502,6 +502,7 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
       hostCaps:
           ArtemisFileService.capabilities |
           ArtemisMediaCommand.capability |
+          artemisOpenBrowserCapability |
           artemisProjectSavePathCapability |
           (onDialogRequested == null ? 0 : 2) |
           8 |
@@ -1009,6 +1010,23 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
           _mediaFeedback.add(event.playbackStatus(id, status));
         }
       });
+      return;
+    }
+    if (event.browserUrl case final url?) {
+      final owner = _session;
+      if (owner != null &&
+          _acceptsSceneServices &&
+          event.epoch == _state?.epoch) {
+        try {
+          if (!await owner.openBrowser(event.epoch, url)) {
+            Log.warn('[ArtemisV2] Browser request was declined');
+          }
+        } on PlatformException catch (error) {
+          if (error.code != 'stale_reply') {
+            Log.warn('[ArtemisV2] Browser request failed: ${error.code}');
+          }
+        }
+      }
       return;
     }
     final fileReply = _files?.handle(

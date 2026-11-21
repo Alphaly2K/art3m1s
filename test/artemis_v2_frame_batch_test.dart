@@ -435,13 +435,14 @@ void main() {
     }
   });
 
-  test('v2 logs only current Lua output and persistence failures', () async {
+  test('v2 handles only current browser requests and diagnostics', () async {
     const channel = MethodChannel('moe.alphaly.art3m1s/artemis_v2');
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     final saves = Directory.systemTemp.createTempSync('artemis-script-print-');
     final runtime = ArtemisV2EngineRuntime()..setSaveDir(saves.path);
     final debug = Log.debugEnabled;
+    final browserRequests = <(String, String)>[];
     Map<String, Object?> event({
       required int domain,
       required int kind,
@@ -460,6 +461,10 @@ void main() {
       'blob': Uint8List.fromList(blob),
     };
     messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'openBrowser') {
+        browserRequests.add((call.arguments['epoch'], call.arguments['url']));
+        return true;
+      }
       return switch (call.method) {
         'open' => {
           'session': '1',
@@ -505,6 +510,20 @@ void main() {
             sequence: '6',
             metadata: '{"operation":"autosave","status":"written"}',
           ),
+          event(
+            domain: 4,
+            kind: 8,
+            epoch: '1',
+            sequence: '7',
+            metadata: '{"url":"https://example.invalid/stale"}',
+          ),
+          event(
+            domain: 4,
+            kind: 8,
+            epoch: '2',
+            sequence: '8',
+            metadata: '{"url":"https://example.invalid/current"}',
+          ),
         ],
         'close' => null,
         _ => throw StateError('Unexpected method: ${call.method}'),
@@ -514,6 +533,7 @@ void main() {
       Log.setDebugEnabled(true);
       final start = Log.entries.length;
       expect(await runtime.loadProjectBytes(Uint8List(0)), isTrue);
+      expect(browserRequests, [('2', 'https://example.invalid/current')]);
       expect(
         Log.entries
             .skip(start)

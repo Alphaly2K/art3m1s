@@ -1,4 +1,5 @@
 import Accelerate
+import AppKit
 import AVFoundation
 import CoreVideo
 import FlutterMacOS
@@ -198,6 +199,15 @@ private enum ArtemisFlutterError: Error {
         }
         guard let session = sessions[id] else { throw ArtemisFlutterError.closedSession }
         switch call.method {
+        case "openBrowser":
+            let epoch = try number(args["epoch"], as: UInt64.self)
+            guard try session.core.state().session_epoch == epoch else { throw ArtemisFlutterError.staleReply }
+            guard let text = args["url"] as? String,
+                  let components = URLComponents(string: text),
+                  let scheme = components.scheme?.lowercased(), ["http", "https"].contains(scheme),
+                  let host = components.host, !host.isEmpty,
+                  let url = components.url else { return false }
+            return NSWorkspace.shared.open(url)
         case "prepareHlsl":
             guard let source = bytes(args["source"]), let artifact = bytes(args["artifact"]) else {
                 throw ArtemisFlutterError.invalidArguments

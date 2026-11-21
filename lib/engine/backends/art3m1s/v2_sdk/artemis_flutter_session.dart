@@ -6,6 +6,8 @@ import 'artemis_media.dart';
 
 export 'artemis_media.dart';
 
+const artemisOpenBrowserCapability = 128;
+
 typedef ArtemisFlutterState = ({
   String epoch,
   int width,
@@ -44,9 +46,9 @@ final class ArtemisFlutterEvent {
       epoch = wire['epoch'] as String,
       sequence = wire['sequence'] as String,
       request = wire['request'] as String,
-      metadata = jsonDecode(
-        utf8.decode(wire['metadata'] as Uint8List),
-      ) as Map<String, Object?>,
+      metadata =
+          jsonDecode(utf8.decode(wire['metadata'] as Uint8List))
+              as Map<String, Object?>,
       blob = wire['blob'] as Uint8List;
 
   final String _owner;
@@ -59,6 +61,12 @@ final class ArtemisFlutterEvent {
   final Uint8List blob;
 
   bool get requiresReply => request != '0';
+
+  String? get browserUrl {
+    if (domain != 4 || kind != 8 || requiresReply) return null;
+    final url = metadata['url'];
+    return url is String ? url : null;
+  }
 
   late final mediaCommand = ArtemisMediaCommand.decode(domain, kind, metadata);
 
@@ -230,6 +238,9 @@ final class ArtemisFlutterSession {
       }))!;
 
   Future<void> detachSurface() => _call<void>('detach');
+
+  Future<bool> openBrowser(String epoch, String url) async =>
+      await _call<bool>('openBrowser', {'epoch': epoch, 'url': url}) ?? false;
 
   Future<void> prepareHlsl(Uint8List source, Uint8List artifact) =>
       _call<void>('prepareHlsl', {'source': source, 'artifact': artifact});
