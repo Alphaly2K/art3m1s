@@ -9,6 +9,7 @@ import 'backends/artemis_v2_engine_runtime.dart';
 import 'backends/krkr_engine_runtime.dart';
 import 'backends/rfvp_engine_runtime.dart';
 import 'backends/siglus_engine_runtime.dart';
+import 'backends/katze_engine_runtime.dart';
 import 'engine_runtime.dart';
 
 class EngineRuntimeFactory {
@@ -56,6 +57,7 @@ class EngineRuntimeFactory {
         engineCursorControlEnabled: engineCursorControlEnabled,
       ),
       GameEngineKind.siglus => SiglusEngineRuntime(),
+      GameEngineKind.katze => KatzeEngineRuntime(),
     };
   }
 
@@ -87,6 +89,8 @@ class EngineRuntimeFactory {
         return null;
       case GameEngineKind.siglus:
         Log.info('[Engine] Siglus caption probe 尚未接入');
+        return null;
+      case GameEngineKind.katze:
         return null;
     }
   }

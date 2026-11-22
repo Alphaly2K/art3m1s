@@ -20,7 +20,8 @@ class EngineArchive {
       ),
       GameEngineKind.rfvp => Future<List<String>>.value(const <String>[]),
       GameEngineKind.krkr => Future<List<String>>.value(const <String>[]),
-      GameEngineKind.siglus => Future<List<String>>.value(const <String>[]),
+      GameEngineKind.siglus ||
+      GameEngineKind.katze => Future<List<String>>.value(const <String>[]),
     };
   }
 
@@ -36,7 +37,8 @@ class EngineArchive {
       ),
       GameEngineKind.rfvp => Future<Uint8List?>.value(),
       GameEngineKind.krkr => Future<Uint8List?>.value(),
-      GameEngineKind.siglus => Future<Uint8List?>.value(),
+      GameEngineKind.siglus ||
+      GameEngineKind.katze => Future<Uint8List?>.value(),
     };
   }
 }

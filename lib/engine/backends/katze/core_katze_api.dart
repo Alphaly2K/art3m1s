@@ -32,7 +32,7 @@ typedef _Session = Int32 Function(Uint64);
 typedef _Stage = Int32 Function(Uint64, Pointer<KatzeStage>);
 typedef _Step =
     Int32 Function(Uint64, Pointer<KatzeFrameTime>, Pointer<Uint32>);
-typedef _Mix = Int32 Function(Uint64, Uint32, Pointer<Float>, Size);
+typedef KatzeMixStereo = Int32 Function(Uint64, Uint32, Pointer<Float>, Size);
 
 final class _Table extends Struct {
   @Uint32()
@@ -47,7 +47,7 @@ final class _Table extends Struct {
   external Pointer<NativeFunction<_Stage>> sessionInfo;
   external Pointer<NativeFunction<_Step>> step;
   external Pointer<NativeFunction<_Session>> present;
-  external Pointer<NativeFunction<_Mix>> mixStereo;
+  external Pointer<NativeFunction<KatzeMixStereo>> mixStereo;
   external Pointer<Void> setWindowState;
   external Pointer<Void> textEntry;
   external Pointer<Void> completeTextEntry;
@@ -78,6 +78,8 @@ final class KatzeApi {
   });
 
   final _Table _table;
+
+  Pointer<NativeFunction<KatzeMixStereo>> get mixCallback => _table.mixStereo;
 
   int create(Pointer<KatzeCreateInfo> info) => using((arena) {
     final out = arena<Uint64>();

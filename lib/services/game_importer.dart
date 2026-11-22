@@ -158,6 +158,20 @@ class GameImporter {
     return paths;
   }
 
+  static bool _hasKatzeStartup(Directory root) {
+    final sep = Platform.pathSeparator;
+    return FileSystemEntity.typeSync(
+              '${root.path}${sep}config',
+              followLinks: false,
+            ) ==
+            FileSystemEntityType.directory &&
+        FileSystemEntity.typeSync(
+              '${root.path}${sep}config${sep}startup.xml',
+              followLinks: false,
+            ) ==
+            FileSystemEntityType.file;
+  }
+
   /// 递归查找已解包工程根目录。
   ///
   /// Artemis 工程以 system.ini 为根标记,RFVP 工程以根目录中的 `.hcb`
@@ -208,7 +222,8 @@ class GameImporter {
           hasDataXp3 ||
           hasStartupTjs ||
           (hasScenePck && hasGameexe) ||
-          rootXp3Count > 0) {
+          rootXp3Count > 0 ||
+          _hasKatzeStartup(dir)) {
         found.add(dir.path);
         return;
       }
@@ -284,6 +299,7 @@ class GameImporter {
     if (hasSystemIni) return GameEngineKind.art3m1s;
     if (hasHcb) return GameEngineKind.rfvp;
     if (hasScenePck && hasGameexe) return GameEngineKind.siglus;
+    if (_hasKatzeStartup(directory)) return GameEngineKind.katze;
     if (hasDataXp3 || hasStartupTjs || rootXp3Count > 0) {
       return GameEngineKind.krkr;
     }

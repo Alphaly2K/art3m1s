@@ -26,6 +26,18 @@ KATZE_LIBRARY="$katze/target/release/libkatze_system2_ffi.dylib" \
   flutter test tool/integration_tests/katze_abi_test.dart
 ```
 
+构建带有归档、输入及存档回调的示例宿主并运行读写测试。PFS 或原引擎资源不参与合成存档回归。
+
+```sh
+(cd "$katze" && cargo build --locked --release -p katze-system2-example-host --features builtin-mpeg)
+KATZE_GAME_HOST="$katze/target/release/libkatze_system2_example_host.dylib" \
+  KATZE_FIXTURES="$fixtures" flutter test tool/integration_tests/katze_storage_test.dart
+```
+
+使用同一 `KATZE_GAME_HOST`，再指定 `KATZE_GAME` 为已解包项目目录，可显式运行 `flutter test tool/integration_tests/katze_game_test.dart`。`KATZE_GAME_ENCODING` 可覆盖默认 CP932。可设置 `KATZE_GAME_TEST_CLICK` 为 `x,y,按下轮次,总轮次`，采样指针所在场景和点击后的画面及 PCM。验证默认使用内存音频。
+
+设置 `KATZE_GAME_HOST` 后，Flutter 的游戏库可识别含 `config/startup.xml` 的目录，并通过通用播放器加载。`KATZE_GAME_ENCODING` 指定本次启动使用的脚本编码。`tool/integration_tests/katze_player_test.dart` 使用同样的两个变量及 `KATZE_GAME`。设置 `KATZE_OFFSCREEN_AUDIO=1` 核对导入、推进、暂停恢复、软件画面和内存混音。宿主也可启用 `device-audio`，测试时设置 `SDL_AUDIODRIVER=dummy` 以验证设备启停。
+
 ## macOS Artemis v2
 
 从项目根目录运行 `dart run tool/build.dart macos --debug --artemis-v2` 构建预览。应用同时打包
