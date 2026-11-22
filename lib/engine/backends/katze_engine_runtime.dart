@@ -6,6 +6,7 @@ import '../../models/game_engine.dart';
 import '../../models/input_gate.dart';
 import '../../services/logger.dart';
 import '../engine_runtime.dart';
+import '../native_library.dart';
 import 'katze/katze_game_host.dart';
 
 final class KatzeEngineRuntime extends UnsupportedEngineRuntime {
@@ -38,13 +39,8 @@ final class KatzeEngineRuntime extends UnsupportedEngineRuntime {
 
   @override
   Future<void> initialize() async {
-    final path = Platform.environment['KATZE_GAME_HOST'];
-    if (path == null || path.isEmpty) {
-      Log.info('[Katze] Set KATZE_GAME_HOST to enable CatSystem2 playback');
-      return;
-    }
     try {
-      _library = DynamicLibrary.open(path);
+      _library = openKatzeHostLibrary();
     } catch (error) {
       Log.error('[Katze] Cannot load native host: $error');
     }

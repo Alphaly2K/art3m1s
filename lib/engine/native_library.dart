@@ -33,3 +33,25 @@ DynamicLibrary openEngineCoreLibrary() {
   }
   throw StateError('Cannot load engine core: $lastError');
 }
+
+DynamicLibrary openKatzeHostLibrary() {
+  final configured = Platform.environment['KATZE_GAME_HOST'];
+  if (configured != null && configured.isNotEmpty) {
+    return DynamicLibrary.open(configured);
+  }
+  final executable = File(Platform.resolvedExecutable).parent;
+  final name = Platform.isWindows
+      ? 'katze_system2_example_host.dll'
+      : Platform.isMacOS
+      ? 'libkatze_system2_example_host.dylib'
+      : 'libkatze_system2_example_host.so';
+  final candidates = [
+    '${executable.path}/$name',
+    if (Platform.isMacOS) '${executable.parent.path}/Frameworks/$name',
+    if (Platform.isLinux) '${executable.path}/lib/$name',
+  ];
+  for (final candidate in candidates) {
+    if (File(candidate).existsSync()) return DynamicLibrary.open(candidate);
+  }
+  throw StateError('CatSystem2 host library is unavailable');
+}

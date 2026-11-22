@@ -38,6 +38,8 @@ KATZE_GAME_HOST="$katze/target/release/libkatze_system2_example_host.dylib" \
 
 设置 `KATZE_GAME_HOST` 后，Flutter 的游戏库可识别含 `config/startup.xml` 的目录，并通过通用播放器加载。`KATZE_GAME_ENCODING` 指定本次启动使用的脚本编码。`tool/integration_tests/katze_player_test.dart` 使用同样的两个变量及 `KATZE_GAME`。设置 `KATZE_OFFSCREEN_AUDIO=1` 核对导入、推进、暂停恢复、软件画面和内存混音。宿主也可启用 `device-audio`，测试时设置 `SDL_AUDIODRIVER=dummy` 以验证设备启停。
 
+可把同一宿主装入本地 macOS 预览构建。用 `KATZE_RUNTIME_DIR` 指定含宿主动态库的目录，然后执行普通的 `flutter build macos`。应用从自己的 Frameworks 目录加载库，`KATZE_GAME_HOST` 仍可用于指定本地调试构建。
+
 ## macOS Artemis v2
 
 从项目根目录运行 `dart run tool/build.dart macos --debug --artemis-v2` 构建预览。应用同时打包
