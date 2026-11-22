@@ -163,5 +163,12 @@ final class ArtemisAudioRestore extends ArtemisMediaCommand {
   final bool stopVideo;
 }
 
-int _ms(Map<String, Object?> data, [String key = 'fade_ms']) =>
-    int.parse(data[key] as String);
+int _ms(Map<String, Object?> data, [String key = 'fade_ms']) {
+  final raw = data[key] as String;
+  final duration = BigInt.parse(raw, radix: 10);
+  if (duration.isNegative || duration.bitLength > 64) {
+    throw FormatException('Expected an unsigned 64-bit duration', raw);
+  }
+  // A native Dart int used for scheduling has only 63 bits for positive values.
+  return duration.bitLength == 64 ? 0x7fffffffffffffff : duration.toInt();
+}

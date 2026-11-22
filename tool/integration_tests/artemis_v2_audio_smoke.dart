@@ -58,7 +58,7 @@ Future<void> _run(Directory root, _AudioProbe probe) async {
 [seplay id=effect file=next.wav loop=1]
 [caption data=effect_started]
 [wt0]
-[sestop id=effect time=3000]
+[sestop id=effect time=18446744073709551615]
 [sestop id=effect time=132]
 [caption data=effect_wait]
 [wait se=effect]
