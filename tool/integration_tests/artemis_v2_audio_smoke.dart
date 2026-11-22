@@ -54,12 +54,24 @@ Future<void> _run(Directory root, _AudioProbe probe) async {
 [wt0]
 [allsoundstop time=132]
 [caption data=all_stop]
+[wt0]
+[seplay id=effect file=next.wav loop=1]
+[caption data=effect_started]
+[wt0]
+[sestop id=effect time=3000]
+[sestop id=effect time=132]
+[caption data=effect_wait]
+[wait se=effect]
+[caption data=effect_done]
 [stop]
 ''');
 
+  await EngineRuntimeFactory.initialize();
   final runtime = EngineRuntimeFactory.create(engine: GameEngineKind.art3m1s);
   if (runtime is! ArtemisV2EngineRuntime) {
-    throw StateError('Build with ARTEMIS_V2 enabled.');
+    throw StateError(
+      'Build with the production Artemis v2 components or enable the preview.',
+    );
   }
 
   Future<void> until(
@@ -180,6 +192,30 @@ Future<void> _run(Directory root, _AudioProbe probe) async {
     if (probe.disposed.toSet().length != 3 ||
         runtime.windowTitle.value != 'all_stop') {
       throw StateError('The script or the outgoing players did not finish.');
+    }
+
+    final beforeEffect = probe.resumed.length;
+    await decide();
+    await until('looping sound effect', () {
+      return runtime.windowTitle.value == 'effect_started' &&
+          probe.resumed.length > beforeEffect;
+    });
+    final effect = probe.resumed.last;
+    final beforeEffectStop = probe.calls.length;
+    await decide();
+    await until(
+      'sound effect wait after replacement stop',
+      () => runtime.windowTitle.value == 'effect_done',
+      timeout: const Duration(milliseconds: 1500),
+    );
+    if (!probe.disposed.contains(effect) ||
+        !probe.calls.skip(beforeEffectStop).any(
+          (call) =>
+              call.player == effect &&
+              call.method == 'setVolume' &&
+              call.value == 0,
+        )) {
+      throw StateError('The script resumed before the fading sound was released.');
     }
   } finally {
     await runtime.close();
