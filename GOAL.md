@@ -1,5 +1,10 @@
 # 引擎平台适配与宿主完整性
 
+## KatzeSystem2 接入验证
+
+- Flutter 在 macOS 离屏加载配套的开发 ABI 0。原生宿主提供同步资源和绘制回调，Dart 驱动会话并消费独立混音的 PCM。合成项目验证了三角形在 Flutter 中的像素、非静音 PCM 和资源释放。
+- 下一检查点是接入实际游戏的资源归档、持久化和输入，再把纹理及 PCM 接到通用播放器。
+
 ## 当前阶段：Artemis v2 macOS 预览
 
 - `--artemis-v2` 为 macOS 玩家启用独立 Core 和 Metal Host；默认播放仍走 v1。

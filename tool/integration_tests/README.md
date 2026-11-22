@@ -9,6 +9,23 @@
 
 SwiftUI 目录服务的合成输入验证可在安装 Xcode 命令行工具的 macOS 上运行 `bash tool/native_host_tests/run.sh`，无需游戏、core library 或模拟器。它覆盖导入冲突、重复扫描保留配置、旧数据恢复、路径边界和翻译关闭行为；归档读取使用拒绝加载的测试替身。
 
+## KatzeSystem2
+
+在 macOS 上，用与动态库配套的头文件构建合成宿主。测试调用开发 ABI 0，验证绘制命令经 Flutter 呈现后的像素、独立混音生成的 PCM，以及会话结束时的资源释放。它使用合成 KCS 和音频，不需要游戏、窗口或声音设备。
+
+```sh
+katze=/absolute/path/to/KatzeSystem2
+(cd "$katze" && cargo build --locked --release -p katze-system2-ffi)
+binding="$katze/crates/katze-system2-ffi"
+fixtures="$PWD/.dart_tool/katze-smoke"
+python3 "$binding/examples/fixtures.py" "$fixtures"
+cc -std=c11 -Wall -Wextra -Werror -dynamiclib -I "$binding/include" \
+  tool/integration_tests/katze_fixture_host.c -o "$fixtures/libkatze_fixture_host.dylib"
+KATZE_LIBRARY="$katze/target/release/libkatze_system2_ffi.dylib" \
+  KATZE_FIXTURE_HOST="$fixtures/libkatze_fixture_host.dylib" KATZE_FIXTURES="$fixtures" \
+  flutter test tool/integration_tests/katze_abi_test.dart
+```
+
 ## macOS Artemis v2
 
 从项目根目录运行 `dart run tool/build.dart macos --debug --artemis-v2` 构建预览。应用同时打包
