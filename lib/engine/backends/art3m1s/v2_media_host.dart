@@ -424,6 +424,8 @@ final class ArtemisV2MediaHost extends MediaBridge {
     var released = true;
     try {
       if (fadeMs > 0) await handle.fadeTo(0, fadeMs);
+    } catch (error) {
+      Log.warn('[ArtemisV2] retired audio fade: $error');
     } finally {
       if (identical(_fading[handle], ticket)) {
         _fading.remove(handle);

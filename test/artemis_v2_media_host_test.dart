@@ -35,6 +35,7 @@ void main() {
     final fadeStopping = Completer<void>();
     final allowFadeStop = Completer<void>();
     String? rejectedPausePlayer;
+    String? rejectedVolumePlayer;
     String? rejectedPanPlayer;
     String? rejectedReleasePlayer;
     String? replacingPlayer;
@@ -126,6 +127,8 @@ void main() {
           case 'dispose':
             disposed.add(id);
             changes.add(null);
+          case 'setVolume' when id == rejectedVolumePlayer:
+            throw PlatformException(code: 'volume_failed');
           case 'setVolume':
             final volume = call.arguments['volume'] as double;
             (volumes[id] ??= []).add(volume);
@@ -631,6 +634,25 @@ void main() {
         () => feedback.contains(('20', ArtemisPlaybackStatus.started)),
       );
       expect(disposed, contains(current));
+
+      final outgoing = rejectedVolumePlayer = resumed.last;
+      final targetVolume = volumes[outgoing]!.last;
+      send(playCommand('22', replaces: '20')..['fade_ms'] = '132');
+      await waitFor(
+        () => feedback.contains(('22', ArtemisPlaybackStatus.started)),
+      );
+      final incoming = resumed.last;
+      await waitFor(
+        () =>
+            feedback.contains(('22', ArtemisPlaybackStatus.failed)) ||
+            (disposed.contains(outgoing) &&
+                volumes[incoming]!.last == targetVolume),
+      );
+      expect(disposed, contains(outgoing));
+      expect(disposed, isNot(contains(incoming)));
+      expect(feedback.where((entry) => entry.$1 == '22'), [
+        ('22', ArtemisPlaybackStatus.started),
+      ]);
     } finally {
       if (!allowReplacementStop.isCompleted) allowReplacementStop.complete();
       if (!allowSource.isCompleted) allowSource.complete();
