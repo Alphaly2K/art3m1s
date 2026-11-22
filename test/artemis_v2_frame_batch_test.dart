@@ -12,6 +12,89 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test('v2 forwards one-based mouse buttons with Artemis key codes', () async {
+    const channel = MethodChannel('moe.alphaly.art3m1s/artemis_v2');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final saves = Directory.systemTemp.createTempSync('artemis-mouse-input-');
+    final runtime = ArtemisV2EngineRuntime()..setSaveDir(saves.path);
+    const state = {
+      'session': '1',
+      'epoch': '1',
+      'width': 4,
+      'height': 4,
+      'phase': 1,
+      'waitFlags': 0,
+      'exitRequested': false,
+    };
+    var opening = true;
+    final forwarded = <Object?>[];
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      switch (call.method) {
+        case 'open':
+          return state;
+        case 'step':
+          return {...state, 'backpressured': false, 'stepFlags': 0};
+        case 'poll':
+          if (!opening) return <Object>[];
+          opening = false;
+          return [
+            {
+              'owner': '1',
+              'domain': 1,
+              'kind': 1,
+              'epoch': '1',
+              'sequence': '1',
+              'request': '0',
+              'metadata': Uint8List.fromList(
+                utf8.encode('{"save_path":"save"}'),
+              ),
+              'blob': Uint8List(0),
+            },
+          ];
+        case 'submit':
+          for (final message in call.arguments['batch'] as List) {
+            expect(message['domain'], 2);
+            expect(message['kind'], 1);
+            forwarded.add(
+              jsonDecode(utf8.decode(message['metadata'] as Uint8List)),
+            );
+          }
+          return true;
+        case 'close':
+          return null;
+        default:
+          throw StateError('Unexpected method: ${call.method}');
+      }
+    });
+    try {
+      expect(await runtime.loadProjectBytes(Uint8List(0)), isTrue);
+      for (final button in [1, 2, 3]) {
+        runtime.feedMouseButton(button, true);
+        runtime.feedMouseButton(button, false);
+      }
+      runtime.feedClick();
+      await runtime.advanceTexture(16);
+      expect(forwarded, [
+        for (final code in [1, 2, 4, 1]) ...[
+          {'code': code, 'down': true},
+          {'code': code, 'down': false},
+        ],
+      ]);
+      forwarded.clear();
+      for (final button in [0, 4]) {
+        runtime.feedMouseButton(button, true);
+        runtime.feedMouseButton(button, false);
+      }
+      await runtime.advanceTexture(16);
+      expect(forwarded, isEmpty);
+    } finally {
+      await runtime.close();
+      messenger.setMockMethodCallHandler(channel, null);
+      saves.deleteSync(recursive: true);
+    }
+  });
+
   test('v2 prewarms GLSL and allows HLSL with a .txt suffix', () async {
     const channel = MethodChannel('moe.alphaly.art3m1s/artemis_v2');
     final messenger =

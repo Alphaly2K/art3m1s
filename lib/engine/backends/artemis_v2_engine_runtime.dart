@@ -1200,15 +1200,15 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
 
   @override
   void feedMouseButton(int button, bool pressed) {
-    if (_inputGate.mouseButtons && button >= 0 && button < 3) {
-      _key([1, 2, 4][button], pressed);
+    if (_inputGate.mouseButtons && button >= 1 && button <= 3) {
+      _key(button == 3 ? 4 : button, pressed);
     }
   }
 
   @override
   void feedClick() {
-    feedMouseButton(0, true);
-    feedMouseButton(0, false);
+    feedMouseButton(1, true);
+    feedMouseButton(1, false);
   }
 
   @override
