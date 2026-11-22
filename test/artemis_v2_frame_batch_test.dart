@@ -701,12 +701,14 @@ void main() {
     );
   }
 
-  test('v2 saves the old project before opening the next one', () async {
+  test('v2 saves the old project and switches after a frame fails', () async {
     const channel = MethodChannel('moe.alphaly.art3m1s/artemis_v2');
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     final saves = Directory.systemTemp.createTempSync('artemis-switch-save-');
     final runtime = ArtemisV2EngineRuntime()..setSaveDir(saves.path);
+    final presenting = Completer<void>();
+    final failPresentation = Completer<void>();
     final shutdownSent = Completer<void>();
     final allowShutdown = Completer<void>();
     final saving = Completer<void>();
@@ -714,6 +716,7 @@ void main() {
     final calls = <String>[];
     final opening = <String>{};
     var opens = 0;
+    var shuttingDown = false;
     var writePending = false;
     var written = false;
     var closedPending = false;
@@ -789,6 +792,7 @@ void main() {
             calls.add('shutdown:$session');
             shutdownSent.complete();
             await allowShutdown.future;
+            shuttingDown = true;
           } else {
             expect(message['request'], '1');
             expect(jsonDecode(utf8.decode(message['metadata'] as Uint8List)), {
@@ -802,12 +806,20 @@ void main() {
           return true;
         case 'step':
           expect(call.arguments['backgroundAutosave'], isNull);
+          if (!shuttingDown) return state(session, 2);
           if (written) {
             closedPending = true;
             return state(session, 4);
           }
           writePending = true;
           return state(session, 3);
+        case 'surface':
+          return 0;
+        case 'present':
+          expect(session, '1');
+          presenting.complete();
+          await failPresentation.future;
+          throw PlatformException(code: 'presentation_failed');
         case 'close':
           calls.add('close:$session');
           return null;
@@ -818,8 +830,29 @@ void main() {
     Future<bool>? switching;
     try {
       expect(await runtime.loadProjectBytes(Uint8List(0)), isTrue);
+      expect(await runtime.enableSharedTexture(), 0);
+      final frameFailed = expectLater(
+        runtime.advanceTexture(16),
+        throwsA(
+          isA<PlatformException>().having(
+            (error) => error.code,
+            'code',
+            'presentation_failed',
+          ),
+        ),
+      );
+      const timeout = Duration(seconds: 2);
+      await presenting.future.timeout(timeout);
       switching = runtime.loadProjectBytes(Uint8List(0));
-      await shutdownSent.future.timeout(const Duration(seconds: 2));
+      final shutdownStarted = Future.any<void>([
+        shutdownSent.future,
+        switching.then<void>((_) {}),
+      ]);
+      await Future<void>.delayed(Duration.zero);
+      expect(calls, ['open:1']);
+      failPresentation.complete();
+      await frameFailed;
+      await shutdownStarted.timeout(timeout);
       runtime.notifyLifecycle(1);
       await Future<void>.delayed(Duration.zero);
       expect(calls, ['open:1', 'shutdown:1']);
@@ -835,9 +868,10 @@ void main() {
       expect(calls, ['open:1', 'shutdown:1', 'write:1', 'close:1', 'open:2']);
       expect(File('${saves.path}/save-2/saveg.dat').existsSync(), isFalse);
     } finally {
+      if (!failPresentation.isCompleted) failPresentation.complete();
       if (!allowShutdown.isCompleted) allowShutdown.complete();
       if (!acknowledge.isCompleted) acknowledge.complete();
-      await switching;
+      await switching?.then<void>((_) {}, onError: (Object _) {});
       await runtime.close();
       messenger.setMockMethodCallHandler(channel, null);
       saves.deleteSync(recursive: true);

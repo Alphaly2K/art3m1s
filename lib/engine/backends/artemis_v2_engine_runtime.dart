@@ -612,7 +612,11 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
   Future<void> _releaseProjectSession() async {
     final previous = _session;
     if (previous == null) return;
-    await _advancing;
+    try {
+      await _advancing;
+    } on Exception catch (error) {
+      Log.warn('[ArtemisV2] previous project frame failed: $error');
+    }
     await _backgroundAutosave;
     if (_closed || !identical(_session, previous)) return;
     try {
