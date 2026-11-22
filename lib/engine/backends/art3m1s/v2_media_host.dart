@@ -434,16 +434,18 @@ final class ArtemisV2MediaHost extends MediaBridge {
   }
 
   void _stop(_V2AudioPlayback track, int fadeMs) {
-    if (track.stopping && fadeMs > 0) return;
-    track.stopping = true;
+    final revision = ++track.stopRevision;
     final handle = track.handle;
     if (!track.ready || handle == null || fadeMs <= 0) {
       _finish(track, ArtemisPlaybackStatus.cancelled);
     } else {
       _runAudio(
         track,
-        handle.fadeTo(0, fadeMs),
-        onSuccess: ArtemisPlaybackStatus.cancelled,
+        handle.fadeTo(0, fadeMs).then((_) {
+          if (track.stopRevision == revision) {
+            _finish(track, ArtemisPlaybackStatus.cancelled);
+          }
+        }),
       );
     }
   }
@@ -501,21 +503,12 @@ final class ArtemisV2MediaHost extends MediaBridge {
     );
   }
 
-  void _runAudio(
-    _V2AudioPlayback track,
-    Future<void> operation, {
-    ArtemisPlaybackStatus? onSuccess,
-  }) {
+  void _runAudio(_V2AudioPlayback track, Future<void> operation) {
     _run(
-      operation.then(
-        (_) {
-          if (onSuccess != null) _finish(track, onSuccess);
-        },
-        onError: (Object error, StackTrace stack) {
-          _finish(track, ArtemisPlaybackStatus.failed);
-          Error.throwWithStackTrace(error, stack);
-        },
-      ),
+      operation.onError<Object>((error, stack) {
+        _finish(track, ArtemisPlaybackStatus.failed);
+        Error.throwWithStackTrace(error, stack);
+      }),
     );
   }
 
@@ -675,7 +668,9 @@ final class _V2AudioPlayback {
   _AudioHandle? handle;
   ({_AudioHandle handle, Object ticket})? previous;
   double gain, pan;
-  bool ready = false, started = false, stopping = false;
+  bool ready = false, started = false;
+  int stopRevision = 0;
+  bool get stopping => stopRevision != 0;
 }
 
 double _artemisGain(int value) => math.max(0, value) / 1000;

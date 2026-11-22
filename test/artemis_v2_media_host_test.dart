@@ -262,7 +262,7 @@ void main() {
       );
       await host.setSuspended(false);
 
-      for (final time in ['4000', '0']) {
+      for (final time in ['4000', '132']) {
         send({
           'op': 'stop',
           'playback_ids': ['2'],
@@ -273,6 +273,7 @@ void main() {
         () => feedback.contains(('2', ArtemisPlaybackStatus.cancelled)),
       );
       expect(disposed, [next]);
+      expect(volumes[next]!.last, 0);
 
       await host.setSuspended(true);
       expect(paused, contains(loop));
