@@ -727,8 +727,8 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
       await _submitHttp(session);
       await _submitTranslations(session);
       if (!_canRun) break;
-      // Give the last video frame a presentation before polling for its end.
-      if (!stepped) await media.pollVideo(session);
+      // A suspended step may still need to present the last video frame.
+      if (!stepped && _frameTime == null) await media.pollVideo(session);
       await _submitMedia(session);
       if (!_canRun) break;
       _nextClock(deltaMs);

@@ -1096,11 +1096,17 @@ void main() {
     },
   );
 
-  for (final pollFails in [false, true]) {
+  for (final (pollFails, layerIo) in [
+    (false, false),
+    (true, false),
+    (false, true),
+  ]) {
     test(
-      pollFails
-          ? 'v2 continues to step after a native video poll fails'
-          : 'v2 presents a video frame before applying its terminal status',
+      switch ((pollFails, layerIo)) {
+        (true, _) => 'v2 continues to step after a native video poll fails',
+        (_, true) => 'v2 presents the last layer video frame after host IO resumes',
+        _ => 'v2 presents a video frame before applying its terminal status',
+      },
       () async {
         const channel = MethodChannel('moe.alphaly.art3m1s/artemis_v2');
         final messenger =
@@ -1129,6 +1135,7 @@ void main() {
         };
         var opening = true;
         var videoStarted = false;
+        var layerIoPending = layerIo;
         var steps = 0;
         var videoPolls = 0;
         Map<String, Object?> event(
@@ -1161,6 +1168,7 @@ void main() {
                 event(5, 2, {
                   'op': 'play',
                   'playback_id': playback,
+                  if (layerIo) 'layer': 'clip',
                   'key': 'clip.mp4',
                   'loop': false,
                   'skip': 0,
@@ -1171,6 +1179,7 @@ void main() {
               return null;
             case 'videoPoll':
               videoPolls++;
+              if (layerIo && videoPolls == 2) return <Object>[];
               if (videoStarted && pollFails) {
                 throw PlatformException(code: 'video_poll_failed');
               }
@@ -1180,7 +1189,11 @@ void main() {
                 {
                   'playback': playback,
                   'status': started ? 'started' : 'ended',
-                  if (started) ...{'texture': 1, 'width': 4, 'height': 4},
+                  if (started && !layerIo) ...{
+                    'texture': 1,
+                    'width': 4,
+                    'height': 4,
+                  },
                 },
               ];
             case 'videoClose':
@@ -1205,8 +1218,14 @@ void main() {
               return true;
             case 'step':
               steps++;
-              return {...state, 'backpressured': false, 'stepFlags': 0};
+              return {
+                ...state,
+                if (layerIoPending && videoPolls == 2) 'waitFlags': 1,
+                'backpressured': false,
+                'stepFlags': 0,
+              };
             case 'present':
+              if (layerIoPending && videoPolls == 2) return null;
               calls.add('present');
               return '1';
             case 'videoSuspend':
@@ -1238,6 +1257,23 @@ void main() {
           await runtime.advanceTextureBatch([16, 17, 17]);
           expect(calls, ['started', 'present']);
           expect(steps, 3);
+          if (layerIo) {
+            expect(runtime.media.videoPlayback.value, isNull);
+            expect(await runtime.advanceTextureBatch([16, 17]), isFalse);
+            expect(steps, 4);
+            expect(calls, ['started', 'present']);
+
+            layerIoPending = false;
+            expect(await runtime.advanceTextureBatch([16, 17]), isTrue);
+            expect(steps, 6);
+            expect(calls, ['started', 'present', 'present']);
+
+            await runtime.advanceTextureBatch([16]);
+            expect(calls, ['started', 'present', 'present', 'ended', 'present']);
+            expect(steps, 7);
+            expect(videoPolls, 3);
+            return;
+          }
           expect(runtime.media.videoPlayback.value, isNotNull);
 
           const timeout = Duration(seconds: 2);
