@@ -646,7 +646,13 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
     try {
       await media.resetProject();
     } finally {
-      await previous.close();
+      try {
+        await previous.close();
+      } on PlatformException catch (error) {
+        if (error.code != 'artemis_v2') rethrow;
+        // The Runner removes the session before destroying its resources.
+        Log.warn('[ArtemisV2] previous project close: $error');
+      }
     }
   }
 

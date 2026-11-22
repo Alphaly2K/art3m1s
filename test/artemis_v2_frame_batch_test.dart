@@ -585,7 +585,7 @@ void main() {
     test(
       exitDuringOpen
           ? 'v2 exit waits for the pending native open to be cleaned up'
-          : 'v2 serializes project changes through native close and open',
+          : 'v2 serializes project changes after a native close error',
       () async {
         const channel = MethodChannel('moe.alphaly.art3m1s/artemis_v2');
         final messenger =
@@ -641,6 +641,12 @@ void main() {
                 await allowClose.future;
               }
               closedSessions.add(session);
+              if (session == '1' && !exitDuringOpen) {
+                throw PlatformException(
+                  code: 'artemis_v2',
+                  message: 'destroy renderer failed',
+                );
+              }
               return null;
             default:
               throw StateError('Unexpected method: ${call.method}');
@@ -690,7 +696,7 @@ void main() {
         } finally {
           if (!allowClose.isCompleted) allowClose.complete();
           if (!allowOpen.isCompleted) allowOpen.complete();
-          await preparing;
+          await preparing?.then<void>((_) {}, onError: (Object _) {});
           await loading;
           await nextLoad;
           await runtime.close();
