@@ -86,5 +86,24 @@ void main() {
       colors.add(frame[pixel] << 16 | frame[pixel + 1] << 8 | frame[pixel + 2]);
     }
     expect(colors.length, greaterThan(1));
+
+    if (runtime is AsyncPixelRuntime && runtime.supportsAsyncPixels) {
+      var consumed = 0;
+      Iterable<int> pendingDeltas() sync* {
+        for (final delta in [16, 17, 17]) {
+          consumed++;
+          yield delta;
+        }
+      }
+
+      final pending = runtime.advancePixelBatch(pendingDeltas());
+      final frozen = runtime.setSessionState(EngineSessionState.frozen);
+      final resumed = runtime.setSessionState(EngineSessionState.active);
+      await frozen;
+      expect(await resumed, EngineSessionState.active);
+      expect(await pending, isNull);
+      expect(consumed, 1);
+      expect(await runtime.advancePixelBatch(const [16]), isNotNull);
+    }
   });
 }

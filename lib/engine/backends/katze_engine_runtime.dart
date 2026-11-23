@@ -33,6 +33,8 @@ final class KatzeEngineRuntime extends UnsupportedEngineRuntime
   EngineSessionState _state = EngineSessionState.active;
   bool _foreground = true;
   bool _minimized = false;
+  bool _focused = true;
+  int _focusRevision = 0;
   bool _exit = false;
   int _milliseconds = 0;
   int? _touch;
@@ -144,18 +146,18 @@ final class KatzeEngineRuntime extends UnsupportedEngineRuntime
     final game = _game;
     final textureId = _textureId;
     if (game == null || textureId == null) return false;
-    if (!await _advanceBatch(
-          game,
-          frameDeltasMs,
-          () => _textureId == textureId,
-        ) ||
-        !identical(_game, game) ||
-        _textureId != textureId ||
-        !_state.isRunning) {
+    final revision = _focusRevision;
+    bool canPresent() =>
+        identical(_game, game) &&
+        _focused &&
+        _focusRevision == revision &&
+        _textureId == textureId;
+    if (!await _advanceBatch(game, frameDeltasMs, canPresent) ||
+        !canPresent()) {
       return false;
     }
     final presented = await game.presentSurface();
-    if (_textureId != textureId || !identical(_game, game)) return false;
+    if (!canPresent()) return false;
     if (!presented) {
       Log.warn(
         '[Katze] Metal presentation failed. Returning to software output.',
@@ -165,7 +167,7 @@ final class KatzeEngineRuntime extends UnsupportedEngineRuntime
     }
     try {
       await _textureChannel.invokeMethod<void>('frameAvailable');
-      return _textureId == textureId;
+      return canPresent();
     } catch (error) {
       Log.warn('[Katze] Shared texture notification failed: $error');
       if (_textureId == textureId) {
@@ -182,20 +184,19 @@ final class KatzeEngineRuntime extends UnsupportedEngineRuntime
   Future<Uint8List?> advancePixelBatch(Iterable<int> frameDeltasMs) async {
     final game = _game;
     if (game == null || !game.supportsAsyncPixels) return null;
-    bool softwareOutput() => _textureId == null && !_changingTexture;
-    if (!await _advanceBatch(game, frameDeltasMs, softwareOutput) ||
-        !identical(_game, game) ||
-        !softwareOutput() ||
-        !_state.isRunning) {
+    final revision = _focusRevision;
+    bool canPresent() =>
+        identical(_game, game) &&
+        _focused &&
+        _focusRevision == revision &&
+        _textureId == null &&
+        !_changingTexture;
+    if (!await _advanceBatch(game, frameDeltasMs, canPresent) ||
+        !canPresent()) {
       return null;
     }
     final pixels = await game.presentPixelsAsync();
-    if (pixels == null ||
-        !identical(_game, game) ||
-        !softwareOutput() ||
-        !_state.isRunning) {
-      return null;
-    }
+    if (pixels == null || !canPresent()) return null;
     return _rgba(pixels);
   }
 
@@ -205,15 +206,17 @@ final class KatzeEngineRuntime extends UnsupportedEngineRuntime
     bool Function() canPresent,
   ) async {
     var advanced = false;
-    for (final delta in frameDeltasMs) {
-      if (!_state.isRunning || _exit || _dialogRequest != null || !canPresent())
-        break;
-      _milliseconds += delta.clamp(0, 100);
+    final deltas = frameDeltasMs.iterator;
+    while (canPresent() &&
+        !_exit &&
+        _dialogRequest == null &&
+        deltas.moveNext()) {
+      _milliseconds += deltas.current.clamp(0, 100);
       final running = await game.stepAsync(_milliseconds);
       if (!identical(_game, game) || !_finishStep(game, running)) return false;
       advanced = true;
     }
-    return advanced && _state.isRunning && canPresent();
+    return advanced && canPresent();
   }
 
   @override
@@ -323,7 +326,7 @@ final class KatzeEngineRuntime extends UnsupportedEngineRuntime
   @override
   bool advanceWithoutRender(int deltaMs) {
     final game = _game;
-    if (game == null || !_state.isRunning || _exit) return false;
+    if (game == null || !_focused || _exit) return false;
     if (_dialogRequest != null) return true;
     _milliseconds += deltaMs.clamp(0, 100);
     return _finishStep(
@@ -387,7 +390,7 @@ final class KatzeEngineRuntime extends UnsupportedEngineRuntime
 
   void mixStereo(int sampleRate, Pointer<Float> output, int frames) {
     final game = _game;
-    if (game == null || !_state.isRunning) {
+    if (game == null || !_focused) {
       output.asTypedList(frames * 2).fillRange(0, frames * 2, 0);
     } else {
       game.mixStereo(sampleRate, output, frames);
@@ -424,6 +427,10 @@ final class KatzeEngineRuntime extends UnsupportedEngineRuntime
 
   void _syncFocus() {
     final focused = _foreground && !_minimized && _state.isRunning;
+    if (_focused != focused) {
+      _focused = focused;
+      _focusRevision++;
+    }
     if (!focused) _touch = null;
     final game = _game;
     if (game == null) return;
@@ -479,7 +486,7 @@ final class KatzeEngineRuntime extends UnsupportedEngineRuntime
 
   @override
   void feedTouch(int id, int phase, int x, int y) {
-    if (!_gate.touch || !_foreground || !_state.isRunning) return;
+    if (!_gate.touch || !_focused) return;
     if (phase == 0 && _touch == null) _touch = id;
     if (_touch != id) return;
     _game?.pointer(x, y);
