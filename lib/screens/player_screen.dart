@@ -739,6 +739,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
   void _onGameTick(Duration _) {
     if (_closing || !mounted) return;
+    try {
+      _advanceGameTick();
+    } catch (error, stack) {
+      _stopOnFrameError(error, stack);
+    }
+  }
+
+  void _advanceGameTick() {
     final runtime = _bridge;
     // A busy asynchronous presenter must leave its next deadline intact.
     if (runtime is AsyncTextureRuntime && _frameInFlight) return;
@@ -846,16 +854,21 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         if (!_sharedTextureReady) setState(() => _sharedTextureReady = true);
       }
     } catch (error, stack) {
-      Log.error('[Player] shared texture frame failed: $error\n$stack');
-      if (mounted && !_closing) {
-        _gameTicker.stop();
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('画面更新失败: $error')));
-      }
+      _stopOnFrameError(error, stack);
     } finally {
       _frameInFlight = false;
     }
+  }
+
+  void _stopOnFrameError(Object error, StackTrace stack) {
+    Log.error('[Player] Frame update failed $error\n$stack');
+    _frameInFlight = false;
+    _gameLoopStarted = false;
+    if (!mounted || _closing) return;
+    _gameTicker.stop();
+    ScaffoldMessenger.maybeOf(
+      context,
+    )?.showSnackBar(SnackBar(content: Text('画面更新失败\n$error')));
   }
 
   int _nextFrameDeltaMs() {
