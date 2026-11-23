@@ -45,6 +45,9 @@ class GameEntry {
   /// KRKR 启动归档的根目录文件名；空串由引擎按默认规则选择。
   final String krkrEntryXp3;
 
+  /// CatSystem2 script encoding. Empty uses the host default.
+  final String katzeScriptEncoding;
+
   /// 游戏配置 manifest 的直接路径。目录项目为根目录下的 art3m1s.json，
   /// PFS 项目为归档旁的 sidecar 文件。
   final String? manifestPath;
@@ -70,6 +73,7 @@ class GameEntry {
     this.reportedOs = '',
     this.runtimePlatform = 'WINDOWS',
     this.krkrEntryXp3 = '',
+    this.katzeScriptEncoding = '',
     this.manifestPath,
   }) : id = _normalizeId(id, path);
 
@@ -98,6 +102,8 @@ class GameEntry {
     if (reportedOs.isNotEmpty) 'reportedOs': reportedOs,
     'runtimePlatform': runtimePlatform,
     if (krkrEntryXp3.isNotEmpty) 'krkrEntryXp3': krkrEntryXp3,
+    if (engine == GameEngineKind.katze && katzeScriptEncoding.isNotEmpty)
+      'katzeScriptEncoding': katzeScriptEncoding,
     if (manifestPath != null) 'manifestPath': manifestPath,
   };
 
@@ -129,6 +135,7 @@ class GameEntry {
         ? json['runtimePlatform'].toString().trim().toUpperCase()
         : 'WINDOWS',
     krkrEntryXp3: json['krkrEntryXp3']?.toString() ?? '',
+    katzeScriptEncoding: json['katzeScriptEncoding']?.toString().trim() ?? '',
     manifestPath: json['manifestPath']?.toString(),
   );
 
@@ -148,6 +155,7 @@ class GameEntry {
     String? reportedOs,
     String? runtimePlatform,
     String? krkrEntryXp3,
+    String? katzeScriptEncoding,
     String? manifestPath,
   }) => GameEntry(
     id: id,
@@ -171,6 +179,7 @@ class GameEntry {
     reportedOs: reportedOs ?? this.reportedOs,
     runtimePlatform: runtimePlatform ?? this.runtimePlatform,
     krkrEntryXp3: krkrEntryXp3 ?? this.krkrEntryXp3,
+    katzeScriptEncoding: katzeScriptEncoding ?? this.katzeScriptEncoding,
     manifestPath: manifestPath ?? this.manifestPath,
   );
 

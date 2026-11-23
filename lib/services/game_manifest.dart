@@ -42,6 +42,7 @@ class GameManifest {
     this.reportedOs,
     this.runtimePlatform,
     this.krkrEntryXp3,
+    this.katzeScriptEncoding,
   });
 
   static const defaultRuntimePlatform = 'WINDOWS';
@@ -77,6 +78,8 @@ class GameManifest {
 
   /// KRKR 启动 XP3 的根目录文件名，保持游戏目录作为库条目的身份。
   final String? krkrEntryXp3;
+
+  final String? katzeScriptEncoding;
 
   static const String fileName = 'art3m1s.json';
 
@@ -124,6 +127,7 @@ class GameManifest {
       reportedOs: optionalString('reportedOs'),
       runtimePlatform: optionalString('runtimePlatform')?.toUpperCase(),
       krkrEntryXp3: optionalString('krkrEntryXp3'),
+      katzeScriptEncoding: optionalString('katzeScriptEncoding'),
     );
   }
 
@@ -172,6 +176,9 @@ class GameManifest {
           krkrEntryXp3 != null &&
           krkrEntryXp3!.isNotEmpty)
         'krkrEntryXp3': krkrEntryXp3,
+      if (kind == GameEngineKind.katze &&
+          katzeScriptEncoding?.isNotEmpty == true)
+        'katzeScriptEncoding': katzeScriptEncoding,
     };
   }
 
@@ -189,6 +196,9 @@ class GameManifest {
     reportedOs: entry.reportedOs.isEmpty ? null : entry.reportedOs,
     runtimePlatform: entry.runtimePlatform,
     krkrEntryXp3: entry.krkrEntryXp3.isEmpty ? null : entry.krkrEntryXp3,
+    katzeScriptEncoding: entry.katzeScriptEncoding.isEmpty
+        ? null
+        : entry.katzeScriptEncoding,
   );
 
   GameEntry applyTo(GameEntry entry, {String? manifestPath}) {
@@ -224,6 +234,9 @@ class GameManifest {
       krkrEntryXp3: _supports(kind, GameSettingField.krkrEntryXp3)
           ? krkrEntryXp3 ?? entry.krkrEntryXp3
           : entry.krkrEntryXp3,
+      katzeScriptEncoding: kind == GameEngineKind.katze
+          ? katzeScriptEncoding ?? entry.katzeScriptEncoding
+          : null,
       manifestPath: manifestPath ?? entry.manifestPath,
     );
   }

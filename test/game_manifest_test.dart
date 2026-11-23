@@ -8,6 +8,32 @@ import 'package:art3m1s/services/game_manifest.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('CatSystem2 script encoding survives library and manifest writes', () {
+    final entry = GameEntry(
+      name: 'CatSystem2',
+      path: '/games/katze',
+      source: GameSource.directory,
+      engine: GameEngineKind.katze,
+      addedAt: DateTime(2026),
+    );
+    final manifest = GameManifest.fromJson({
+      'engine': 'katze',
+      'katzeScriptEncoding': 'GBK',
+    });
+    final saved = GameEntry.fromJson(manifest.applyTo(entry).toJson());
+    expect(saved.katzeScriptEncoding, 'GBK');
+    expect(
+      GameManifest.fromGameEntry(saved).toJson()['katzeScriptEncoding'],
+      'GBK',
+    );
+    expect(
+      GameManifest.fromGameEntry(
+        saved.copyWith(engine: GameEngineKind.siglus),
+      ).toJson(),
+      isNot(contains('katzeScriptEncoding')),
+    );
+  });
+
   test('KRKR 启动 XP3 在资料库和游戏清单中保持一致', () {
     final entry = GameEntry(
       name: 'Kirikiri',

@@ -36,7 +36,7 @@ KATZE_GAME_HOST="$katze/target/release/libkatze_system2_example_host.dylib" \
 
 使用同一 `KATZE_GAME_HOST`，再指定 `KATZE_GAME` 为已解包项目目录，可显式运行 `flutter test tool/integration_tests/katze_game_test.dart`。`KATZE_GAME_ENCODING` 可覆盖默认 CP932。可设置 `KATZE_GAME_TEST_CLICK` 为 `x,y,按下轮次,总轮次`，采样指针所在场景和点击后的画面及 PCM。验证默认使用内存音频。
 
-设置 `KATZE_GAME_HOST` 后，Flutter 的游戏库可识别含 `config/startup.xml` 的目录，并通过通用播放器加载。`KATZE_GAME_ENCODING` 指定本次启动使用的脚本编码。`tool/integration_tests/katze_player_test.dart` 使用同样的两个变量及 `KATZE_GAME`。设置 `KATZE_OFFSCREEN_AUDIO=1` 核对导入、推进、暂停恢复、软件画面和内存混音。宿主也可启用 `device-audio`，测试时设置 `SDL_AUDIODRIVER=dummy` 以验证设备启停。
+设置 `KATZE_GAME_HOST` 后，Flutter 的游戏库可识别含 `config/startup.xml` 的目录，并通过通用播放器加载。每个游戏可在 `art3m1s.json` 中设置 `katzeScriptEncoding`，例如 `"gbk"`。缺省时可用 `KATZE_GAME_ENCODING` 提供调试默认值。`tool/integration_tests/katze_player_test.dart` 使用同样的两个变量及 `KATZE_GAME`。设置 `KATZE_OFFSCREEN_AUDIO=1` 核对导入、推进、暂停恢复、软件画面和内存混音。宿主也可启用 `device-audio`，测试时设置 `SDL_AUDIODRIVER=dummy` 以验证设备启停。
 
 可把同一宿主装入本地 macOS 预览构建。用 `KATZE_RUNTIME_DIR` 指定含宿主动态库的目录，然后执行普通的 `flutter build macos`。应用从自己的 Frameworks 目录加载库，`KATZE_GAME_HOST` 仍可用于指定本地调试构建。
 

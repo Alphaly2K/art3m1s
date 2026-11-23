@@ -3,8 +3,10 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import '../../models/game_engine.dart';
+import '../../models/game_entry.dart';
 import '../../models/input_gate.dart';
 import '../../services/logger.dart';
+import '../../services/game_manifest.dart';
 import '../engine_runtime.dart';
 import '../native_library.dart';
 import 'katze/katze_game_host.dart';
@@ -15,6 +17,7 @@ final class KatzeEngineRuntime extends UnsupportedEngineRuntime {
   DynamicLibrary? _library;
   KatzeGameHost? _game;
   String? _directory;
+  String _encoding = '';
   String _saveDirectory = '';
   InputGatePolicy _gate = InputGatePolicy.full;
   EngineSessionState _state = EngineSessionState.active;
@@ -57,8 +60,18 @@ final class KatzeEngineRuntime extends UnsupportedEngineRuntime {
     final sep = Platform.pathSeparator;
     final startup = File('$projectPath${sep}config${sep}startup.xml');
     if (!await startup.exists()) return null;
+    final manifest = await GameManifest.loadForProject(
+      projectPath,
+      GameSource.directory,
+      engine: GameEngineKind.katze,
+    );
+    final settings = await startup.readAsBytes();
     _directory = projectPath;
-    return startup.readAsBytes();
+    _encoding =
+        manifest?.katzeScriptEncoding ??
+        Platform.environment['KATZE_GAME_ENCODING'] ??
+        '';
+    return settings;
   }
 
   @override
@@ -74,7 +87,7 @@ final class KatzeEngineRuntime extends UnsupportedEngineRuntime {
       final game = KatzeGameHost.open(
         library,
         directory,
-        encoding: Platform.environment['KATZE_GAME_ENCODING'] ?? '',
+        encoding: _encoding,
         saveDirectory: _saveDirectory,
       );
       _game = game;

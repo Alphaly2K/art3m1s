@@ -263,6 +263,7 @@ class LibraryActions {
                 manifest?.runtimePlatform ??
                 GameManifest.defaultRuntimePlatform,
             krkrEntryXp3: krkrEntryXp3,
+            katzeScriptEncoding: manifest?.katzeScriptEncoding ?? '',
           ),
         );
     Log.info('已自动添加: ${metadata.name}');
@@ -338,6 +339,7 @@ class LibraryActions {
                 : manifest?.reportedOs ?? '',
             runtimePlatform: result.runtimePlatform,
             krkrEntryXp3: krkrEntryXp3,
+            katzeScriptEncoding: manifest?.katzeScriptEncoding ?? '',
           ),
         );
     Log.info('已添加: ${result.name.isNotEmpty ? result.name : defaultName}');
