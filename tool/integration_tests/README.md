@@ -40,6 +40,8 @@ KATZE_GAME_HOST="$katze/target/release/libkatze_system2_example_host.dylib" \
 
 可把同一宿主装入本地 macOS 预览构建。用 `KATZE_RUNTIME_DIR` 指定含宿主动态库的目录，然后执行普通的 `flutter build macos`。应用从自己的 Frameworks 目录加载库，`KATZE_GAME_HOST` 仍可用于指定本地调试构建。
 
+设置 `KATZE_GAME_HOST`、`KATZE_FIXTURES` 和 `KATZE_OFFSCREEN_AUDIO=1` 后，运行 `flutter test tool/integration_tests/katze_window_test.dart` 核对脚本窗口请求与状态回报。
+
 ## macOS Artemis v2
 
 从项目根目录运行 `dart run tool/build.dart macos --debug --artemis-v2` 构建预览。应用同时打包

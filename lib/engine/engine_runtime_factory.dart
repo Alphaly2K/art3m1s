@@ -57,7 +57,9 @@ class EngineRuntimeFactory {
         engineCursorControlEnabled: engineCursorControlEnabled,
       ),
       GameEngineKind.siglus => SiglusEngineRuntime(),
-      GameEngineKind.katze => KatzeEngineRuntime(),
+      GameEngineKind.katze => KatzeEngineRuntime(
+        onWindowAction: onWindowAction,
+      ),
     };
   }
 

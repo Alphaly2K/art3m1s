@@ -94,6 +94,22 @@ final class KatzeGameHost {
     'katze_game_focus',
   );
 
+  late final _windowAction = _library
+      .lookupFunction<
+        Uint32 Function(Pointer<KatzeCreateInfo>),
+        int Function(Pointer<KatzeCreateInfo>)
+      >('katze_game_take_window_action');
+
+  int takeWindowAction() {
+    _requireLive();
+    return _windowAction(_mount);
+  }
+
+  void reportWindow({bool? fullscreen}) {
+    _requireLive();
+    _api.reportWindow(_session, fullscreen: fullscreen);
+  }
+
   bool step({required int increment, required int milliseconds}) {
     _requireLive();
     _time.ref

@@ -12,7 +12,10 @@ import '../native_library.dart';
 import 'katze/katze_game_host.dart';
 
 final class KatzeEngineRuntime extends UnsupportedEngineRuntime {
-  KatzeEngineRuntime() : super(GameEngineKind.katze);
+  KatzeEngineRuntime({this.onWindowAction}) : super(GameEngineKind.katze);
+
+  final void Function(EngineWindowAction)? onWindowAction;
+  bool? _fullscreen;
 
   DynamicLibrary? _library;
   KatzeGameHost? _game;
@@ -22,6 +25,7 @@ final class KatzeEngineRuntime extends UnsupportedEngineRuntime {
   InputGatePolicy _gate = InputGatePolicy.full;
   EngineSessionState _state = EngineSessionState.active;
   bool _foreground = true;
+  bool _minimized = false;
   bool _exit = false;
   int _milliseconds = 0;
   int? _touch;
@@ -91,6 +95,7 @@ final class KatzeEngineRuntime extends UnsupportedEngineRuntime {
         saveDirectory: _saveDirectory,
       );
       _game = game;
+      game.reportWindow(fullscreen: _fullscreen);
       _milliseconds = 0;
       _exit = false;
       _syncFocus();
@@ -127,6 +132,16 @@ final class KatzeEngineRuntime extends UnsupportedEngineRuntime {
     if (game == null || !_state.isRunning || _exit) return false;
     _milliseconds += deltaMs.clamp(0, 100);
     _exit = !game.step(increment: 1, milliseconds: _milliseconds);
+    var command = game.takeWindowAction();
+    while (command != 0) {
+      final action = switch (command) {
+        1 => EngineWindowAction.toggleFullscreen,
+        2 => EngineWindowAction.minimize,
+        _ => null,
+      };
+      if (action != null) onWindowAction?.call(action);
+      command = game.takeWindowAction();
+    }
     return !_exit;
   }
 
@@ -161,13 +176,25 @@ final class KatzeEngineRuntime extends UnsupportedEngineRuntime {
   }
 
   @override
+  void setWindowStateBits({bool? fullscreen, bool? minimized}) {
+    if (fullscreen != null) {
+      _fullscreen = fullscreen;
+      _game?.reportWindow(fullscreen: fullscreen);
+    }
+    if (minimized != null && minimized != _minimized) {
+      _minimized = minimized;
+      _syncFocus();
+    }
+  }
+
+  @override
   void notifyLifecycle(int state) {
     _foreground = state == 2;
     _syncFocus();
   }
 
   void _syncFocus() {
-    final focused = _foreground && _state.isRunning;
+    final focused = _foreground && !_minimized && _state.isRunning;
     if (!focused) _touch = null;
     final game = _game;
     if (game == null) return;

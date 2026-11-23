@@ -22,6 +22,19 @@ final class KatzeFrameTime extends Struct {
   external int milliseconds;
 }
 
+final class _WindowState extends Struct {
+  @Uint32()
+  external int size;
+  @Uint32()
+  external int flags;
+  @Array(4)
+  external Array<Int32> contentRect;
+  @Uint32()
+  external int mode;
+  @Uint32()
+  external int fullscreen;
+}
+
 // Constructed by the native host using the matching katze_system2.h.
 final class KatzeCreateInfo extends Opaque {}
 
@@ -48,7 +61,10 @@ final class _Table extends Struct {
   external Pointer<NativeFunction<_Step>> step;
   external Pointer<NativeFunction<_Session>> present;
   external Pointer<NativeFunction<KatzeMixStereo>> mixStereo;
-  external Pointer<Void> setWindowState;
+  external Pointer<
+    NativeFunction<Int32 Function(Uint64, Pointer<_WindowState>)>
+  >
+  setWindowState;
   external Pointer<Void> textEntry;
   external Pointer<Void> completeTextEntry;
   external Pointer<Void> windowPreferences;
@@ -126,6 +142,18 @@ final class KatzeApi {
         .asFunction<int Function(int, int, Pointer<Float>, int)>();
     _check(call(session, sampleRate, output, frames), 'mix_stereo');
   }
+
+  void reportWindow(int session, {bool? fullscreen}) => using((arena) {
+    final state = arena<_WindowState>();
+    state.ref
+      ..size = sizeOf<_WindowState>()
+      ..flags = fullscreen == null ? 2 : 6
+      ..mode = 1
+      ..fullscreen = fullscreen == true ? 1 : 0;
+    final call = _table.setWindowState
+        .asFunction<int Function(int, Pointer<_WindowState>)>();
+    _check(call(session, state), 'set_window_state');
+  });
 
   void _check(int status, String operation) {
     if (status == 0) return;

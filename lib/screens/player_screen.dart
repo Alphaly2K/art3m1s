@@ -18,6 +18,7 @@ import '../controllers/ps5_input.dart';
 import '../controllers/two_finger_gesture.dart';
 import '../controllers/wheel_input.dart';
 import '../engine/backends/artemis_v2_engine_runtime.dart';
+import '../engine/backends/katze_engine_runtime.dart';
 import '../engine/engine_runtime.dart';
 import '../engine/engine_runtime_factory.dart';
 import '../models/game_engine.dart';
@@ -171,6 +172,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   static const int _targetFrameUs = 1000000 ~/ 60;
   static const int _maxCatchUpTicks = 8;
 
+  bool get _reportsEngineWindowState =>
+      _bridge is ArtemisV2EngineRuntime ||
+      (_bridge is KatzeEngineRuntime && _isDesktopPlatform);
+
   @override
   void initState() {
     super.initState();
@@ -187,7 +192,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       onDialogRequested: _showEngineDialog,
       onWindowAction: _handleEngineWindowAction,
     );
-    if (_bridge is ArtemisV2EngineRuntime) {
+    if (_reportsEngineWindowState && Platform.isMacOS) {
       _syncArtemisVisibility(WidgetsBinding.instance.lifecycleState);
       _windowDelegate = WindowManipulator.addNSWindowDelegate(
         _ArtemisPlayerWindowDelegate(
@@ -260,8 +265,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    final artemisV2 = _bridge is ArtemisV2EngineRuntime;
-    if (artemisV2) _syncArtemisVisibility(state);
+    final managedVisibility = _reportsEngineWindowState && Platform.isMacOS;
+    if (managedVisibility) _syncArtemisVisibility(state);
     // 生命周期 → core：驱动 [autosave allow=1]（切后台自动存档）+ 同步最小化位。
     switch (state) {
       case AppLifecycleState.resumed:
@@ -269,7 +274,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         _syncGameTicker();
         if (widget.sessionState.isRunning) {
           _scheduleSharedTextureResize();
-          if (!artemisV2) {
+          if (!managedVisibility) {
             _bridge.setWindowStateBits(minimized: false);
             _bridge.notifyLifecycle(2); // 回前台
           }
@@ -279,19 +284,19 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         _appActive = false;
         _syncGameTicker();
         _endTouchpadDrag();
-        if (!artemisV2) {
+        if (!managedVisibility) {
           _bridge.setWindowStateBits(minimized: true);
           _bridge.notifyLifecycle(1); // 切后台
         }
       case AppLifecycleState.inactive:
-        if (!artemisV2) _appActive = false;
+        if (!managedVisibility) _appActive = false;
         _syncGameTicker();
         _endTouchpadDrag();
       case AppLifecycleState.detached:
         _appActive = false;
         _syncGameTicker();
         _endTouchpadDrag();
-        if (!artemisV2) _bridge.notifyLifecycle(0); // 退出
+        if (!managedVisibility) _bridge.notifyLifecycle(0); // 退出
     }
   }
 
@@ -372,7 +377,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     final appliedState = await _bridge.setSessionState(widget.sessionState);
     if (!mounted || _closing) return;
     _sessionReadyToRun = appliedState.isRunning;
-    if (_bridge is ArtemisV2EngineRuntime) {
+    if (_reportsEngineWindowState) {
       final [fullscreen, minimized] = await Future.wait([
         windowManager.isFullScreen(),
         windowManager.isMinimized(),
@@ -1111,7 +1116,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         switch (action) {
           case EngineWindowAction.toggleFullscreen:
             await _desktopShell?.togglePlayerFullScreen(this);
-            await _syncArtemisFullscreen();
+            await _syncEngineFullscreen();
           case EngineWindowAction.minimize:
             final shell = _desktopShell;
             if (Platform.isMacOS && shell != null) {
@@ -1119,7 +1124,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                   !_canHandleEngineWindowAction) {
                 return;
               }
-              await _syncArtemisFullscreen();
+              await _syncEngineFullscreen();
             }
             if (!_canHandleEngineWindowAction) return;
             await windowManager.minimize();
@@ -1142,7 +1147,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   Future<bool> _exitFullscreenForMinimize(DesktopShellController shell) async {
     // AppKit can report a cleared fullscreen flag before its animation ends.
     Completer<void>? exited;
-    if (_bridge is ArtemisV2EngineRuntime &&
+    if (_reportsEngineWindowState &&
         (_artemisFullscreen || await windowManager.isFullScreen())) {
       exited = _artemisFullscreenExit = Completer<void>();
     }
@@ -1157,8 +1162,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     }
   }
 
-  Future<void> _syncArtemisFullscreen() async {
-    if (_bridge is! ArtemisV2EngineRuntime) return;
+  Future<void> _syncEngineFullscreen() async {
+    if (!_reportsEngineWindowState) return;
     final fullscreen = await windowManager.isFullScreen();
     if (_canHandleEngineWindowAction) {
       _bridge.setWindowStateBits(fullscreen: fullscreen);
