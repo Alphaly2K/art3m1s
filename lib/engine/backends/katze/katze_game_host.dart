@@ -37,7 +37,7 @@ final class KatzeGameHost {
     this._library,
     this._api,
     this._mediaLibrary,
-    this._modelLibrary,
+    this._releaseModelHost,
     this._mount,
     this._session,
     this.width,
@@ -66,7 +66,7 @@ final class KatzeGameHost {
     if (context == nullptr) throw StateError('Cannot mount Katze game');
     var session = 0;
     DynamicLibrary? media;
-    DynamicLibrary? models;
+    void Function()? models;
     try {
       media = _attachMovieHost(library, context);
       models = _attachModelHost(library, context, encoding);
@@ -88,7 +88,7 @@ final class KatzeGameHost {
         _releaseMount(library, context);
       } finally {
         media?.close();
-        models?.close();
+        models?.call();
       }
       rethrow;
     }
@@ -97,7 +97,7 @@ final class KatzeGameHost {
   final DynamicLibrary _library;
   final KatzeApi _api;
   final DynamicLibrary? _mediaLibrary;
-  final DynamicLibrary? _modelLibrary;
+  final void Function()? _releaseModelHost;
   final Pointer<KatzeCreateInfo> _mount;
   int _session;
   void Function()? _stopAudio;
@@ -222,7 +222,7 @@ final class KatzeGameHost {
       _releaseMount(_library, _mount);
     } finally {
       _mediaLibrary?.close();
-      _modelLibrary?.close();
+      _releaseModelHost?.call();
     }
   }
 
@@ -262,7 +262,7 @@ final class KatzeGameHost {
     }
   }
 
-  static DynamicLibrary? _attachModelHost(
+  static void Function()? _attachModelHost(
     DynamicLibrary library,
     Pointer<KatzeCreateInfo> mount,
     String encoding,
@@ -280,25 +280,39 @@ final class KatzeGameHost {
       core.close();
       return null;
     }
+    void Function(Pointer<Void>)? destroy;
+    var callbacks = nullptr.cast<Void>();
     try {
       final provider = core
           .lookupFunction<
             Pointer<Void> Function(Pointer<Utf8>),
             Pointer<Void> Function(Pointer<Utf8>)
           >(getter);
+      const destroySymbol = 'art3m1s_katze_model_host_destroy_v0';
+      if (core.providesSymbol(destroySymbol)) {
+        destroy = core
+            .lookupFunction<
+              Void Function(Pointer<Void>),
+              void Function(Pointer<Void>)
+            >(destroySymbol);
+      }
       final attach = library
           .lookupFunction<
             Int32 Function(Pointer<KatzeCreateInfo>, Pointer<Void>),
             int Function(Pointer<KatzeCreateInfo>, Pointer<Void>)
           >(setter);
-      final callbacks = using(
+      callbacks = using(
         (arena) => provider(encoding.toNativeUtf8(allocator: arena)),
       );
       if (attach(mount, callbacks) != 0) {
         throw StateError('Cannot attach the bundled Katze model host');
       }
-      return core;
+      return () {
+        destroy?.call(callbacks);
+        core.close();
+      };
     } catch (_) {
+      if (callbacks != nullptr) destroy?.call(callbacks);
       core.close();
       rethrow;
     }
