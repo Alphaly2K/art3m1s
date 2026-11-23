@@ -251,9 +251,15 @@ final class KatzeEngineRuntime extends UnsupportedEngineRuntime
   void _closeGame() {
     _touch = null;
     _dialogRequest = null;
-    _game?.close();
+    final game = _game;
     _game = null;
-    unawaited(SharedTextureSessionCoordinator.release(this));
+    try {
+      game?.close();
+    } catch (error) {
+      Log.warn('[Katze] Session shutdown failed: $error');
+    } finally {
+      unawaited(SharedTextureSessionCoordinator.release(this));
+    }
   }
 
   @override

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
 import 'dart:typed_data';
@@ -28,6 +29,8 @@ typedef _SetFocus = void Function(Pointer<KatzeCreateInfo>, int);
 
 typedef _StepFinished = Void Function(Int32, Uint32);
 typedef _StepCallback = Pointer<NativeFunction<_StepFinished>>;
+typedef _StepReport = Void Function(Int32, Uint32, Size);
+typedef _StepReportCallback = Pointer<NativeFunction<_StepReport>>;
 
 typedef _AudioStart =
     Pointer<Void> Function(Uint64, Pointer<NativeFunction<KatzeMixStereo>>);
@@ -111,6 +114,12 @@ final class KatzeGameHost {
   late final Pointer<KatzeFrameTime> _time;
   late final Pointer<Uint32> _flags;
   NativeCallable<_StepFinished>? _stepListener;
+  NativeCallable<_StepReport>? _stepReportListener;
+  static const _stepDiagnosticCapacity = 4096;
+  late final _stepDiagnostic = _buffers<Uint8>(_stepDiagnosticCapacity);
+  late final _hasStepReport = _library.providesSymbol(
+    'katze_game_step_async_report',
+  );
   Completer<bool>? _stepCompletion;
   final _pendingInput = <void Function()>[];
 
@@ -166,36 +175,70 @@ final class KatzeGameHost {
         int Function(int, int, int, _StepCallback)
       >('katze_game_step_async');
 
+  late final _enqueueStepReport = _library
+      .lookupFunction<
+        Int32 Function(
+          Uint64,
+          Uint32,
+          Uint32,
+          Pointer<Uint8>,
+          Size,
+          _StepReportCallback,
+        ),
+        int Function(int, int, int, Pointer<Uint8>, int, _StepReportCallback)
+      >('katze_game_step_async_report');
+
   Future<bool> stepAsync(int milliseconds) async {
     _requireLive();
     if (_stepCompletion != null) throw StateError('Katze step is pending');
-    final listener = _stepListener ??= NativeCallable<_StepFinished>.listener(
-      _finishAsyncStep,
-    );
     final tick = ++_time.ref.tick;
-    final completion = _stepCompletion = Completer<bool>();
-    final status = _enqueueStep(
-      _session,
-      tick,
-      milliseconds,
-      listener.nativeFunction,
-    );
+    final int status;
+    if (_hasStepReport) {
+      final listener = _stepReportListener ??=
+          NativeCallable<_StepReport>.listener(
+            (int status, int flags, int written) =>
+                _finishAsyncStep(status, flags, written),
+          );
+      status = _enqueueStepReport(
+        _session,
+        tick,
+        milliseconds,
+        _stepDiagnostic,
+        _stepDiagnosticCapacity,
+        listener.nativeFunction,
+      );
+    } else {
+      final listener = _stepListener ??= NativeCallable<_StepFinished>.listener(
+        (int status, int flags) => _finishAsyncStep(status, flags),
+      );
+      status = _enqueueStep(
+        _session,
+        tick,
+        milliseconds,
+        listener.nativeFunction,
+      );
+    }
     if (status != 0) {
-      _stepCompletion = null;
       throw StateError('Katze could not queue frame: $status');
     }
+    final completion = _stepCompletion = Completer<bool>();
     return completion.future;
   }
 
-  void _finishAsyncStep(int status, int flags) {
+  void _finishAsyncStep(int status, int flags, [int written = 0]) {
     final completion = _stepCompletion;
     if (completion == null) return;
     _stepCompletion = null;
     try {
+      if (status != 0) {
+        final detail = written == 0
+            ? 'status $status'
+            : utf8.decode(_stepDiagnostic.asTypedList(written));
+        throw StateError('Katze step failed: $detail');
+      }
       for (final event in _pendingInput) {
         event();
       }
-      if (status != 0) throw StateError('Katze step failed: $status');
       completion.complete((flags & 1) == 0);
     } catch (error, stack) {
       completion.completeError(error, stack);
@@ -328,16 +371,17 @@ final class KatzeGameHost {
     } finally {
       _session = 0;
       _stepListener?.close();
+      _stepReportListener?.close();
       _stepCompletion?.complete(false);
       _stepCompletion = null;
       _pendingInput.clear();
       _buffers.releaseAll();
-    }
-    try {
-      _releaseMount(_library, _mount);
-    } finally {
-      _mediaLibrary?.close();
-      _releaseModelHost?.call();
+      try {
+        _releaseMount(_library, _mount);
+      } finally {
+        _mediaLibrary?.close();
+        _releaseModelHost?.call();
+      }
     }
   }
 
