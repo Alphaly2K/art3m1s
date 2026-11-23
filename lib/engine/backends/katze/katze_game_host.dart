@@ -1,8 +1,10 @@
 import 'dart:ffi';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
 
+import '../../native_library.dart';
 import 'core_katze_api.dart';
 
 typedef _Mount =
@@ -34,6 +36,7 @@ final class KatzeGameHost {
   KatzeGameHost._(
     this._library,
     this._api,
+    this._mediaLibrary,
     this._mount,
     this._session,
     this.width,
@@ -61,19 +64,34 @@ final class KatzeGameHost {
     );
     if (context == nullptr) throw StateError('Cannot mount Katze game');
     var session = 0;
+    DynamicLibrary? media;
     try {
+      media = _attachMovieHost(library, context);
       session = api.create(context);
       final (width, height) = api.stage(session);
-      return KatzeGameHost._(library, api, context, session, width, height);
+      return KatzeGameHost._(
+        library,
+        api,
+        media,
+        context,
+        session,
+        width,
+        height,
+      );
     } catch (_) {
       if (session != 0) api.destroy(session);
-      _releaseMount(library, context);
+      try {
+        _releaseMount(library, context);
+      } finally {
+        media?.close();
+      }
       rethrow;
     }
   }
 
   final DynamicLibrary _library;
   final KatzeApi _api;
+  final DynamicLibrary? _mediaLibrary;
   final Pointer<KatzeCreateInfo> _mount;
   int _session;
   void Function()? _stopAudio;
@@ -194,7 +212,47 @@ final class KatzeGameHost {
     _api.destroy(session);
     _session = 0;
     _buffers.releaseAll();
-    _releaseMount(_library, _mount);
+    try {
+      _releaseMount(_library, _mount);
+    } finally {
+      _mediaLibrary?.close();
+    }
+  }
+
+  static DynamicLibrary? _attachMovieHost(
+    DynamicLibrary library,
+    Pointer<KatzeCreateInfo> mount,
+  ) {
+    const setter = 'katze_game_set_movie_host';
+    if (Platform.environment['KATZE_FFMPEG_MOVIES'] == '1' ||
+        !library.providesSymbol(setter)) {
+      return null;
+    }
+    final media = openKatzeMediaLibrary();
+    if (media == null) return null;
+    const getter = 'art3m1s_katze_movie_host_v0';
+    if (!media.providesSymbol(getter)) {
+      media.close();
+      return null;
+    }
+    try {
+      final callbacks = media
+          .lookupFunction<Pointer<Void> Function(), Pointer<Void> Function()>(
+            getter,
+          )();
+      final attach = library
+          .lookupFunction<
+            Int32 Function(Pointer<KatzeCreateInfo>, Pointer<Void>),
+            int Function(Pointer<KatzeCreateInfo>, Pointer<Void>)
+          >(setter);
+      if (attach(mount, callbacks) != 0) {
+        throw StateError('Cannot attach the bundled Katze movie host');
+      }
+      return media;
+    } catch (_) {
+      media.close();
+      rethrow;
+    }
   }
 
   static void _releaseMount(

@@ -55,3 +55,24 @@ DynamicLibrary openKatzeHostLibrary() {
   }
   throw StateError('CatSystem2 host library is unavailable');
 }
+
+DynamicLibrary? openKatzeMediaLibrary() {
+  final executable = File(Platform.resolvedExecutable).parent;
+  final configured = Platform.environment['KATZE_GAME_HOST'];
+  final name = Platform.isWindows
+      ? 'art3m1s_artemis_media_host.dll'
+      : Platform.isMacOS
+      ? 'libart3m1s_artemis_media_host.dylib'
+      : 'libart3m1s_artemis_media_host.so';
+  final candidates = [
+    if (configured != null && configured.isNotEmpty)
+      '${File(configured).parent.path}/$name',
+    if (Platform.isMacOS) '${executable.parent.path}/Frameworks/$name',
+    '${executable.path}/$name',
+    if (Platform.isLinux) '${executable.path}/lib/$name',
+  ];
+  for (final candidate in candidates) {
+    if (File(candidate).existsSync()) return DynamicLibrary.open(candidate);
+  }
+  return null;
+}
