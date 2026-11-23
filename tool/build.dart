@@ -561,11 +561,15 @@ Future<void> _buildMacos(
       'build',
       if (options.profile == 'release') '--release',
       '--features',
-      coreFeaturesForTarget(
-        'macos',
-        krkr: options.krkr,
-        siglus: options.siglus,
-      ).join(','),
+      <String>[
+        ...coreFeaturesForTarget(
+          'macos',
+          krkr: options.krkr,
+          siglus: options.siglus,
+        ),
+        if (Platform.environment['KATZE_RUNTIME_DIR']?.isNotEmpty ?? false)
+          'katze-model-host',
+      ].join(','),
       '--manifest-path',
       '${core.path}/Cargo.toml',
     ],

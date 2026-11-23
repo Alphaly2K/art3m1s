@@ -37,6 +37,7 @@ final class KatzeGameHost {
     this._library,
     this._api,
     this._mediaLibrary,
+    this._modelLibrary,
     this._mount,
     this._session,
     this.width,
@@ -65,14 +66,17 @@ final class KatzeGameHost {
     if (context == nullptr) throw StateError('Cannot mount Katze game');
     var session = 0;
     DynamicLibrary? media;
+    DynamicLibrary? models;
     try {
       media = _attachMovieHost(library, context);
+      models = _attachModelHost(library, context, encoding);
       session = api.create(context);
       final (width, height) = api.stage(session);
       return KatzeGameHost._(
         library,
         api,
         media,
+        models,
         context,
         session,
         width,
@@ -84,6 +88,7 @@ final class KatzeGameHost {
         _releaseMount(library, context);
       } finally {
         media?.close();
+        models?.close();
       }
       rethrow;
     }
@@ -92,6 +97,7 @@ final class KatzeGameHost {
   final DynamicLibrary _library;
   final KatzeApi _api;
   final DynamicLibrary? _mediaLibrary;
+  final DynamicLibrary? _modelLibrary;
   final Pointer<KatzeCreateInfo> _mount;
   int _session;
   void Function()? _stopAudio;
@@ -216,6 +222,7 @@ final class KatzeGameHost {
       _releaseMount(_library, _mount);
     } finally {
       _mediaLibrary?.close();
+      _modelLibrary?.close();
     }
   }
 
@@ -251,6 +258,48 @@ final class KatzeGameHost {
       return media;
     } catch (_) {
       media.close();
+      rethrow;
+    }
+  }
+
+  static DynamicLibrary? _attachModelHost(
+    DynamicLibrary library,
+    Pointer<KatzeCreateInfo> mount,
+    String encoding,
+  ) {
+    const setter = 'katze_game_set_model_host';
+    if (!library.providesSymbol(setter)) return null;
+    final DynamicLibrary core;
+    try {
+      core = openEngineCoreLibrary();
+    } on StateError {
+      return null;
+    }
+    const getter = 'art3m1s_katze_model_host_v0';
+    if (!core.providesSymbol(getter)) {
+      core.close();
+      return null;
+    }
+    try {
+      final provider = core
+          .lookupFunction<
+            Pointer<Void> Function(Pointer<Utf8>),
+            Pointer<Void> Function(Pointer<Utf8>)
+          >(getter);
+      final attach = library
+          .lookupFunction<
+            Int32 Function(Pointer<KatzeCreateInfo>, Pointer<Void>),
+            int Function(Pointer<KatzeCreateInfo>, Pointer<Void>)
+          >(setter);
+      final callbacks = using(
+        (arena) => provider(encoding.toNativeUtf8(allocator: arena)),
+      );
+      if (attach(mount, callbacks) != 0) {
+        throw StateError('Cannot attach the bundled Katze model host');
+      }
+      return core;
+    } catch (_) {
+      core.close();
       rethrow;
     }
   }

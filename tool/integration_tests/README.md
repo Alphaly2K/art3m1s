@@ -40,6 +40,8 @@ KATZE_GAME_HOST="$katze/target/release/libkatze_system2_example_host.dylib" \
 
 可把同一宿主装入本地 macOS 预览构建。用 `KATZE_RUNTIME_DIR` 指定含宿主动态库的目录，然后执行普通的 `flutter build macos`。应用从自己的 Frameworks 目录加载库，`KATZE_GAME_HOST` 仍可用于指定本地调试构建。 同一目录可放入配套 `libart3m1s_artemis_media_host.dylib`，支持从游戏归档播放 WebM。打包时沿用应用的 FFmpeg 库，运行时自动发现该媒体宿主。
 
+设置 `KATZE_RUNTIME_DIR` 后运行 `dart run tool/build.dart macos --debug`，预览中的 core 会提供 E‑Mote 模型回调。Flutter 创建会话时自动挂载该服务。离屏测试可通过 `ART3M1S_CORE_LIBRARY` 指定启用了 `metal-backend,katze-model-host` 的 core 动态库。
+
 设置 `KATZE_GAME_HOST`、`KATZE_FIXTURES` 和 `KATZE_OFFSCREEN_AUDIO=1` 后，运行 `flutter test tool/integration_tests/katze_window_test.dart` 核对脚本窗口请求与状态回报。
 
 沿用同一合成资源和环境变量，运行 `flutter test tool/integration_tests/katze_text_entry_test.dart` 核对脚本文字输入、空字符串提交与取消。
