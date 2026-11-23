@@ -28,6 +28,7 @@ typedef _FocusEvent = Void Function(Pointer<KatzeCreateInfo>, Uint32);
 typedef _SetFocus = void Function(Pointer<KatzeCreateInfo>, int);
 
 typedef _PresentFinished = Void Function(Int32);
+typedef _PresentReport = Void Function(Int32, Size);
 typedef _StepFinished = Void Function(Int32, Uint32);
 typedef _StepCallback = Pointer<NativeFunction<_StepFinished>>;
 typedef _StepReport = Void Function(Int32, Uint32, Size);
@@ -115,11 +116,12 @@ final class KatzeGameHost {
   late final Pointer<KatzeFrameTime> _time;
   late final Pointer<Uint32> _flags;
   NativeCallable<_PresentFinished>? _presentListener;
+  NativeCallable<_PresentReport>? _presentReportListener;
   Completer<bool>? _presentCompletion;
   NativeCallable<_StepFinished>? _stepListener;
   NativeCallable<_StepReport>? _stepReportListener;
-  static const _stepDiagnosticCapacity = 4096;
-  late final _stepDiagnostic = _buffers<Uint8>(_stepDiagnosticCapacity);
+  static const _diagnosticCapacity = 4096;
+  late final _diagnostic = _buffers<Uint8>(_diagnosticCapacity);
   late final _hasStepReport = _library.providesSymbol(
     'katze_game_step_async_report',
   );
@@ -206,8 +208,8 @@ final class KatzeGameHost {
         _session,
         tick,
         milliseconds,
-        _stepDiagnostic,
-        _stepDiagnosticCapacity,
+        _diagnostic,
+        _diagnosticCapacity,
         listener.nativeFunction,
       );
     } else {
@@ -236,7 +238,7 @@ final class KatzeGameHost {
       if (status != 0) {
         final detail = written == 0
             ? 'status $status'
-            : utf8.decode(_stepDiagnostic.asTypedList(written));
+            : utf8.decode(_diagnostic.asTypedList(written));
         throw StateError('Katze step failed: $detail');
       }
       _flushInput();
@@ -284,6 +286,10 @@ final class KatzeGameHost {
     }
   }
 
+  late final bool supportsAsyncPixels =
+      _library.providesSymbol('katze_game_step_async') &&
+      _library.providesSymbol('katze_game_present_async_report');
+
   bool get supportsSharedTexture =>
       Platform.isMacOS &&
       _library.providesSymbol('katze_game_attach_surface') &&
@@ -315,8 +321,25 @@ final class KatzeGameHost {
         )
       >('katze_game_present_surface_async');
 
+  late final _presentPixelsAsync = _library
+      .lookupFunction<
+        Int32 Function(
+          Uint64,
+          Pointer<Uint8>,
+          Size,
+          Pointer<NativeFunction<_PresentReport>>,
+        ),
+        int Function(
+          int,
+          Pointer<Uint8>,
+          int,
+          Pointer<NativeFunction<_PresentReport>>,
+        )
+      >('katze_game_present_async_report');
+
   bool attachSurface(int address, int width, int height) {
     _requireLive();
+    _requireIdle();
     return _attachSurface(
           _mount,
           Pointer<Void>.fromAddress(address),
@@ -328,6 +351,7 @@ final class KatzeGameHost {
 
   void detachSurface() {
     _requireLive();
+    _requireIdle();
     _attachSurface(_mount, nullptr, 0, 0);
   }
 
@@ -338,26 +362,60 @@ final class KatzeGameHost {
       return _presentSurface(_mount, _session) == 0;
     }
     final listener = _presentListener ??=
-        NativeCallable<_PresentFinished>.listener((int status) {
-          final completion = _presentCompletion;
-          _presentCompletion = null;
-          if (completion == null) return;
-          try {
-            _flushInput();
-            completion.complete(status == 0);
-          } catch (error, stack) {
-            completion.completeError(error, stack);
-          }
-        });
+        NativeCallable<_PresentFinished>.listener(_finishAsyncPresent);
     if (_presentSurfaceAsync(_mount, _session, listener.nativeFunction) != 0) {
       return false;
     }
     return (_presentCompletion = Completer<bool>()).future;
   }
 
+  Future<Uint8List?> presentPixelsAsync() async {
+    _requireLive();
+    _requireIdle();
+    final listener = _presentReportListener ??=
+        NativeCallable<_PresentReport>.listener((int status, int written) {
+          final detail = written == 0
+              ? 'status $status'
+              : utf8.decode(_diagnostic.asTypedList(written));
+          _finishAsyncPresent(status, detail);
+        });
+    final accepted = _presentPixelsAsync(
+      _session,
+      _diagnostic,
+      _diagnosticCapacity,
+      listener.nativeFunction,
+    );
+    if (accepted != 0) {
+      throw StateError('Katze could not queue presentation: $accepted');
+    }
+    final presented = await (_presentCompletion = Completer<bool>()).future;
+    return presented && _session != 0 ? _copyPixels() : null;
+  }
+
+  void _finishAsyncPresent(int status, [String? diagnostic]) {
+    final completion = _presentCompletion;
+    _presentCompletion = null;
+    if (completion == null) return;
+    try {
+      if (status != 0 && diagnostic != null) {
+        throw StateError('Katze presentation failed: $diagnostic');
+      }
+      _flushInput();
+      completion.complete(status == 0);
+    } catch (error, stack) {
+      _pendingInput.clear();
+      completion.completeError(error, stack);
+    }
+  }
+
   Uint8List present() {
     _requireLive();
+    _requireIdle();
     _api.present(_session);
+    return _copyPixels();
+  }
+
+  Uint8List _copyPixels() {
     final count = width * height * 4;
     if (_pixels(_mount, _frame, count) != count) {
       throw StateError('Katze host did not supply a complete frame');
@@ -422,6 +480,7 @@ final class KatzeGameHost {
     } finally {
       _session = 0;
       _presentListener?.close();
+      _presentReportListener?.close();
       _presentCompletion?.complete(false);
       _presentCompletion = null;
       _stepListener?.close();

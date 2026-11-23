@@ -235,6 +235,14 @@ abstract interface class AsyncTextureRuntime implements EngineRuntime {
   Future<bool> advanceTextureBatch(Iterable<int> frameDeltasMs);
 }
 
+/// A runtime that can advance and read back RGBA pixels outside the UI isolate.
+abstract interface class AsyncPixelRuntime implements EngineRuntime {
+  bool get supportsAsyncPixels;
+
+  /// Advance the due logical frames and read back the latest frame once.
+  Future<Uint8List?> advancePixelBatch(Iterable<int> frameDeltasMs);
+}
+
 /// No-op runtime used when a build has not installed a backend yet.
 class UnsupportedEngineRuntime implements EngineRuntime {
   UnsupportedEngineRuntime(this.kind);

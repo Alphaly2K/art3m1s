@@ -77,7 +77,9 @@ void main() {
       }
     });
     if (!device) expect(pcmFrames, greaterThan(0));
-    final frame = runtime.advanceAndRender(17);
+    final frame = runtime is AsyncPixelRuntime && runtime.supportsAsyncPixels
+        ? await runtime.advancePixelBatch(const [17])
+        : runtime.advanceAndRender(17);
     expect(frame, hasLength(runtime.stageWidth * runtime.stageHeight * 4));
     final colors = <int>{};
     for (var pixel = 0; pixel < frame!.length; pixel += 4 * 257) {

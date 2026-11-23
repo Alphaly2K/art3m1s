@@ -15,7 +15,7 @@ import '../shared_texture_session.dart';
 import 'katze/katze_game_host.dart';
 
 final class KatzeEngineRuntime extends UnsupportedEngineRuntime
-    implements AsyncTextureRuntime {
+    implements AsyncTextureRuntime, AsyncPixelRuntime {
   KatzeEngineRuntime({this.onWindowAction, this.onDialogRequested})
     : super(GameEngineKind.katze);
 
@@ -40,6 +40,7 @@ final class KatzeEngineRuntime extends UnsupportedEngineRuntime
     'moe.alphaly.art3m1s/shared_texture',
   );
   int? _textureId;
+  bool _changingTexture = false;
   int _textureWidth = 0;
   int _textureHeight = 0;
 
@@ -76,28 +77,36 @@ final class KatzeEngineRuntime extends UnsupportedEngineRuntime
         _releaseSharedTexture,
         () async {
           if (!identical(_game, game) || !_state.isRunning) return null;
-          await _releaseSharedTexture();
-          final descriptor = await _textureChannel.invokeMapMethod<String, int>(
-            'create',
-            {'width': width, 'height': height},
-          );
-          final id = descriptor?['textureId'];
-          final handle = descriptor?['handle'];
-          if (!identical(_game, game) ||
-              !_state.isRunning ||
-              descriptor?['kind'] != 2 ||
-              id == null ||
-              handle == null ||
-              handle == 0 ||
-              !game.attachSurface(handle, width, height)) {
-            await _textureChannel.invokeMethod<void>('release');
-            return null;
+          _changingTexture = true;
+          try {
+            await _releaseSharedTexture();
+            await game.waitForFrame();
+            if (!identical(_game, game) || !_state.isRunning) return null;
+            final descriptor = await _textureChannel
+                .invokeMapMethod<String, int>('create', {
+                  'width': width,
+                  'height': height,
+                });
+            final id = descriptor?['textureId'];
+            final handle = descriptor?['handle'];
+            if (!identical(_game, game) ||
+                !_state.isRunning ||
+                descriptor?['kind'] != 2 ||
+                id == null ||
+                handle == null ||
+                handle == 0 ||
+                !game.attachSurface(handle, width, height)) {
+              await _textureChannel.invokeMethod<void>('release');
+              return null;
+            }
+            _textureId = id;
+            _textureWidth = width;
+            _textureHeight = height;
+            Log.info('[Katze] Metal shared texture enabled ${width}x$height');
+            return id;
+          } finally {
+            _changingTexture = false;
           }
-          _textureId = id;
-          _textureWidth = width;
-          _textureHeight = height;
-          Log.info('[Katze] Metal shared texture enabled ${width}x$height');
-          return id;
         },
       );
       if (id == null) await SharedTextureSessionCoordinator.release(this);
@@ -110,20 +119,23 @@ final class KatzeEngineRuntime extends UnsupportedEngineRuntime
   }
 
   Future<void> _releaseSharedTexture() async {
-    final attached = _textureId != null;
+    if (_textureId == null) return;
+    final wasChanging = _changingTexture;
+    _changingTexture = true;
     _textureId = null;
     _textureWidth = 0;
     _textureHeight = 0;
-    if (!attached) return;
-    final game = _game;
-    if (game != null) {
-      await game.waitForFrame();
-      if (identical(_game, game)) game.detachSurface();
-    }
     try {
+      final game = _game;
+      if (game != null) {
+        await game.waitForFrame();
+        if (identical(_game, game)) game.detachSurface();
+      }
       await _textureChannel.invokeMethod<void>('release');
     } catch (error) {
       Log.warn('[Katze] Shared texture release failed: $error');
+    } finally {
+      _changingTexture = wasChanging;
     }
   }
 
@@ -132,16 +144,16 @@ final class KatzeEngineRuntime extends UnsupportedEngineRuntime
     final game = _game;
     final textureId = _textureId;
     if (game == null || textureId == null) return false;
-    var advanced = false;
-    for (final delta in frameDeltasMs) {
-      if (!_state.isRunning || _exit || _dialogRequest != null) break;
-      _milliseconds += delta.clamp(0, 100);
-      final running = await game.stepAsync(_milliseconds);
-      if (!identical(_game, game)) return false;
-      if (!_finishStep(game, running) || _textureId != textureId) return false;
-      advanced = true;
+    if (!await _advanceBatch(
+          game,
+          frameDeltasMs,
+          () => _textureId == textureId,
+        ) ||
+        !identical(_game, game) ||
+        _textureId != textureId ||
+        !_state.isRunning) {
+      return false;
     }
-    if (!advanced || !_state.isRunning || _textureId != textureId) return false;
     final presented = await game.presentSurface();
     if (_textureId != textureId || !identical(_game, game)) return false;
     if (!presented) {
@@ -161,6 +173,47 @@ final class KatzeEngineRuntime extends UnsupportedEngineRuntime
       }
       return false;
     }
+  }
+
+  @override
+  bool get supportsAsyncPixels => _game?.supportsAsyncPixels ?? false;
+
+  @override
+  Future<Uint8List?> advancePixelBatch(Iterable<int> frameDeltasMs) async {
+    final game = _game;
+    if (game == null || !game.supportsAsyncPixels) return null;
+    bool softwareOutput() => _textureId == null && !_changingTexture;
+    if (!await _advanceBatch(game, frameDeltasMs, softwareOutput) ||
+        !identical(_game, game) ||
+        !softwareOutput() ||
+        !_state.isRunning) {
+      return null;
+    }
+    final pixels = await game.presentPixelsAsync();
+    if (pixels == null ||
+        !identical(_game, game) ||
+        !softwareOutput() ||
+        !_state.isRunning) {
+      return null;
+    }
+    return _rgba(pixels);
+  }
+
+  Future<bool> _advanceBatch(
+    KatzeGameHost game,
+    Iterable<int> frameDeltasMs,
+    bool Function() canPresent,
+  ) async {
+    var advanced = false;
+    for (final delta in frameDeltasMs) {
+      if (!_state.isRunning || _exit || _dialogRequest != null || !canPresent())
+        break;
+      _milliseconds += delta.clamp(0, 100);
+      final running = await game.stepAsync(_milliseconds);
+      if (!identical(_game, game) || !_finishStep(game, running)) return false;
+      advanced = true;
+    }
+    return advanced && _state.isRunning && canPresent();
   }
 
   @override
@@ -320,7 +373,10 @@ final class KatzeEngineRuntime extends UnsupportedEngineRuntime
   @override
   Uint8List? advanceAndRender(int deltaMs) {
     if (_dialogRequest != null || !advanceWithoutRender(deltaMs)) return null;
-    final pixels = _game!.present();
+    return _rgba(_game!.present());
+  }
+
+  Uint8List _rgba(Uint8List pixels) {
     for (var i = 0; i < pixels.length; i += 4) {
       final blue = pixels[i];
       pixels[i] = pixels[i + 2];

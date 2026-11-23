@@ -749,7 +749,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   void _advanceGameTick() {
     final runtime = _bridge;
     // A busy asynchronous presenter must leave its next deadline intact.
-    if (runtime is AsyncTextureRuntime && _frameInFlight) return;
+    if (_frameInFlight &&
+        (runtime is AsyncTextureRuntime || runtime is AsyncPixelRuntime))
+      return;
     final nowUs = _frameClock.elapsedMicroseconds;
     if (nowUs < _nextFrameUs) return;
     final overdueUs = nowUs - _nextFrameUs;
@@ -777,6 +779,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         return;
       }
       if (runtime.requiresSharedTexture) return;
+    }
+    if (runtime is AsyncPixelRuntime && runtime.supportsAsyncPixels) {
+      _frameInFlight = true;
+      unawaited(_advancePixels(runtime, nowUs, dueTicks));
+      return;
     }
 
     // 口型 CSV 以 60 Hz 每次 onEnterFrame 消费一个采样。显示链繁忙或一次
@@ -806,7 +813,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     _frameInFlight = true;
     final deltaMs = _nextFrameDeltaMs();
     _trackFps(nowUs);
-    final pixels = _bridge.advanceAndRender(deltaMs.clamp(0, 100));
+    _showPixels(_bridge.advanceAndRender(deltaMs.clamp(0, 100)));
+  }
+
+  void _showPixels(Uint8List? pixels) {
     if (_bridge.isExitRequested() && mounted) {
       _frameInFlight = false;
       _closePlayer();
@@ -857,6 +867,24 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       _stopOnFrameError(error, stack);
     } finally {
       _frameInFlight = false;
+    }
+  }
+
+  Future<void> _advancePixels(
+    AsyncPixelRuntime runtime,
+    int nowUs,
+    int dueTicks,
+  ) async {
+    try {
+      final pixels = await runtime.advancePixelBatch(_dueFrameDeltas(dueTicks));
+      if (!mounted || _closing) {
+        _frameInFlight = false;
+        return;
+      }
+      if (pixels != null) _trackFps(nowUs);
+      _showPixels(pixels);
+    } catch (error, stack) {
+      _stopOnFrameError(error, stack);
     }
   }
 
