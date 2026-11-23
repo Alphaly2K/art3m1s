@@ -27,6 +27,7 @@ typedef _InputEvent = void Function(Pointer<KatzeCreateInfo>, int, int, int);
 typedef _FocusEvent = Void Function(Pointer<KatzeCreateInfo>, Uint32);
 typedef _SetFocus = void Function(Pointer<KatzeCreateInfo>, int);
 
+typedef _PresentFinished = Void Function(Int32);
 typedef _StepFinished = Void Function(Int32, Uint32);
 typedef _StepCallback = Pointer<NativeFunction<_StepFinished>>;
 typedef _StepReport = Void Function(Int32, Uint32, Size);
@@ -113,6 +114,8 @@ final class KatzeGameHost {
   late final Pointer<Uint8> _frame = _buffers<Uint8>(width * height * 4);
   late final Pointer<KatzeFrameTime> _time;
   late final Pointer<Uint32> _flags;
+  NativeCallable<_PresentFinished>? _presentListener;
+  Completer<bool>? _presentCompletion;
   NativeCallable<_StepFinished>? _stepListener;
   NativeCallable<_StepReport>? _stepReportListener;
   static const _stepDiagnosticCapacity = 4096;
@@ -161,7 +164,7 @@ final class KatzeGameHost {
 
   bool step({required int increment, required int milliseconds}) {
     _requireLive();
-    if (_stepCompletion != null) throw StateError('Katze step is pending');
+    _requireIdle();
     _time.ref
       ..tick += increment
       ..increment = increment
@@ -190,7 +193,7 @@ final class KatzeGameHost {
 
   Future<bool> stepAsync(int milliseconds) async {
     _requireLive();
-    if (_stepCompletion != null) throw StateError('Katze step is pending');
+    _requireIdle();
     final tick = ++_time.ref.tick;
     final int status;
     if (_hasStepReport) {
@@ -236,9 +239,7 @@ final class KatzeGameHost {
             : utf8.decode(_stepDiagnostic.asTypedList(written));
         throw StateError('Katze step failed: $detail');
       }
-      for (final event in _pendingInput) {
-        event();
-      }
+      _flushInput();
       completion.complete((flags & 1) == 0);
     } catch (error, stack) {
       completion.completeError(error, stack);
@@ -247,10 +248,10 @@ final class KatzeGameHost {
     }
   }
 
-  Future<void> waitForStep() async {
-    final step = _stepCompletion;
-    if (step != null) {
-      await step.future.then<void>(
+  Future<void> waitForFrame() async {
+    final pending = _stepCompletion ?? _presentCompletion;
+    if (pending != null) {
+      await pending.future.then<void>(
         (_) {},
         onError: (Object _, StackTrace _) {},
       );
@@ -258,8 +259,25 @@ final class KatzeGameHost {
   }
 
   // Mount callbacks can still be using host state until the worker replies.
+  bool get _framePending =>
+      _stepCompletion != null || _presentCompletion != null;
+
+  void _requireIdle() {
+    if (_framePending) throw StateError('Katze frame is pending');
+  }
+
+  void _flushInput() {
+    try {
+      for (final event in _pendingInput) {
+        event();
+      }
+    } finally {
+      _pendingInput.clear();
+    }
+  }
+
   void _sendInput(void Function() event) {
-    if (_stepCompletion == null) {
+    if (!_framePending) {
       event();
     } else {
       _pendingInput.add(event);
@@ -283,6 +301,20 @@ final class KatzeGameHost {
         int Function(Pointer<KatzeCreateInfo>, int)
       >('katze_game_present_surface');
 
+  late final _presentSurfaceAsync = _library
+      .lookupFunction<
+        Int32 Function(
+          Pointer<KatzeCreateInfo>,
+          Uint64,
+          Pointer<NativeFunction<_PresentFinished>>,
+        ),
+        int Function(
+          Pointer<KatzeCreateInfo>,
+          int,
+          Pointer<NativeFunction<_PresentFinished>>,
+        )
+      >('katze_game_present_surface_async');
+
   bool attachSurface(int address, int width, int height) {
     _requireLive();
     return _attachSurface(
@@ -299,9 +331,28 @@ final class KatzeGameHost {
     _attachSurface(_mount, nullptr, 0, 0);
   }
 
-  bool presentSurface() {
+  Future<bool> presentSurface() async {
     _requireLive();
-    return _presentSurface(_mount, _session) == 0;
+    _requireIdle();
+    if (!_library.providesSymbol('katze_game_present_surface_async')) {
+      return _presentSurface(_mount, _session) == 0;
+    }
+    final listener = _presentListener ??=
+        NativeCallable<_PresentFinished>.listener((int status) {
+          final completion = _presentCompletion;
+          _presentCompletion = null;
+          if (completion == null) return;
+          try {
+            _flushInput();
+            completion.complete(status == 0);
+          } catch (error, stack) {
+            completion.completeError(error, stack);
+          }
+        });
+    if (_presentSurfaceAsync(_mount, _session, listener.nativeFunction) != 0) {
+      return false;
+    }
+    return (_presentCompletion = Completer<bool>()).future;
   }
 
   Uint8List present() {
@@ -370,6 +421,9 @@ final class KatzeGameHost {
       _api.destroy(session);
     } finally {
       _session = 0;
+      _presentListener?.close();
+      _presentCompletion?.complete(false);
+      _presentCompletion = null;
       _stepListener?.close();
       _stepReportListener?.close();
       _stepCompletion?.complete(false);

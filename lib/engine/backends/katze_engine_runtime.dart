@@ -117,7 +117,7 @@ final class KatzeEngineRuntime extends UnsupportedEngineRuntime
     if (!attached) return;
     final game = _game;
     if (game != null) {
-      await game.waitForStep();
+      await game.waitForFrame();
       if (identical(_game, game)) game.detachSurface();
     }
     try {
@@ -142,7 +142,9 @@ final class KatzeEngineRuntime extends UnsupportedEngineRuntime
       advanced = true;
     }
     if (!advanced || !_state.isRunning || _textureId != textureId) return false;
-    if (!game.presentSurface()) {
+    final presented = await game.presentSurface();
+    if (_textureId != textureId || !identical(_game, game)) return false;
+    if (!presented) {
       Log.warn(
         '[Katze] Metal presentation failed. Returning to software output.',
       );
