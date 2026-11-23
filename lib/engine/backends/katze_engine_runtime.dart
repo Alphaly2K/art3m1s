@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:ffi';
 import 'dart:io';
-import 'dart:typed_data';
+
+import 'package:flutter/services.dart';
 
 import '../../models/game_engine.dart';
 import '../../models/game_entry.dart';
@@ -9,9 +11,11 @@ import '../../services/logger.dart';
 import '../../services/game_manifest.dart';
 import '../engine_runtime.dart';
 import '../native_library.dart';
+import '../shared_texture_session.dart';
 import 'katze/katze_game_host.dart';
 
-final class KatzeEngineRuntime extends UnsupportedEngineRuntime {
+final class KatzeEngineRuntime extends UnsupportedEngineRuntime
+    implements AsyncTextureRuntime {
   KatzeEngineRuntime({this.onWindowAction, this.onDialogRequested})
     : super(GameEngineKind.katze);
 
@@ -32,6 +36,130 @@ final class KatzeEngineRuntime extends UnsupportedEngineRuntime {
   bool _exit = false;
   int _milliseconds = 0;
   int? _touch;
+  static const _textureChannel = MethodChannel(
+    'moe.alphaly.art3m1s/shared_texture',
+  );
+  int? _textureId;
+  int _textureWidth = 0;
+  int _textureHeight = 0;
+
+  @override
+  bool get requiresSharedTexture => false;
+  @override
+  bool get hasActiveSharedTexture => _game != null && _textureId != null;
+  @override
+  int? get sharedTextureId => hasActiveSharedTexture ? _textureId : null;
+  @override
+  int get sharedTextureWidth => _textureWidth;
+  @override
+  int get sharedTextureHeight => _textureHeight;
+
+  @override
+  Future<int?> enableSharedTexture({
+    int? outputWidth,
+    int? outputHeight,
+  }) async {
+    final game = _game;
+    if (game == null || !game.supportsSharedTexture || !_state.isRunning) {
+      return null;
+    }
+    final width = outputWidth ?? game.width;
+    final height = outputHeight ?? game.height;
+    if (_textureId != null &&
+        width == _textureWidth &&
+        height == _textureHeight) {
+      return _textureId;
+    }
+    try {
+      final id = await SharedTextureSessionCoordinator.runWithOwnership<int?>(
+        this,
+        _releaseSharedTexture,
+        () async {
+          if (!identical(_game, game) || !_state.isRunning) return null;
+          await _releaseSharedTexture();
+          final descriptor = await _textureChannel.invokeMapMethod<String, int>(
+            'create',
+            {'width': width, 'height': height},
+          );
+          final id = descriptor?['textureId'];
+          final handle = descriptor?['handle'];
+          if (!identical(_game, game) ||
+              !_state.isRunning ||
+              descriptor?['kind'] != 2 ||
+              id == null ||
+              handle == null ||
+              handle == 0 ||
+              !game.attachSurface(handle, width, height)) {
+            await _textureChannel.invokeMethod<void>('release');
+            return null;
+          }
+          _textureId = id;
+          _textureWidth = width;
+          _textureHeight = height;
+          Log.info('[Katze] Metal shared texture enabled ${width}x$height');
+          return id;
+        },
+      );
+      if (id == null) await SharedTextureSessionCoordinator.release(this);
+      return id;
+    } catch (error) {
+      Log.warn('[Katze] Shared texture initialization failed: $error');
+      await SharedTextureSessionCoordinator.release(this);
+      return null;
+    }
+  }
+
+  Future<void> _releaseSharedTexture() async {
+    final attached = _textureId != null;
+    _textureId = null;
+    _textureWidth = 0;
+    _textureHeight = 0;
+    if (!attached) return;
+    final game = _game;
+    if (game != null) {
+      await game.waitForStep();
+      if (identical(_game, game)) game.detachSurface();
+    }
+    try {
+      await _textureChannel.invokeMethod<void>('release');
+    } catch (error) {
+      Log.warn('[Katze] Shared texture release failed: $error');
+    }
+  }
+
+  @override
+  Future<bool> advanceTextureBatch(Iterable<int> frameDeltasMs) async {
+    final game = _game;
+    final textureId = _textureId;
+    if (game == null || textureId == null) return false;
+    var advanced = false;
+    for (final delta in frameDeltasMs) {
+      if (!_state.isRunning || _exit || _dialogRequest != null) break;
+      _milliseconds += delta.clamp(0, 100);
+      final running = await game.stepAsync(_milliseconds);
+      if (!identical(_game, game)) return false;
+      if (!_finishStep(game, running) || _textureId != textureId) return false;
+      advanced = true;
+    }
+    if (!advanced || !_state.isRunning || _textureId != textureId) return false;
+    if (!game.presentSurface()) {
+      Log.warn(
+        '[Katze] Metal presentation failed. Returning to software output.',
+      );
+      await SharedTextureSessionCoordinator.release(this);
+      return false;
+    }
+    try {
+      await _textureChannel.invokeMethod<void>('frameAvailable');
+      return _textureId == textureId;
+    } catch (error) {
+      Log.warn('[Katze] Shared texture notification failed: $error');
+      if (_textureId == textureId) {
+        await SharedTextureSessionCoordinator.release(this);
+      }
+      return false;
+    }
+  }
 
   @override
   bool get isInitialized => _library != null;
@@ -125,6 +253,7 @@ final class KatzeEngineRuntime extends UnsupportedEngineRuntime {
     _dialogRequest = null;
     _game?.close();
     _game = null;
+    unawaited(SharedTextureSessionCoordinator.release(this));
   }
 
   @override
@@ -136,7 +265,14 @@ final class KatzeEngineRuntime extends UnsupportedEngineRuntime {
     if (game == null || !_state.isRunning || _exit) return false;
     if (_dialogRequest != null) return true;
     _milliseconds += deltaMs.clamp(0, 100);
-    _exit = !game.step(increment: 1, milliseconds: _milliseconds);
+    return _finishStep(
+      game,
+      game.step(increment: 1, milliseconds: _milliseconds),
+    );
+  }
+
+  bool _finishStep(KatzeGameHost game, bool running) {
+    _exit = !running;
     var command = game.takeWindowAction();
     while (command != 0) {
       final action = switch (command) {
@@ -200,6 +336,7 @@ final class KatzeEngineRuntime extends UnsupportedEngineRuntime {
         ? state
         : EngineSessionState.frozen;
     _syncFocus();
+    if (!_state.isRunning) await SharedTextureSessionCoordinator.release(this);
     return _state;
   }
 

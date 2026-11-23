@@ -709,6 +709,9 @@ final class ArtemisV2EngineRuntime extends UnsupportedEngineRuntime
   @override
   bool isExitRequested() => _state?.exitRequested ?? false;
 
+  @override
+  bool get requiresSharedTexture => true;
+
   Future<bool> advanceTexture(int deltaMs) => advanceTextureBatch([deltaMs]);
 
   @override

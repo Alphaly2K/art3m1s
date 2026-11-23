@@ -531,7 +531,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         Platform.isAndroid ||
         Platform.isIOS ||
         (Platform.isMacOS &&
-            (renderBackend != 0 || widget.engine == GameEngineKind.siglus))) {
+            (renderBackend != 0 ||
+                widget.engine == GameEngineKind.siglus ||
+                widget.engine == GameEngineKind.katze))) {
       _sharedTextureRequested = true;
       if (widget.sessionState.isRunning) await _syncSharedTextureExtent();
     } else {
@@ -764,8 +766,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       if (runtime.hasActiveSharedTexture) {
         _frameInFlight = true;
         unawaited(_advanceTexture(runtime, nowUs, dueTicks));
+        return;
       }
-      return;
+      if (runtime.requiresSharedTexture) return;
     }
 
     // 口型 CSV 以 60 Hz 每次 onEnterFrame 消费一个采样。显示链繁忙或一次

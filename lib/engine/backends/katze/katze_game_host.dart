@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ffi';
 import 'dart:io';
 import 'dart:typed_data';
@@ -25,6 +26,9 @@ typedef _InputEvent = void Function(Pointer<KatzeCreateInfo>, int, int, int);
 typedef _FocusEvent = Void Function(Pointer<KatzeCreateInfo>, Uint32);
 typedef _SetFocus = void Function(Pointer<KatzeCreateInfo>, int);
 
+typedef _StepFinished = Void Function(Int32, Uint32);
+typedef _StepCallback = Pointer<NativeFunction<_StepFinished>>;
+
 typedef _AudioStart =
     Pointer<Void> Function(Uint64, Pointer<NativeFunction<KatzeMixStereo>>);
 typedef _AudioStartDart =
@@ -43,7 +47,6 @@ final class KatzeGameHost {
     this.width,
     this.height,
   ) {
-    _frame = _buffers<Uint8>(width * height * 4);
     _time = _buffers<KatzeFrameTime>();
     _flags = _buffers<Uint32>();
   }
@@ -104,9 +107,12 @@ final class KatzeGameHost {
   final int width;
   final int height;
   final Arena _buffers = Arena();
-  late final Pointer<Uint8> _frame;
+  late final Pointer<Uint8> _frame = _buffers<Uint8>(width * height * 4);
   late final Pointer<KatzeFrameTime> _time;
   late final Pointer<Uint32> _flags;
+  NativeCallable<_StepFinished>? _stepListener;
+  Completer<bool>? _stepCompletion;
+  final _pendingInput = <void Function()>[];
 
   late final _ReadPixels _pixels = _library
       .lookupFunction<_Pixels, _ReadPixels>('katze_game_pixels');
@@ -131,7 +137,7 @@ final class KatzeGameHost {
 
   void reportWindow({bool? fullscreen}) {
     _requireLive();
-    _api.reportWindow(_session, fullscreen: fullscreen);
+    _sendInput(() => _api.reportWindow(_session, fullscreen: fullscreen));
   }
 
   (int, String)? textEntry() {
@@ -146,11 +152,113 @@ final class KatzeGameHost {
 
   bool step({required int increment, required int milliseconds}) {
     _requireLive();
+    if (_stepCompletion != null) throw StateError('Katze step is pending');
     _time.ref
       ..tick += increment
       ..increment = increment
       ..milliseconds = milliseconds;
     return (_api.step(_session, _time, _flags) & 1) == 0;
+  }
+
+  late final _enqueueStep = _library
+      .lookupFunction<
+        Int32 Function(Uint64, Uint32, Uint32, _StepCallback),
+        int Function(int, int, int, _StepCallback)
+      >('katze_game_step_async');
+
+  Future<bool> stepAsync(int milliseconds) async {
+    _requireLive();
+    if (_stepCompletion != null) throw StateError('Katze step is pending');
+    final listener = _stepListener ??= NativeCallable<_StepFinished>.listener(
+      _finishAsyncStep,
+    );
+    final tick = ++_time.ref.tick;
+    final completion = _stepCompletion = Completer<bool>();
+    final status = _enqueueStep(
+      _session,
+      tick,
+      milliseconds,
+      listener.nativeFunction,
+    );
+    if (status != 0) {
+      _stepCompletion = null;
+      throw StateError('Katze could not queue frame: $status');
+    }
+    return completion.future;
+  }
+
+  void _finishAsyncStep(int status, int flags) {
+    final completion = _stepCompletion;
+    if (completion == null) return;
+    _stepCompletion = null;
+    try {
+      for (final event in _pendingInput) {
+        event();
+      }
+      if (status != 0) throw StateError('Katze step failed: $status');
+      completion.complete((flags & 1) == 0);
+    } catch (error, stack) {
+      completion.completeError(error, stack);
+    } finally {
+      _pendingInput.clear();
+    }
+  }
+
+  Future<void> waitForStep() async {
+    final step = _stepCompletion;
+    if (step != null) {
+      await step.future.then<void>(
+        (_) {},
+        onError: (Object _, StackTrace _) {},
+      );
+    }
+  }
+
+  // Mount callbacks can still be using host state until the worker replies.
+  void _sendInput(void Function() event) {
+    if (_stepCompletion == null) {
+      event();
+    } else {
+      _pendingInput.add(event);
+    }
+  }
+
+  bool get supportsSharedTexture =>
+      Platform.isMacOS &&
+      _library.providesSymbol('katze_game_attach_surface') &&
+      _library.providesSymbol('katze_game_present_surface') &&
+      _library.providesSymbol('katze_game_step_async');
+
+  late final _attachSurface = _library
+      .lookupFunction<
+        Int32 Function(Pointer<KatzeCreateInfo>, Pointer<Void>, Uint32, Uint32),
+        int Function(Pointer<KatzeCreateInfo>, Pointer<Void>, int, int)
+      >('katze_game_attach_surface');
+  late final _presentSurface = _library
+      .lookupFunction<
+        Int32 Function(Pointer<KatzeCreateInfo>, Uint64),
+        int Function(Pointer<KatzeCreateInfo>, int)
+      >('katze_game_present_surface');
+
+  bool attachSurface(int address, int width, int height) {
+    _requireLive();
+    return _attachSurface(
+          _mount,
+          Pointer<Void>.fromAddress(address),
+          width,
+          height,
+        ) ==
+        0;
+  }
+
+  void detachSurface() {
+    _requireLive();
+    _attachSurface(_mount, nullptr, 0, 0);
+  }
+
+  bool presentSurface() {
+    _requireLive();
+    return _presentSurface(_mount, _session) == 0;
   }
 
   Uint8List present() {
@@ -198,26 +306,33 @@ final class KatzeGameHost {
 
   void pointer(int x, int y, {bool active = true}) {
     _requireLive();
-    _pointer(_mount, x, y, active ? 1 : 0);
+    _sendInput(() => _pointer(_mount, x, y, active ? 1 : 0));
   }
 
   void button(int source, int code, bool down) {
     _requireLive();
-    _button(_mount, source, code, down ? 1 : 0);
+    _sendInput(() => _button(_mount, source, code, down ? 1 : 0));
   }
 
   void focus(bool focused) {
     _requireLive();
-    _focus(_mount, focused ? 1 : 0);
+    _sendInput(() => _focus(_mount, focused ? 1 : 0));
   }
 
   void close() {
     final session = _session;
     if (session == 0) return;
     stopDeviceAudio();
-    _api.destroy(session);
-    _session = 0;
-    _buffers.releaseAll();
+    try {
+      _api.destroy(session);
+    } finally {
+      _session = 0;
+      _stepListener?.close();
+      _stepCompletion?.complete(false);
+      _stepCompletion = null;
+      _pendingInput.clear();
+      _buffers.releaseAll();
+    }
     try {
       _releaseMount(_library, _mount);
     } finally {
