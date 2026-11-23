@@ -59,6 +59,7 @@ class EngineRuntimeFactory {
       GameEngineKind.siglus => SiglusEngineRuntime(),
       GameEngineKind.katze => KatzeEngineRuntime(
         onWindowAction: onWindowAction,
+        onDialogRequested: onDialogRequested,
       ),
     };
   }

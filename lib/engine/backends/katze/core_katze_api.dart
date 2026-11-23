@@ -39,6 +39,24 @@ final class _WindowState extends Struct {
 final class KatzeCreateInfo extends Opaque {}
 
 typedef _GetApi = Int32 Function(Uint32, Uint32, Pointer<Pointer<_Table>>);
+
+final class _TextBytes extends Struct {
+  external Pointer<Uint8> data;
+  @Size()
+  external int length;
+}
+
+typedef _TextEntry =
+    Int32 Function(
+      Uint64,
+      Pointer<Uint64>,
+      Pointer<Uint8>,
+      Size,
+      Pointer<Size>,
+    );
+typedef _CompleteText =
+    Int32 Function(Uint64, Uint64, Pointer<_TextBytes>, Pointer<Uint32>);
+
 typedef _LastError = Int32 Function(Pointer<Uint8>, Size, Pointer<Size>);
 typedef _Create = Int32 Function(Pointer<KatzeCreateInfo>, Pointer<Uint64>);
 typedef _Session = Int32 Function(Uint64);
@@ -65,8 +83,8 @@ final class _Table extends Struct {
     NativeFunction<Int32 Function(Uint64, Pointer<_WindowState>)>
   >
   setWindowState;
-  external Pointer<Void> textEntry;
-  external Pointer<Void> completeTextEntry;
+  external Pointer<NativeFunction<_TextEntry>> textEntry;
+  external Pointer<NativeFunction<_CompleteText>> completeTextEntry;
   external Pointer<Void> windowPreferences;
   external Pointer<Void> setInputBindings;
   external Pointer<Void> usesImageCursor;
@@ -153,6 +171,49 @@ final class KatzeApi {
     final call = _table.setWindowState
         .asFunction<int Function(int, Pointer<_WindowState>)>();
     _check(call(session, state), 'set_window_state');
+  });
+
+  (int, String)? textEntry(int session) => using((arena) {
+    final id = arena<Uint64>();
+    final size = arena<Size>();
+    final read = _table.textEntry
+        .asFunction<
+          int Function(int, Pointer<Uint64>, Pointer<Uint8>, int, Pointer<Size>)
+        >();
+    Pointer<Uint8> buffer = nullptr;
+    var capacity = 0;
+    var result = read(session, id, buffer, capacity, size);
+    while (result == -4 && size.value > capacity) {
+      capacity = size.value;
+      buffer = arena<Uint8>(capacity);
+      result = read(session, id, buffer, capacity, size);
+    }
+    _check(result, 'text_entry');
+    if (id.value == 0) return null;
+    return (
+      id.value,
+      size.value == 0 ? '' : utf8.decode(buffer.asTypedList(size.value)),
+    );
+  });
+
+  bool completeTextEntry(int session, int id, String? text) => using((arena) {
+    final accepted = arena<Uint32>();
+    Pointer<_TextBytes> input = nullptr;
+    if (text != null) {
+      final bytes = utf8.encode(text);
+      input = arena<_TextBytes>();
+      if (bytes.isNotEmpty) {
+        input.ref.data = arena<Uint8>(bytes.length);
+        input.ref.data.asTypedList(bytes.length).setAll(0, bytes);
+      }
+      input.ref.length = bytes.length;
+    }
+    final complete = _table.completeTextEntry
+        .asFunction<
+          int Function(int, int, Pointer<_TextBytes>, Pointer<Uint32>)
+        >();
+    _check(complete(session, id, input, accepted), 'complete_text_entry');
+    return accepted.value != 0;
   });
 
   void _check(int status, String operation) {

@@ -12,9 +12,12 @@ import '../native_library.dart';
 import 'katze/katze_game_host.dart';
 
 final class KatzeEngineRuntime extends UnsupportedEngineRuntime {
-  KatzeEngineRuntime({this.onWindowAction}) : super(GameEngineKind.katze);
+  KatzeEngineRuntime({this.onWindowAction, this.onDialogRequested})
+    : super(GameEngineKind.katze);
 
   final void Function(EngineWindowAction)? onWindowAction;
+  final void Function(EngineDialogRequest)? onDialogRequested;
+  int? _dialogRequest;
   bool? _fullscreen;
 
   DynamicLibrary? _library;
@@ -119,6 +122,7 @@ final class KatzeEngineRuntime extends UnsupportedEngineRuntime {
 
   void _closeGame() {
     _touch = null;
+    _dialogRequest = null;
     _game?.close();
     _game = null;
   }
@@ -130,6 +134,7 @@ final class KatzeEngineRuntime extends UnsupportedEngineRuntime {
   bool advanceWithoutRender(int deltaMs) {
     final game = _game;
     if (game == null || !_state.isRunning || _exit) return false;
+    if (_dialogRequest != null) return true;
     _milliseconds += deltaMs.clamp(0, 100);
     _exit = !game.step(increment: 1, milliseconds: _milliseconds);
     var command = game.takeWindowAction();
@@ -142,12 +147,35 @@ final class KatzeEngineRuntime extends UnsupportedEngineRuntime {
       if (action != null) onWindowAction?.call(action);
       command = game.takeWindowAction();
     }
+    if (!_exit && _dialogRequest == null && onDialogRequested != null) {
+      if (game.textEntry() case (final id, final initialText)) {
+        _dialogRequest = id;
+        onDialogRequested!(
+          EngineDialogRequest(
+            title: '文字输入',
+            message: '',
+            hasCancel: true,
+            hasTextField: true,
+            textFieldSize: null,
+            initialText: initialText,
+          ),
+        );
+      }
+    }
     return !_exit;
   }
 
   @override
+  bool submitDialog(bool accepted, String text) {
+    final id = _dialogRequest;
+    if (id == null) return false;
+    _dialogRequest = null;
+    return _game?.completeTextEntry(id, accepted ? text : null) ?? false;
+  }
+
+  @override
   Uint8List? advanceAndRender(int deltaMs) {
-    if (!advanceWithoutRender(deltaMs)) return null;
+    if (_dialogRequest != null || !advanceWithoutRender(deltaMs)) return null;
     final pixels = _game!.present();
     for (var i = 0; i < pixels.length; i += 4) {
       final blue = pixels[i];

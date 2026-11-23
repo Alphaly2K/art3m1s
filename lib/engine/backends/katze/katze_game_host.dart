@@ -110,6 +110,16 @@ final class KatzeGameHost {
     _api.reportWindow(_session, fullscreen: fullscreen);
   }
 
+  (int, String)? textEntry() {
+    _requireLive();
+    return _api.textEntry(_session);
+  }
+
+  bool completeTextEntry(int id, String? text) {
+    _requireLive();
+    return _api.completeTextEntry(_session, id, text);
+  }
+
   bool step({required int increment, required int milliseconds}) {
     _requireLive();
     _time.ref

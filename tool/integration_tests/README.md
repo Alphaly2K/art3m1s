@@ -42,6 +42,8 @@ KATZE_GAME_HOST="$katze/target/release/libkatze_system2_example_host.dylib" \
 
 设置 `KATZE_GAME_HOST`、`KATZE_FIXTURES` 和 `KATZE_OFFSCREEN_AUDIO=1` 后，运行 `flutter test tool/integration_tests/katze_window_test.dart` 核对脚本窗口请求与状态回报。
 
+沿用同一合成资源和环境变量，运行 `flutter test tool/integration_tests/katze_text_entry_test.dart` 核对脚本文字输入、空字符串提交与取消。
+
 ## macOS Artemis v2
 
 从项目根目录运行 `dart run tool/build.dart macos --debug --artemis-v2` 构建预览。应用同时打包
