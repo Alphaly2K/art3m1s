@@ -30,6 +30,7 @@ class GameEditData {
 
   /// system.ini 启动段；按游戏保存。
   final String runtimePlatform;
+  final String katzeScriptEncoding;
 
   const GameEditData({
     required this.name,
@@ -41,5 +42,15 @@ class GameEditData {
     this.fontOverrideFilePath = '',
     this.reportedOs = '',
     this.runtimePlatform = 'WINDOWS',
+    this.katzeScriptEncoding = '',
   });
 }
+
+const katzeScriptEncodingLabel = '脚本编码';
+
+Map<String, String> katzeScriptEncodingOptions(String current) => {
+  'CP932': '日文（CP932）',
+  'GBK': '简体中文（GBK）',
+  'UTF-8': 'UTF-8',
+  if (!const {'CP932', 'GBK', 'UTF-8'}.contains(current)) current: current,
+};

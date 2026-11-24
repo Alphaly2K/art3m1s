@@ -165,6 +165,7 @@ class _Ps5SessionHostState extends State<_Ps5SessionHost> {
                     reportedOs: session.entry.reportedOs,
                     runtimePlatform: session.entry.runtimePlatform,
                     krkrEntryXp3: session.entry.krkrEntryXp3,
+                    katzeScriptEncoding: session.entry.katzeScriptEncoding,
                     manifestPath: session.entry.manifestPath,
                   ),
                 ),

@@ -172,6 +172,7 @@ Future<GameEditData?> showGameEditDialog(
   String initialFontOverrideFilePath = '',
   String initialReportedOs = '',
   String initialRuntimePlatform = 'WINDOWS',
+  String initialKatzeScriptEncoding = '',
 }) {
   if (usesPs5Chrome(context)) {
     return showPs5GameEditDialog(
@@ -187,6 +188,7 @@ Future<GameEditData?> showGameEditDialog(
       initialFontOverrideFilePath: initialFontOverrideFilePath,
       initialReportedOs: initialReportedOs,
       initialRuntimePlatform: initialRuntimePlatform,
+      initialKatzeScriptEncoding: initialKatzeScriptEncoding,
     );
   }
   if (Platform.isMacOS) {
@@ -221,6 +223,7 @@ Future<GameEditData?> showGameEditDialog(
                   initialFontOverrideFilePath: initialFontOverrideFilePath,
                   initialReportedOs: initialReportedOs,
                   initialRuntimePlatform: initialRuntimePlatform,
+                  initialKatzeScriptEncoding: initialKatzeScriptEncoding,
                 ),
               ),
             ),
@@ -244,6 +247,7 @@ Future<GameEditData?> showGameEditDialog(
         initialFontOverrideFilePath: initialFontOverrideFilePath,
         initialReportedOs: initialReportedOs,
         initialRuntimePlatform: initialRuntimePlatform,
+        initialKatzeScriptEncoding: initialKatzeScriptEncoding,
       ),
     );
   }
@@ -261,6 +265,7 @@ Future<GameEditData?> showGameEditDialog(
       initialFontOverrideFilePath: initialFontOverrideFilePath,
       initialReportedOs: initialReportedOs,
       initialRuntimePlatform: initialRuntimePlatform,
+      initialKatzeScriptEncoding: initialKatzeScriptEncoding,
     );
   }
   if (Platform.isIOS) {
@@ -278,6 +283,7 @@ Future<GameEditData?> showGameEditDialog(
         initialFontOverrideFilePath: initialFontOverrideFilePath,
         initialReportedOs: initialReportedOs,
         initialRuntimePlatform: initialRuntimePlatform,
+        initialKatzeScriptEncoding: initialKatzeScriptEncoding,
       ),
     );
   }
@@ -295,6 +301,7 @@ Future<GameEditData?> showGameEditDialog(
       initialFontOverrideFilePath: initialFontOverrideFilePath,
       initialReportedOs: initialReportedOs,
       initialRuntimePlatform: initialRuntimePlatform,
+      initialKatzeScriptEncoding: initialKatzeScriptEncoding,
     ),
   );
 }
@@ -313,6 +320,7 @@ class _MacosEditDialog extends StatefulWidget {
   final String initialFontOverrideFilePath;
   final String initialReportedOs;
   final String initialRuntimePlatform;
+  final String initialKatzeScriptEncoding;
 
   const _MacosEditDialog({
     required this.title,
@@ -326,6 +334,7 @@ class _MacosEditDialog extends StatefulWidget {
     this.initialFontOverrideFilePath = '',
     this.initialReportedOs = '',
     this.initialRuntimePlatform = 'WINDOWS',
+    this.initialKatzeScriptEncoding = '',
   });
 
   @override
@@ -345,6 +354,7 @@ class _MacosEditDialogState extends State<_MacosEditDialog> {
   late String _fontOverrideFilePath;
   late String _reportedOs;
   late String _runtimePlatform;
+  late String _katzeScriptEncoding;
 
   @override
   void initState() {
@@ -357,6 +367,9 @@ class _MacosEditDialogState extends State<_MacosEditDialog> {
     _fontOverrideFilePath = widget.initialFontOverrideFilePath;
     _reportedOs = widget.initialReportedOs;
     _runtimePlatform = widget.initialRuntimePlatform;
+    _katzeScriptEncoding = widget.initialKatzeScriptEncoding
+        .trim()
+        .toUpperCase();
   }
 
   Future<void> _pickFontOverride() async {
@@ -387,6 +400,7 @@ class _MacosEditDialogState extends State<_MacosEditDialog> {
       fontOverrideFilePath: _fontOverrideFilePath,
       reportedOs: _reportedOs,
       runtimePlatform: _runtimePlatform,
+      katzeScriptEncoding: _katzeScriptEncoding,
     );
   }
 
@@ -411,12 +425,20 @@ class _MacosEditDialogState extends State<_MacosEditDialog> {
     final showRuntimePlatform = fields.contains(
       GameSettingField.runtimePlatform,
     );
+    final showKatzeEncoding = fields.contains(
+      GameSettingField.katzeScriptEncoding,
+    );
+    final encoding = _katzeScriptEncoding.isEmpty
+        ? 'CP932'
+        : _katzeScriptEncoding;
+    final encodings = katzeScriptEncodingOptions(encoding);
     final showInputGate = fields.contains(GameSettingField.inputGate);
     final showFontOverride = fields.contains(GameSettingField.fontOverride);
     final showReportedOs = fields.contains(GameSettingField.reportedOs);
     final showCompat =
         showEnvironmentPatch ||
         showRuntimePlatform ||
+        showKatzeEncoding ||
         showInputGate ||
         showReportedOs;
     return Column(
@@ -574,6 +596,27 @@ class _MacosEditDialogState extends State<_MacosEditDialog> {
                             value: _environmentPatchEnabled,
                             onChanged: (value) => setState(
                               () => _environmentPatchEnabled = value,
+                            ),
+                          ),
+                        ),
+                      if (showKatzeEncoding)
+                        _MacosFormRow(
+                          label: katzeScriptEncodingLabel,
+                          control: _MacosPopupWrap(
+                            child: MacosPopupButton<String>(
+                              value: encoding,
+                              items: [
+                                for (final option in encodings.entries)
+                                  MacosPopupMenuItem(
+                                    value: option.key,
+                                    child: Text(option.value),
+                                  ),
+                              ],
+                              onChanged: (value) {
+                                if (value != null) {
+                                  setState(() => _katzeScriptEncoding = value);
+                                }
+                              },
                             ),
                           ),
                         ),
@@ -814,6 +857,7 @@ class _CupertinoEditDialog extends StatefulWidget {
   final String initialFontOverrideFilePath;
   final String initialReportedOs;
   final String initialRuntimePlatform;
+  final String initialKatzeScriptEncoding;
 
   const _CupertinoEditDialog({
     required this.title,
@@ -827,6 +871,7 @@ class _CupertinoEditDialog extends StatefulWidget {
     this.initialFontOverrideFilePath = '',
     this.initialReportedOs = '',
     this.initialRuntimePlatform = 'WINDOWS',
+    this.initialKatzeScriptEncoding = '',
   });
 
   @override
@@ -845,6 +890,7 @@ class _CupertinoEditDialogState extends State<_CupertinoEditDialog> {
   late String _fontOverrideFilePath;
   late String _reportedOs;
   late String _runtimePlatform;
+  late String _katzeScriptEncoding;
 
   @override
   void initState() {
@@ -857,6 +903,9 @@ class _CupertinoEditDialogState extends State<_CupertinoEditDialog> {
     _fontOverrideFilePath = widget.initialFontOverrideFilePath;
     _reportedOs = widget.initialReportedOs;
     _runtimePlatform = widget.initialRuntimePlatform;
+    _katzeScriptEncoding = widget.initialKatzeScriptEncoding
+        .trim()
+        .toUpperCase();
   }
 
   Future<void> _pickFontOverride() async {
@@ -934,6 +983,13 @@ class _CupertinoEditDialogState extends State<_CupertinoEditDialog> {
     final showRuntimePlatform = fields.contains(
       GameSettingField.runtimePlatform,
     );
+    final showKatzeEncoding = fields.contains(
+      GameSettingField.katzeScriptEncoding,
+    );
+    final encoding = _katzeScriptEncoding.isEmpty
+        ? 'CP932'
+        : _katzeScriptEncoding;
+    final encodings = katzeScriptEncodingOptions(encoding);
     final showInputGate = fields.contains(GameSettingField.inputGate);
     final showReportedOs = fields.contains(GameSettingField.reportedOs);
     final showFontOverride = fields.contains(GameSettingField.fontOverride);
@@ -1064,6 +1120,40 @@ class _CupertinoEditDialogState extends State<_CupertinoEditDialog> {
               ],
             ),
           ],
+          if (showKatzeEncoding)
+            Row(
+              children: [
+                const Expanded(child: Text(katzeScriptEncodingLabel)),
+                CupertinoButton(
+                  sizeStyle: CupertinoButtonSize.small,
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  onPressed: () async {
+                    final value = await showCupertinoModalPopup<String>(
+                      context: context,
+                      builder: (sheet) => CupertinoActionSheet(
+                        title: const Text(katzeScriptEncodingLabel),
+                        actions: [
+                          for (final option in encodings.entries)
+                            CupertinoActionSheetAction(
+                              onPressed: () =>
+                                  Navigator.of(sheet).pop(option.key),
+                              child: Text(option.value),
+                            ),
+                        ],
+                        cancelButton: CupertinoActionSheetAction(
+                          onPressed: () => Navigator.of(sheet).pop(),
+                          child: const Text('取消'),
+                        ),
+                      ),
+                    );
+                    if (value != null && mounted) {
+                      setState(() => _katzeScriptEncoding = value);
+                    }
+                  },
+                  child: Text(encodings[encoding]!),
+                ),
+              ],
+            ),
           if (showRuntimePlatform) ...[
             const SizedBox(height: 8),
             Row(
@@ -1139,6 +1229,7 @@ class _CupertinoEditDialogState extends State<_CupertinoEditDialog> {
               fontOverrideFilePath: _fontOverrideFilePath,
               reportedOs: _reportedOs,
               runtimePlatform: _runtimePlatform,
+              katzeScriptEncoding: _katzeScriptEncoding,
             ),
           ),
           child: const Text('保存'),
@@ -1162,6 +1253,7 @@ class _MaterialEditDialog extends StatefulWidget {
   final String initialFontOverrideFilePath;
   final String initialReportedOs;
   final String initialRuntimePlatform;
+  final String initialKatzeScriptEncoding;
 
   const _MaterialEditDialog({
     required this.title,
@@ -1175,6 +1267,7 @@ class _MaterialEditDialog extends StatefulWidget {
     this.initialFontOverrideFilePath = '',
     this.initialReportedOs = '',
     this.initialRuntimePlatform = 'WINDOWS',
+    this.initialKatzeScriptEncoding = '',
   });
 
   @override
@@ -1193,6 +1286,7 @@ class _MaterialEditDialogState extends State<_MaterialEditDialog> {
   late String _fontOverrideFilePath;
   late String _reportedOs;
   late String _runtimePlatform;
+  late String _katzeScriptEncoding;
 
   @override
   void initState() {
@@ -1205,6 +1299,9 @@ class _MaterialEditDialogState extends State<_MaterialEditDialog> {
     _fontOverrideFilePath = widget.initialFontOverrideFilePath;
     _reportedOs = widget.initialReportedOs;
     _runtimePlatform = widget.initialRuntimePlatform;
+    _katzeScriptEncoding = widget.initialKatzeScriptEncoding
+        .trim()
+        .toUpperCase();
   }
 
   Future<void> _pickFontOverride() async {
@@ -1242,6 +1339,13 @@ class _MaterialEditDialogState extends State<_MaterialEditDialog> {
     final showRuntimePlatform = fields.contains(
       GameSettingField.runtimePlatform,
     );
+    final showKatzeEncoding = fields.contains(
+      GameSettingField.katzeScriptEncoding,
+    );
+    final encoding = _katzeScriptEncoding.isEmpty
+        ? 'CP932'
+        : _katzeScriptEncoding;
+    final encodings = katzeScriptEncodingOptions(encoding);
     final showInputGate = fields.contains(GameSettingField.inputGate);
     final showReportedOs = fields.contains(GameSettingField.reportedOs);
     final showFontOverride = fields.contains(GameSettingField.fontOverride);
@@ -1400,6 +1504,26 @@ class _MaterialEditDialogState extends State<_MaterialEditDialog> {
                     },
                   ),
                 ),
+              if (showKatzeEncoding)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text(katzeScriptEncodingLabel),
+                  trailing: DropdownButton<String>(
+                    value: encoding,
+                    items: [
+                      for (final option in encodings.entries)
+                        DropdownMenuItem(
+                          value: option.key,
+                          child: Text(option.value),
+                        ),
+                    ],
+                    onChanged: (value) {
+                      if (value != null) {
+                        setState(() => _katzeScriptEncoding = value);
+                      }
+                    },
+                  ),
+                ),
               if (showRuntimePlatform)
                 ListTile(
                   contentPadding: EdgeInsets.zero,
@@ -1443,6 +1567,7 @@ class _MaterialEditDialogState extends State<_MaterialEditDialog> {
               fontOverrideFilePath: _fontOverrideFilePath,
               reportedOs: _reportedOs,
               runtimePlatform: _runtimePlatform,
+              katzeScriptEncoding: _katzeScriptEncoding,
             ),
           ),
           child: const Text('保存'),
@@ -1545,6 +1670,7 @@ class _FluentEditDialog extends StatefulWidget {
   final String initialFontOverrideFilePath;
   final String initialReportedOs;
   final String initialRuntimePlatform;
+  final String initialKatzeScriptEncoding;
 
   const _FluentEditDialog({
     required this.title,
@@ -1558,6 +1684,7 @@ class _FluentEditDialog extends StatefulWidget {
     this.initialFontOverrideFilePath = '',
     this.initialReportedOs = '',
     this.initialRuntimePlatform = 'WINDOWS',
+    this.initialKatzeScriptEncoding = '',
   });
 
   @override
@@ -1576,6 +1703,7 @@ class _FluentEditDialogState extends State<_FluentEditDialog> {
   late String _fontOverrideFilePath;
   late String _reportedOs;
   late String _runtimePlatform;
+  late String _katzeScriptEncoding;
 
   @override
   void initState() {
@@ -1588,6 +1716,9 @@ class _FluentEditDialogState extends State<_FluentEditDialog> {
     _fontOverrideFilePath = widget.initialFontOverrideFilePath;
     _reportedOs = widget.initialReportedOs;
     _runtimePlatform = widget.initialRuntimePlatform;
+    _katzeScriptEncoding = widget.initialKatzeScriptEncoding
+        .trim()
+        .toUpperCase();
   }
 
   Future<void> _pickFontOverride() async {
@@ -1625,6 +1756,13 @@ class _FluentEditDialogState extends State<_FluentEditDialog> {
     final showRuntimePlatform = fields.contains(
       GameSettingField.runtimePlatform,
     );
+    final showKatzeEncoding = fields.contains(
+      GameSettingField.katzeScriptEncoding,
+    );
+    final encoding = _katzeScriptEncoding.isEmpty
+        ? 'CP932'
+        : _katzeScriptEncoding;
+    final encodings = katzeScriptEncodingOptions(encoding);
     final showInputGate = fields.contains(GameSettingField.inputGate);
     final showReportedOs = fields.contains(GameSettingField.reportedOs);
     final showFontOverride = fields.contains(GameSettingField.fontOverride);
@@ -1756,6 +1894,29 @@ class _FluentEditDialogState extends State<_FluentEditDialog> {
                   ],
                 ),
               ],
+              if (showKatzeEncoding) ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    const Expanded(child: Text(katzeScriptEncodingLabel)),
+                    fluent.ComboBox<String>(
+                      value: encoding,
+                      items: [
+                        for (final option in encodings.entries)
+                          fluent.ComboBoxItem(
+                            value: option.key,
+                            child: Text(option.value),
+                          ),
+                      ],
+                      onChanged: (value) {
+                        if (value != null) {
+                          setState(() => _katzeScriptEncoding = value);
+                        }
+                      },
+                    ),
+                  ],
+                ),
+              ],
               if (showRuntimePlatform) ...[
                 const SizedBox(height: 8),
                 Row(
@@ -1843,6 +2004,7 @@ class _FluentEditDialogState extends State<_FluentEditDialog> {
               fontOverrideFilePath: _fontOverrideFilePath,
               reportedOs: _reportedOs,
               runtimePlatform: _runtimePlatform,
+              katzeScriptEncoding: _katzeScriptEncoding,
             ),
           ),
           child: const Text('保存'),
@@ -1865,6 +2027,7 @@ Future<GameEditData?> showMiuixGameEditDialog(
   required String initialFontOverrideFilePath,
   required String initialReportedOs,
   required String initialRuntimePlatform,
+  required String initialKatzeScriptEncoding,
 }) {
   return showMiuixHostedOverlay<GameEditData>(
     context: context,
@@ -1886,6 +2049,7 @@ Future<GameEditData?> showMiuixGameEditDialog(
           initialFontOverrideFilePath: initialFontOverrideFilePath,
           initialReportedOs: initialReportedOs,
           initialRuntimePlatform: initialRuntimePlatform,
+          initialKatzeScriptEncoding: initialKatzeScriptEncoding,
           onCancel: () => dismiss(),
           onSave: (data) => dismiss(data),
         ),
@@ -1906,6 +2070,7 @@ class _MiuixEditForm extends StatefulWidget {
     required this.initialFontOverrideFilePath,
     required this.initialReportedOs,
     required this.initialRuntimePlatform,
+    required this.initialKatzeScriptEncoding,
     required this.onCancel,
     required this.onSave,
   });
@@ -1920,6 +2085,7 @@ class _MiuixEditForm extends StatefulWidget {
   final String initialFontOverrideFilePath;
   final String initialReportedOs;
   final String initialRuntimePlatform;
+  final String initialKatzeScriptEncoding;
   final VoidCallback onCancel;
   final ValueChanged<GameEditData> onSave;
 
@@ -1939,6 +2105,7 @@ class _MiuixEditFormState extends State<_MiuixEditForm> {
   late String _fontOverrideFilePath;
   late String _reportedOs;
   late String _runtimePlatform;
+  late String _katzeScriptEncoding;
 
   @override
   void initState() {
@@ -1951,6 +2118,9 @@ class _MiuixEditFormState extends State<_MiuixEditForm> {
     _fontOverrideFilePath = widget.initialFontOverrideFilePath;
     _reportedOs = widget.initialReportedOs;
     _runtimePlatform = widget.initialRuntimePlatform;
+    _katzeScriptEncoding = widget.initialKatzeScriptEncoding
+        .trim()
+        .toUpperCase();
   }
 
   @override
@@ -1985,6 +2155,7 @@ class _MiuixEditFormState extends State<_MiuixEditForm> {
       fontOverrideFilePath: _fontOverrideFilePath,
       reportedOs: _reportedOs,
       runtimePlatform: _runtimePlatform,
+      katzeScriptEncoding: _katzeScriptEncoding,
     );
   }
 
@@ -2001,6 +2172,13 @@ class _MiuixEditFormState extends State<_MiuixEditForm> {
     final showRuntimePlatform = fields.contains(
       GameSettingField.runtimePlatform,
     );
+    final showKatzeEncoding = fields.contains(
+      GameSettingField.katzeScriptEncoding,
+    );
+    final encoding = _katzeScriptEncoding.isEmpty
+        ? 'CP932'
+        : _katzeScriptEncoding;
+    final encodings = katzeScriptEncodingOptions(encoding);
     final showInputGate = fields.contains(GameSettingField.inputGate);
     final showReportedOs = fields.contains(GameSettingField.reportedOs);
     final showFontOverride = fields.contains(GameSettingField.fontOverride);
@@ -2152,6 +2330,20 @@ class _MiuixEditFormState extends State<_MiuixEditForm> {
                       renderInRootScaffold: false,
                       onSelectedIndexChange: (index) {
                         setState(() => _reportedOs = reportedKeys[index]);
+                      },
+                    ),
+                  if (showKatzeEncoding)
+                    MiuixOverlayDropdownPreference(
+                      title: katzeScriptEncodingLabel,
+                      items: encodings.values.toList(),
+                      selectedIndex: encodings.keys.toList().indexOf(encoding),
+                      renderInRootScaffold: false,
+                      onSelectedIndexChange: (index) {
+                        setState(
+                          () => _katzeScriptEncoding = encodings.keys.elementAt(
+                            index,
+                          ),
+                        );
                       },
                     ),
                   if (showRuntimePlatform)

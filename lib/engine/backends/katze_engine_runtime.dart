@@ -27,6 +27,7 @@ final class KatzeEngineRuntime extends UnsupportedEngineRuntime
   DynamicLibrary? _library;
   KatzeGameHost? _game;
   String? _directory;
+  String scriptEncoding = '';
   String _encoding = '';
   String _saveDirectory = '';
   InputGatePolicy _gate = InputGatePolicy.full;
@@ -253,17 +254,20 @@ final class KatzeEngineRuntime extends UnsupportedEngineRuntime
     final sep = Platform.pathSeparator;
     final startup = File('$projectPath${sep}config${sep}startup.xml');
     if (!await startup.exists()) return null;
-    final manifest = await GameManifest.loadForProject(
-      projectPath,
-      GameSource.directory,
-      engine: GameEngineKind.katze,
-    );
+    final manifest = scriptEncoding.isEmpty
+        ? await GameManifest.loadForProject(
+            projectPath,
+            GameSource.directory,
+            engine: GameEngineKind.katze,
+          )
+        : null;
     final settings = await startup.readAsBytes();
     _directory = projectPath;
-    _encoding =
-        manifest?.katzeScriptEncoding ??
-        Platform.environment['KATZE_GAME_ENCODING'] ??
-        '';
+    _encoding = scriptEncoding.isNotEmpty
+        ? scriptEncoding
+        : manifest?.katzeScriptEncoding ??
+              Platform.environment['KATZE_GAME_ENCODING'] ??
+              '';
     return settings;
   }
 

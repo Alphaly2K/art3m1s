@@ -234,8 +234,9 @@ class GameManifest {
       krkrEntryXp3: _supports(kind, GameSettingField.krkrEntryXp3)
           ? krkrEntryXp3 ?? entry.krkrEntryXp3
           : entry.krkrEntryXp3,
-      katzeScriptEncoding: kind == GameEngineKind.katze
-          ? katzeScriptEncoding ?? entry.katzeScriptEncoding
+      katzeScriptEncoding:
+          kind == GameEngineKind.katze && entry.katzeScriptEncoding.isEmpty
+          ? katzeScriptEncoding
           : null,
       manifestPath: manifestPath ?? entry.manifestPath,
     );

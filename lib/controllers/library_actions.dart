@@ -306,6 +306,7 @@ class LibraryActions {
       initialInputGate: manifest?.inputGate ?? InputGatePolicy.full,
       initialRuntimePlatform:
           manifest?.runtimePlatform ?? GameManifest.defaultRuntimePlatform,
+      initialKatzeScriptEncoding: manifest?.katzeScriptEncoding ?? '',
     );
     if (result == null || !context.mounted) return false;
     final krkrEntryXp3 = engine == GameEngineKind.krkr
@@ -339,7 +340,7 @@ class LibraryActions {
                 : manifest?.reportedOs ?? '',
             runtimePlatform: result.runtimePlatform,
             krkrEntryXp3: krkrEntryXp3,
-            katzeScriptEncoding: manifest?.katzeScriptEncoding ?? '',
+            katzeScriptEncoding: result.katzeScriptEncoding,
           ),
         );
     Log.info('已添加: ${result.name.isNotEmpty ? result.name : defaultName}');
@@ -454,6 +455,7 @@ class LibraryActions {
       initialFontOverrideFilePath: configured.fontOverrideFilePath,
       initialReportedOs: configured.reportedOs,
       initialRuntimePlatform: configured.runtimePlatform,
+      initialKatzeScriptEncoding: configured.katzeScriptEncoding,
     );
     if (result == null || !context.mounted) return;
     final krkrEntryXp3 = configured.engine == GameEngineKind.krkr
@@ -483,6 +485,9 @@ class LibraryActions {
           fontOverrideFilePath: result.fontOverrideFilePath,
           reportedOs: result.reportedOs,
           runtimePlatform: result.runtimePlatform,
+          katzeScriptEncoding: configured.engine == GameEngineKind.katze
+              ? result.katzeScriptEncoding
+              : null,
           krkrEntryXp3: krkrEntryXp3,
         );
   }
@@ -631,6 +636,7 @@ class LibraryActions {
             reportedOs: configured.reportedOs,
             runtimePlatform: configured.runtimePlatform,
             krkrEntryXp3: configured.krkrEntryXp3,
+            katzeScriptEncoding: configured.katzeScriptEncoding,
             manifestPath: configured.manifestPath,
           ),
         ),

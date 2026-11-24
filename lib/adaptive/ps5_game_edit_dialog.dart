@@ -27,6 +27,7 @@ Future<GameEditData?> showPs5GameEditDialog(
   String initialFontOverrideFilePath = '',
   String initialReportedOs = '',
   String initialRuntimePlatform = 'WINDOWS',
+  String initialKatzeScriptEncoding = '',
 }) {
   return showGeneralDialog<GameEditData>(
     context: context,
@@ -47,6 +48,7 @@ Future<GameEditData?> showPs5GameEditDialog(
         initialFontOverrideFilePath: initialFontOverrideFilePath,
         initialReportedOs: initialReportedOs,
         initialRuntimePlatform: initialRuntimePlatform,
+        initialKatzeScriptEncoding: initialKatzeScriptEncoding,
       );
     },
     transitionBuilder: (ctx, animation, secondaryAnimation, child) {
@@ -87,6 +89,7 @@ class Ps5GameEditDialog extends StatefulWidget {
     this.initialFontOverrideFilePath = '',
     required this.initialReportedOs,
     required this.initialRuntimePlatform,
+    required this.initialKatzeScriptEncoding,
   });
 
   final String title;
@@ -100,6 +103,7 @@ class Ps5GameEditDialog extends StatefulWidget {
   final String initialFontOverrideFilePath;
   final String initialReportedOs;
   final String initialRuntimePlatform;
+  final String initialKatzeScriptEncoding;
 
   @override
   State<Ps5GameEditDialog> createState() => _Ps5GameEditDialogState();
@@ -117,6 +121,7 @@ class _Ps5GameEditDialogState extends State<Ps5GameEditDialog> {
   late String _fontOverrideFilePath;
   late String _reportedOs;
   late String _runtimePlatform;
+  late String _katzeScriptEncoding;
 
   @override
   void initState() {
@@ -129,6 +134,9 @@ class _Ps5GameEditDialogState extends State<Ps5GameEditDialog> {
     _fontOverrideFilePath = widget.initialFontOverrideFilePath;
     _reportedOs = widget.initialReportedOs;
     _runtimePlatform = widget.initialRuntimePlatform;
+    _katzeScriptEncoding = widget.initialKatzeScriptEncoding
+        .trim()
+        .toUpperCase();
   }
 
   @override
@@ -251,6 +259,7 @@ class _Ps5GameEditDialogState extends State<Ps5GameEditDialog> {
         fontOverrideFilePath: _fontOverrideFilePath,
         reportedOs: _reportedOs,
         runtimePlatform: _runtimePlatform,
+        katzeScriptEncoding: _katzeScriptEncoding,
       ),
     );
   }
@@ -267,6 +276,13 @@ class _Ps5GameEditDialogState extends State<Ps5GameEditDialog> {
     final showRuntimePlatform = fields.contains(
       GameSettingField.runtimePlatform,
     );
+    final showKatzeEncoding = fields.contains(
+      GameSettingField.katzeScriptEncoding,
+    );
+    final encoding = _katzeScriptEncoding.isEmpty
+        ? 'CP932'
+        : _katzeScriptEncoding;
+    final encodings = katzeScriptEncodingOptions(encoding);
     final showInputGate = fields.contains(GameSettingField.inputGate);
     final showFontOverride = fields.contains(GameSettingField.fontOverride);
     final showReportedOs = fields.contains(GameSettingField.reportedOs);
@@ -490,6 +506,7 @@ class _Ps5GameEditDialogState extends State<Ps5GameEditDialog> {
                           ],
                           if (showEnvironmentPatch ||
                               showRuntimePlatform ||
+                              showKatzeEncoding ||
                               showInputGate ||
                               showReportedOs) ...[
                             const SizedBox(height: 24),
@@ -511,6 +528,33 @@ class _Ps5GameEditDialogState extends State<Ps5GameEditDialog> {
                                       () => _environmentPatchEnabled =
                                           !_environmentPatchEnabled,
                                     ),
+                                  ),
+                                if (showKatzeEncoding)
+                                  Ps5SettingRow(
+                                    compact: true,
+                                    label: katzeScriptEncodingLabel,
+                                    trailing: encodings[encoding]!,
+                                    onPressed: () async {
+                                      final value =
+                                          await showPs5OptionPicker<String>(
+                                            context,
+                                            title: katzeScriptEncodingLabel,
+                                            selected: encoding,
+                                            options: [
+                                              for (final option
+                                                  in encodings.entries)
+                                                (
+                                                  value: option.key,
+                                                  label: option.value,
+                                                  caption: '',
+                                                ),
+                                            ],
+                                          );
+                                      if (value != null && mounted)
+                                        setState(
+                                          () => _katzeScriptEncoding = value,
+                                        );
+                                    },
                                   ),
                                 if (showRuntimePlatform)
                                   Ps5SettingRow(

@@ -74,6 +74,7 @@ class LibraryNotifier extends StateNotifier<List<GameEntry>> {
     String? reportedOs,
     String? runtimePlatform,
     String? krkrEntryXp3,
+    String? katzeScriptEncoding,
   }) async {
     final lib = _storage.getLibrary();
     final i = lib.indexWhere(
@@ -91,6 +92,7 @@ class LibraryNotifier extends StateNotifier<List<GameEntry>> {
       reportedOs: reportedOs,
       runtimePlatform: runtimePlatform,
       krkrEntryXp3: krkrEntryXp3,
+      katzeScriptEncoding: katzeScriptEncoding,
     );
     try {
       final manifestPath = await GameManifest.writeForProject(

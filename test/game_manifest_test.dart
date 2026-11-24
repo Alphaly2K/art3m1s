@@ -22,6 +22,11 @@ void main() {
     });
     final saved = GameEntry.fromJson(manifest.applyTo(entry).toJson());
     expect(saved.katzeScriptEncoding, 'GBK');
+    // A library edit must work when an older manifest could not be updated.
+    final edited = GameEntry.fromJson(
+      saved.copyWith(katzeScriptEncoding: 'CP932').toJson(),
+    );
+    expect(manifest.applyTo(edited).katzeScriptEncoding, 'CP932');
     expect(
       GameManifest.fromGameEntry(saved).toJson()['katzeScriptEncoding'],
       'GBK',
@@ -442,8 +447,12 @@ void main() {
 
     test('engine capability sets match the editing surface', () {
       expect(
-        GameEngineKind.art3m1s.supportedGameSettings.length,
-        GameSettingField.values.length,
+        GameEngineKind.art3m1s.supportedGameSettings,
+        isNot(contains(GameSettingField.katzeScriptEncoding)),
+      );
+      expect(
+        GameEngineKind.katze.supportedGameSettings,
+        contains(GameSettingField.katzeScriptEncoding),
       );
       final rfvp = GameEngineKind.rfvp.supportedGameSettings;
       expect(rfvp.contains(GameSettingField.displayName), isTrue);

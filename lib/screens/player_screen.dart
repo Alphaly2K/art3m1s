@@ -73,6 +73,7 @@ class PlayerScreen extends ConsumerStatefulWidget {
 
   /// KRKR 启动归档的根目录文件名；游戏身份仍由 projectPath 目录决定。
   final String krkrEntryXp3;
+  final String katzeScriptEncoding;
 
   final String? manifestPath;
 
@@ -98,6 +99,7 @@ class PlayerScreen extends ConsumerStatefulWidget {
     this.reportedOs = '',
     this.runtimePlatform = 'WINDOWS',
     this.krkrEntryXp3 = '',
+    this.katzeScriptEncoding = '',
     this.manifestPath,
   });
 
@@ -404,6 +406,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       reportedOs: widget.reportedOs,
       runtimePlatform: widget.runtimePlatform,
       krkrEntryXp3: widget.krkrEntryXp3,
+      katzeScriptEncoding: widget.katzeScriptEncoding,
       manifestPath: widget.manifestPath,
     );
     final config = _activeConfig = await GameManifest.loadEntrySettings(
@@ -434,6 +437,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
           throw StateError('KRKR 启动 XP3 不存在: $entry');
         }
         runtimeProjectPath = archive.path;
+      }
+      if (_bridge case final KatzeEngineRuntime runtime) {
+        runtime.scriptEncoding = config.katzeScriptEncoding;
       }
       iniContent = await _bridge.prepareProject(
         projectPath: runtimeProjectPath,

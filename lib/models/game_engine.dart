@@ -30,7 +30,9 @@ enum GameEngineKind {
   /// 都是 Artemis 专属概念;RFVP 侧的同名设置是空实现。设置页和 manifest 都以
   /// 此为准,不给用户展示无效开关。
   Set<GameSettingField> get supportedGameSettings => switch (this) {
-    GameEngineKind.art3m1s => GameSettingField.values.toSet(),
+    GameEngineKind.art3m1s =>
+      GameSettingField.values.toSet()
+        ..remove(GameSettingField.katzeScriptEncoding),
     GameEngineKind.rfvp => const {
       GameSettingField.displayName,
       GameSettingField.cover,
@@ -48,11 +50,18 @@ enum GameEngineKind {
       GameSettingField.inputGate,
       GameSettingField.krkrEntryXp3,
     },
-    GameEngineKind.siglus || GameEngineKind.katze => const {
+    GameEngineKind.siglus => const {
       GameSettingField.displayName,
       GameSettingField.cover,
       GameSettingField.vndbId,
       GameSettingField.inputGate,
+    },
+    GameEngineKind.katze => const {
+      GameSettingField.displayName,
+      GameSettingField.cover,
+      GameSettingField.vndbId,
+      GameSettingField.inputGate,
+      GameSettingField.katzeScriptEncoding,
     },
   };
 
@@ -76,4 +85,5 @@ enum GameSettingField {
   runtimePlatform,
   inputGate,
   krkrEntryXp3,
+  katzeScriptEncoding,
 }
