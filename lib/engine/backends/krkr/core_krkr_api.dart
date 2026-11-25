@@ -135,20 +135,25 @@ class CoreKrkrDiagnosticsV1 {
     final size = calloc<UintPtr>();
     try {
       final pointer = getApi(size);
-      if (pointer == nullptr ||
-          size.value != sizeOf<_KrkrDiagnosticsApiV1>() ||
-          pointer.ref.structSize != size.value ||
-          pointer.ref.abiVersion != 1 ||
-          pointer.ref.magic != 0x315647444d334152 ||
-          pointer.ref.logNextBytes == nullptr ||
-          pointer.ref.pollLog == nullptr ||
-          pointer.ref.runtimeSetDebug == nullptr) {
-        return null;
-      }
-      return CoreKrkrDiagnosticsV1._(pointer);
+      return size.value == sizeOf<_KrkrDiagnosticsApiV1>()
+          ? _from(pointer)
+          : null;
     } finally {
       calloc.free(size);
     }
+  }
+
+  static CoreKrkrDiagnosticsV1? _from(Pointer<_KrkrDiagnosticsApiV1> pointer) {
+    if (pointer == nullptr ||
+        pointer.ref.structSize != sizeOf<_KrkrDiagnosticsApiV1>() ||
+        pointer.ref.abiVersion != 1 ||
+        pointer.ref.magic != 0x315647444d334152 ||
+        pointer.ref.logNextBytes == nullptr ||
+        pointer.ref.pollLog == nullptr ||
+        pointer.ref.runtimeSetDebug == nullptr) {
+      return null;
+    }
+    return CoreKrkrDiagnosticsV1._(pointer);
   }
 
   int setDebug(int runtime, bool enabled) => _pointer.ref.runtimeSetDebug
@@ -435,32 +440,35 @@ class CoreKrkrApiV1 {
     final size = calloc<UintPtr>();
     try {
       final pointer = getApi(size);
-      if (pointer == nullptr) return null;
-      final table = pointer.ref;
-      if (table.structSize != sizeOf<_Art3m1sKrkrApiV1>() ||
-          size.value != sizeOf<_Art3m1sKrkrApiV1>() ||
-          table.abiVersion != _abiVersion ||
-          table.magic != _abiMagic ||
-          table.probeProject == nullptr ||
-          table.runtimeCreate == nullptr ||
-          table.runtimeDestroy == nullptr ||
-          table.runtimeStageWidth == nullptr ||
-          table.runtimeStageHeight == nullptr ||
-          table.runtimePixelBufferSize == nullptr ||
-          table.runtimePushInput == nullptr ||
-          table.runtimeTick == nullptr ||
-          table.runtimeAcquireFrame == nullptr ||
-          table.runtimeReleaseFrame == nullptr ||
-          table.runtimePollAudioCommand == nullptr ||
-          table.runtimeSubmitAudioConsumed == nullptr ||
-          table.runtimeIsExitRequested == nullptr ||
-          table.runtimeSetExternalSurface == nullptr) {
-        return null;
-      }
-      return CoreKrkrApiV1._(pointer);
+      return size.value == sizeOf<_Art3m1sKrkrApiV1>() ? _from(pointer) : null;
     } finally {
       calloc.free(size);
     }
+  }
+
+  static CoreKrkrApiV1? _from(Pointer<_Art3m1sKrkrApiV1> pointer) {
+    if (pointer == nullptr) return null;
+    final table = pointer.ref;
+    if (table.structSize != sizeOf<_Art3m1sKrkrApiV1>() ||
+        table.abiVersion != _abiVersion ||
+        table.magic != _abiMagic ||
+        table.probeProject == nullptr ||
+        table.runtimeCreate == nullptr ||
+        table.runtimeDestroy == nullptr ||
+        table.runtimeStageWidth == nullptr ||
+        table.runtimeStageHeight == nullptr ||
+        table.runtimePixelBufferSize == nullptr ||
+        table.runtimePushInput == nullptr ||
+        table.runtimeTick == nullptr ||
+        table.runtimeAcquireFrame == nullptr ||
+        table.runtimeReleaseFrame == nullptr ||
+        table.runtimePollAudioCommand == nullptr ||
+        table.runtimeSubmitAudioConsumed == nullptr ||
+        table.runtimeIsExitRequested == nullptr ||
+        table.runtimeSetExternalSurface == nullptr) {
+      return null;
+    }
+    return CoreKrkrApiV1._(pointer);
   }
 
   KrkrCoreProbe? probeProject(String path) {
@@ -713,17 +721,7 @@ class CoreKrkrControlV1 {
       final size = calloc<UintPtr>();
       try {
         final table = get(size);
-        if (table == nullptr || size.value != sizeOf<_KrkrControlApiV1>()) {
-          return null;
-        }
-        final api = table.ref;
-        if (api.structSize != size.value ||
-            api.abiVersion != 1 ||
-            api.magic != 0x3156434b4d334152 ||
-            api.volume == nullptr) {
-          return null;
-        }
-        return CoreKrkrControlV1._(table);
+        return size.value == sizeOf<_KrkrControlApiV1>() ? _from(table) : null;
       } finally {
         calloc.free(size);
       }
@@ -732,6 +730,71 @@ class CoreKrkrControlV1 {
     }
   }
 
+  static CoreKrkrControlV1? _from(Pointer<_KrkrControlApiV1> table) {
+    if (table == nullptr) return null;
+    final api = table.ref;
+    if (api.structSize != sizeOf<_KrkrControlApiV1>() ||
+        api.abiVersion != 1 ||
+        api.magic != 0x3156434b4d334152 ||
+        api.volume == nullptr) {
+      return null;
+    }
+    return CoreKrkrControlV1._(table);
+  }
+
   int volume(int runtime, double volume) =>
       _table.ref.volume.asFunction<_MasterVolumeDart>()(runtime, volume);
+}
+
+final class _KrkrHostApiV2 extends Struct {
+  @Uint32()
+  external int structSize;
+  @Uint32()
+  external int abiVersion;
+  @Uint64()
+  external int magic;
+  external Pointer<_Art3m1sKrkrApiV1> runtime;
+  external Pointer<_KrkrDiagnosticsApiV1> diagnostics;
+  external Pointer<_KrkrControlApiV1> controls;
+  external Pointer<Void> openProject;
+}
+
+typedef _GetHostV2 = Pointer<_KrkrHostApiV2> Function(Pointer<UintPtr>);
+
+final class CoreKrkrHostV2 {
+  CoreKrkrHostV2._(this.runtime, this.diagnostics, this.controls);
+
+  final CoreKrkrApiV1 runtime;
+  final CoreKrkrDiagnosticsV1 diagnostics;
+  final CoreKrkrControlV1 controls;
+
+  static CoreKrkrHostV2? tryLoad(DynamicLibrary library) {
+    const symbol = 'art3m1s_krkr_get_host_api_v2';
+    if (!library.providesSymbol(symbol)) return null;
+    final size = calloc<UintPtr>();
+    try {
+      final pointer = library.lookupFunction<_GetHostV2, _GetHostV2>(symbol)(
+        size,
+      );
+      if (pointer == nullptr || size.value < sizeOf<_KrkrHostApiV2>()) {
+        throw StateError('KRKR Host API table size mismatch');
+      }
+      final table = pointer.ref;
+      if (table.structSize != size.value ||
+          table.abiVersion != 2 ||
+          table.magic != 0x3256484b4d334152 ||
+          table.openProject == nullptr) {
+        throw StateError('KRKR Host API header mismatch');
+      }
+      final runtime = CoreKrkrApiV1._from(table.runtime);
+      final diagnostics = CoreKrkrDiagnosticsV1._from(table.diagnostics);
+      final controls = CoreKrkrControlV1._from(table.controls);
+      if (runtime == null || diagnostics == null || controls == null) {
+        throw StateError('KRKR Host API contains an incompatible table');
+      }
+      return CoreKrkrHostV2._(runtime, diagnostics, controls);
+    } finally {
+      calloc.free(size);
+    }
+  }
 }

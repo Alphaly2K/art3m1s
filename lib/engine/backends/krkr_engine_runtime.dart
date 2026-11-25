@@ -119,18 +119,20 @@ class KrkrEngineRuntime implements EngineRuntime {
         if (ready != true) throw StateError('KRKR Android 原生宿主未准备就绪');
       }
       _library = _openCoreLibrary();
-      _api = CoreKrkrApiV1.tryLoad(_library!);
+      final host = CoreKrkrHostV2.tryLoad(_library!);
+      _api = host?.runtime ?? CoreKrkrApiV1.tryLoad(_library!);
       if (_api == null) {
         throw StateError('art3m1s-core 未导出兼容的 KRKR API v1');
       }
-      _controls = CoreKrkrControlV1.tryLoad(_library!);
+      _controls = host?.controls ?? CoreKrkrControlV1.tryLoad(_library!);
       if (_controls == null) throw StateError('KRKR 原生音频控制接口不可用；请重新构建 core');
-      _diagnostics = CoreKrkrDiagnosticsV1.tryLoad(_library!);
+      _diagnostics =
+          host?.diagnostics ?? CoreKrkrDiagnosticsV1.tryLoad(_library!);
       if (_diagnostics == null) {
         Log.warn('[KrkrEngineRuntime] KRKR 诊断接口不可用');
       }
       _initialized = true;
-      Log.info('[KrkrEngineRuntime] 使用 art3m1s_krkr_get_api_v1');
+      Log.info('[KrkrEngineRuntime] 使用 ${host != null ? 'Host v2' : 'API v1'}');
     } catch (error) {
       if (_epoch != epoch) return;
       Log.error('[KrkrEngineRuntime] KRKR 后端加载失败: $error');
