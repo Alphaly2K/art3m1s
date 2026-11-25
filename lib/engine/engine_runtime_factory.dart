@@ -16,6 +16,10 @@ class EngineRuntimeFactory {
   static const _artemisOverride = bool.hasEnvironment('ARTEMIS_V2');
   static bool _hasProductionArtemis = false;
 
+  static bool get _rfvpV2 => const bool.hasEnvironment('RFVP_V2')
+      ? const bool.fromEnvironment('RFVP_V2')
+      : Platform.environment['RFVP_V2'] == '1';
+
   static bool get _artemisV2 =>
       Platform.isMacOS &&
       (_artemisOverride
@@ -52,6 +56,7 @@ class EngineRuntimeFactory {
       ),
       GameEngineKind.rfvp => RfvpEngineRuntime(
         engineCursorControlEnabled: engineCursorControlEnabled,
+        useReplayFrames: _rfvpV2,
       ),
       GameEngineKind.krkr => KrkrEngineRuntime(
         engineCursorControlEnabled: engineCursorControlEnabled,

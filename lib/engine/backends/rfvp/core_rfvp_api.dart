@@ -389,11 +389,16 @@ class CoreRfvpApiV1 {
   static int get inputEventSize => sizeOf<_InputEventV1>();
   static int get audioCommandSize => sizeOf<_AudioCommandV1>();
 
-  static CoreRfvpApiV1? tryLoad(DynamicLibrary library) {
+  static CoreRfvpApiV1? tryLoad(
+    DynamicLibrary library, {
+    bool replayHost = false,
+  }) {
     final _GetApi getApi;
     try {
       getApi = library.lookupFunction<_GetApiNative, _GetApi>(
-        'art3m1s_rfvp_get_api_v1',
+        replayHost
+            ? 'art3m1s_rfvp_get_replay_host_v1'
+            : 'art3m1s_rfvp_get_api_v1',
       );
     } catch (_) {
       return null;

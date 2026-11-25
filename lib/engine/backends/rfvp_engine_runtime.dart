@@ -22,7 +22,12 @@ import 'rfvp/rfvp_media_host.dart';
 /// The Art3m1s core library owns RFVP's native runtime, GPU backend and frame
 /// adaptation. Dart only passes paths, input, lifecycle and audio commands.
 class RfvpEngineRuntime implements EngineRuntime {
-  RfvpEngineRuntime({this.engineCursorControlEnabled = true});
+  RfvpEngineRuntime({
+    this.engineCursorControlEnabled = true,
+    this.useReplayFrames = false,
+  });
+
+  final bool useReplayFrames;
 
   final bool? engineCursorControlEnabled;
 
@@ -126,16 +131,18 @@ class RfvpEngineRuntime implements EngineRuntime {
     try {
       _lastError = null;
       _library = _openCoreLibrary();
-      final api = CoreRfvpApiV1.tryLoad(_library!);
+      final api = CoreRfvpApiV1.tryLoad(_library!, replayHost: useReplayFrames);
       if (api == null) {
-        throw StateError('art3m1s-core 未导出 RFVP API v1');
+        final version = useReplayFrames ? 'v2 Host' : 'v1';
+        throw StateError('art3m1s-core 未导出 RFVP $version 接口');
       }
       _api = api;
       // 日志走拉取式队列：不在 native 侧注册 NativeCallable，避免在
       // 越狱/注入环境触发 Dart 回调蹦床崩溃。
       _drainNativeLogs();
       _initialized = true;
-      Log.info('[RfvpEngineRuntime] 使用 art3m1s_rfvp_get_api_v1');
+      final version = useReplayFrames ? 'v2' : 'v1';
+      Log.info('[RfvpEngineRuntime] 使用 RFVP $version');
     } catch (error) {
       _lastError = error.toString();
       Log.error('[RfvpEngineRuntime] RFVP 后端加载失败: $error');
