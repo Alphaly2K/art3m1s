@@ -287,7 +287,11 @@ class RfvpEngineRuntime implements EngineRuntime {
       Log.warn('[RfvpEngineRuntime] 项目目录尚未准备');
       return;
     }
-    Log.info('[RfvpEngineRuntime] 项目目录将由 Rust 宿主挂载: $directory');
+    if (useReplayFrames) {
+      Log.info('[RfvpEngineRuntime] Host 将提供 RFVP v2 资源和存档');
+    } else {
+      Log.info('[RfvpEngineRuntime] 项目目录将由 Rust 宿主挂载: $directory');
+    }
   }
 
   @override

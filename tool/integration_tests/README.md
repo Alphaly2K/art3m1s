@@ -27,6 +27,16 @@ flutter test --dart-define=RFVP_V2=true tool/integration_tests/rfvp_runtime_smok
 
 将版本期望改成 `1`，并取消 Dart 定义与进程环境中的 `RFVP_V2`，即可验证 v1 默认路径。
 
+验证 v2 的资源和存档时，用 `--io` 生成另一个合成项目，并通过 `RFVP_SMOKE_GAME` 指向该目录。
+保持同一个 macOS 动态库，运行下列测试。它核对封包与松散资源的渲染像素、编号存档及全局存档，
+并检查编号存档保存在播放器选择的目录。
+
+```sh
+RFVP_SMOKE_WIDTH=640 RFVP_SMOKE_HEIGHT=480 RFVP_SMOKE_IO=1 \
+RFVP_SMOKE_EXPECT_VERSION=2 flutter test --dart-define=RFVP_V2=true \
+  --plain-name='reads v2 Host assets' tool/integration_tests/rfvp_runtime_smoke_test.dart
+```
+
 验证 macOS 窗口里的共享纹理时，运行
 `flutter build macos --debug --target=tool/integration_tests/rfvp_macos_smoke.dart`。
 在桌面会话中用相同的 `RFVP_SMOKE_GAME` 和 `ART3M1S_CORE_LIBRARY` 运行生成的应用可执行文件。

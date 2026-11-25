@@ -200,4 +200,56 @@ void main() {
       api.destroyRuntime(runtime);
     }
   }, skip: services ? skipProject : 'RFVP_SMOKE_SERVICES is not enabled');
+
+  test(
+    'reads v2 Host assets and persists through the player save directory',
+    () async {
+      final saves = Directory.systemTemp.createTempSync('rfvp-player-io-');
+      final runtime = createPlayerRuntime();
+      try {
+        expect(runtime.useReplayFrames, isTrue);
+        await runtime.initialize();
+        final project = await runtime.prepareProject(
+          projectPath: gameRoot!,
+          isArchive: false,
+          environmentPatchEnabled: false,
+          platform: 'WINDOWS',
+        );
+        expect(project, isNotNull);
+        runtime.setSaveDir(saves.path);
+        runtime.registerFileReader();
+        runtime.createRuntime(width, height, backend: backend);
+        expect(
+          runtime.loadProjectBytes(project!),
+          isTrue,
+          reason: runtime.lastError,
+        );
+        final pixels = runtime.advanceAndRender(16);
+        expect(pixels, isNotNull);
+        List<int> rgb(int x, int y) {
+          final offset = (y * width + x) * 4;
+          return pixels!.sublist(offset, offset + 3);
+        }
+
+        expect(rgb(40, 20), [255, 0, 0]); // graph.bin
+        expect(rgb(50, 20), [0, 255, 0]); // Loose project file.
+        for (var frame = 0; frame < 8; frame++) {
+          expect(runtime.advanceWithoutRender(16), isTrue);
+        }
+        final slot = File('${saves.path}/rfvp_s007.bin').readAsBytesSync();
+        expect(String.fromCharCodes(slot.sublist(9, 22)), 'Host IO smoke');
+        expect(File('${saves.path}/rfvp_s008.bin').existsSync(), isFalse);
+        expect(File('$gameRoot/save/rfvp_s007.bin').existsSync(), isFalse);
+        runtime.shutdown();
+        final global = File('${saves.path}/rfvp_global.bin').readAsBytesSync();
+        expect(String.fromCharCodes(global.sublist(global.length - 4)), 'RFVG');
+      } finally {
+        runtime.shutdown();
+        saves.deleteSync(recursive: true);
+      }
+    },
+    skip: Platform.environment['RFVP_SMOKE_IO'] == '1'
+        ? skipProject
+        : 'RFVP_SMOKE_IO is not enabled',
+  );
 }
