@@ -61,7 +61,9 @@ class EngineRuntimeFactory {
       GameEngineKind.krkr => KrkrEngineRuntime(
         engineCursorControlEnabled: engineCursorControlEnabled,
       ),
-      GameEngineKind.siglus => SiglusEngineRuntime(),
+      GameEngineKind.siglus => SiglusEngineRuntime(
+        onDialogRequested: onDialogRequested,
+      ),
       GameEngineKind.katze => KatzeEngineRuntime(
         onWindowAction: onWindowAction,
         onDialogRequested: onDialogRequested,

@@ -28,6 +28,12 @@ extension EngineSessionStateSemantics on EngineSessionState {
       this == EngineSessionState.hibernated;
 }
 
+typedef EngineDialogChoice = ({String label, int value});
+
+abstract interface class EngineTextInput {
+  bool feedText(String text);
+}
+
 class EngineDialogRequest {
   const EngineDialogRequest({
     required this.title,
@@ -36,6 +42,8 @@ class EngineDialogRequest {
     required this.hasTextField,
     required this.textFieldSize,
     required this.initialText,
+    this.choices = const [],
+    this.onChoice,
   });
 
   factory EngineDialogRequest.fromJson(Map<String, dynamic> json) {
@@ -58,6 +66,8 @@ class EngineDialogRequest {
   final bool hasTextField;
   final int? textFieldSize;
   final String initialText;
+  final List<EngineDialogChoice> choices;
+  final void Function(int)? onChoice;
 }
 
 /// 紧急回避覆盖状态（`avoid` 事件）。`file` 为覆盖图资源名，null 表示纯黑。

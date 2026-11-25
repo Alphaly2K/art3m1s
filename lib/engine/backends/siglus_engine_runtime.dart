@@ -16,8 +16,13 @@ import 'siglus/core_siglus_api.dart';
 
 /// Siglus VM with the common art3m1s-render GPU backend. The VM is confined
 /// to the same Dart isolate/native thread from creation through destruction.
-class SiglusEngineRuntime extends UnsupportedEngineRuntime {
-  SiglusEngineRuntime() : super(GameEngineKind.siglus);
+class SiglusEngineRuntime extends UnsupportedEngineRuntime
+    implements EngineTextInput {
+  SiglusEngineRuntime({this.onDialogRequested}) : super(GameEngineKind.siglus);
+
+  final void Function(EngineDialogRequest request)? onDialogRequested;
+  CoreSiglusUi? _ui;
+  int? _pendingDialog;
 
   late final EngineMediaHost _media = _SiglusMediaHost(
     onVolume: (value) {
@@ -99,6 +104,7 @@ class SiglusEngineRuntime extends UnsupportedEngineRuntime {
     try {
       final library = openEngineCoreLibrary();
       final host = CoreSiglusHostV1.tryLoad(library);
+      _ui = host?.ui;
       _api = host?.runtime ?? CoreSiglusApiV1.tryLoad(library);
       if (_api == null) {
         throw StateError(
@@ -167,6 +173,12 @@ class SiglusEngineRuntime extends UnsupportedEngineRuntime {
         backend: backend,
         saveDir: _saveDirectory,
       );
+      final ui = _ui;
+      if (ui != null &&
+          onDialogRequested != null &&
+          ui.enableDialogs(_runtime) != CoreSiglusApiV1.ok) {
+        throw StateError('Siglus 对话框初始化失败');
+      }
       _drainNativeLogs();
       _width = api.stageWidth(_runtime);
       _height = api.stageHeight(_runtime);
@@ -257,6 +269,18 @@ class SiglusEngineRuntime extends UnsupportedEngineRuntime {
   }
 
   @override
+  bool feedText(String text) {
+    if (!_inputGate.keyboard ||
+        _state != EngineSessionState.active ||
+        _runtime == 0 ||
+        _pendingDialog != null ||
+        text.runes.any((c) => c < 32 || c == 127)) {
+      return false;
+    }
+    return _ui?.sendText(_runtime, text) ?? false;
+  }
+
+  @override
   void feedForwardedKey(int keyCode, bool pressed) {
     final code = _inputGate.filterForwardedKey(keyCode);
     if (code == null) return;
@@ -312,7 +336,41 @@ class SiglusEngineRuntime extends UnsupportedEngineRuntime {
       return false;
     }
     _exitRequested = api.isExitRequested(_runtime);
+    _pollDialog();
     return true;
+  }
+
+  void _pollDialog() {
+    final ui = _ui;
+    final notify = onDialogRequested;
+    if (ui == null || notify == null || _pendingDialog != null) return;
+    final session = _runtime;
+    final payload = ui.readDialog(session);
+    if (payload == null) return;
+    final id = payload['id'] as int;
+    _pendingDialog = id;
+    notify(
+      EngineDialogRequest(
+        title: payload['title'] as String,
+        message: payload['message'] as String,
+        hasCancel: false,
+        hasTextField: false,
+        textFieldSize: null,
+        initialText: '',
+        choices: [
+          for (final button in payload['buttons'] as List<dynamic>)
+            (label: button['label'] as String, value: button['value'] as int),
+        ],
+        onChoice: (value) {
+          if (_runtime != session || _pendingDialog != id) return;
+          final status = ui.submitDialog(session, id, value);
+          _pendingDialog = null;
+          if (status != CoreSiglusApiV1.ok) {
+            Log.warn('[SiglusEngineRuntime] 对话框回复被拒绝 ($status)');
+          }
+        },
+      ),
+    );
   }
 
   @override
@@ -518,6 +576,8 @@ class SiglusEngineRuntime extends UnsupportedEngineRuntime {
     }
     _runtime = 0;
     _api = null;
+    _ui = null;
+    _pendingDialog = null;
     _output = null;
     _diagnostics = null;
     _textureId = null;

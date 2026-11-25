@@ -4,10 +4,15 @@ import 'package:flutter/services.dart';
 import '../engine/engine_runtime.dart';
 
 class EngineDialogResult {
-  const EngineDialogResult({required this.accepted, required this.text});
+  const EngineDialogResult({
+    required this.accepted,
+    required this.text,
+    this.choice,
+  });
 
   final bool accepted;
   final String text;
+  final int? choice;
 }
 
 Future<EngineDialogResult?> showEngineDialog(
@@ -16,8 +21,11 @@ Future<EngineDialogResult?> showEngineDialog(
 ) {
   return showDialog<EngineDialogResult>(
     context: context,
-    barrierDismissible: request.hasCancel,
-    builder: (_) => _EngineDialog(request: request),
+    barrierDismissible: request.hasCancel && request.choices.isEmpty,
+    builder: (_) => PopScope(
+      canPop: request.choices.isEmpty,
+      child: _EngineDialog(request: request),
+    ),
   );
 }
 
@@ -46,12 +54,13 @@ class _EngineDialogState extends State<_EngineDialog> {
     super.dispose();
   }
 
-  void _close(bool accepted) {
+  void _close(bool accepted, {int? choice}) {
     if (_completed) return;
     _completed = true;
     final result = EngineDialogResult(
       accepted: accepted,
       text: _controller.text,
+      choice: choice,
     );
     FocusManager.instance.primaryFocus?.unfocus();
     Navigator.of(context).pop(result);
@@ -84,17 +93,31 @@ class _EngineDialogState extends State<_EngineDialog> {
             ),
         ],
       ),
-      actions: [
-        if (request.hasCancel)
-          TextButton(
-            onPressed: () => _close(false),
-            child: Text(localizations.cancelButtonLabel),
-          ),
-        FilledButton(
-          onPressed: () => _close(true),
-          child: Text(localizations.okButtonLabel),
-        ),
-      ],
+      actions: request.choices.isNotEmpty
+          ? [
+              for (final (index, choice) in request.choices.indexed)
+                if (index == 0)
+                  FilledButton(
+                    onPressed: () => _close(true, choice: choice.value),
+                    child: Text(choice.label),
+                  )
+                else
+                  TextButton(
+                    onPressed: () => _close(false, choice: choice.value),
+                    child: Text(choice.label),
+                  ),
+            ]
+          : [
+              if (request.hasCancel)
+                TextButton(
+                  onPressed: () => _close(false),
+                  child: Text(localizations.cancelButtonLabel),
+                ),
+              FilledButton(
+                onPressed: () => _close(true),
+                child: Text(localizations.okButtonLabel),
+              ),
+            ],
     );
   }
 }

@@ -335,8 +335,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     _engineDialogOpen = true;
     try {
       final result = await showEngineDialog(context, request);
-      if (!_closing) {
-        _bridge.submitDialog(result?.accepted == true, result?.text ?? '');
+      if (mounted && !_closing) {
+        if (request.onChoice case final submit?) {
+          if (result?.choice case final choice?) submit(choice);
+        } else {
+          _bridge.submitDialog(result?.accepted == true, result?.text ?? '');
+        }
       }
     } finally {
       _engineDialogOpen = false;
@@ -756,8 +760,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     final runtime = _bridge;
     // A busy asynchronous presenter must leave its next deadline intact.
     if (_frameInFlight &&
-        (runtime is AsyncTextureRuntime || runtime is AsyncPixelRuntime))
+        (runtime is AsyncTextureRuntime || runtime is AsyncPixelRuntime)) {
       return;
+    }
     final nowUs = _frameClock.elapsedMicroseconds;
     if (nowUs < _nextFrameUs) return;
     final overdueUs = nowUs - _nextFrameUs;
@@ -1242,16 +1247,22 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   }
 
   void _onKeyboardInput() {
-    final text = _keyboardCtrl.text;
+    final input = _keyboardCtrl.value;
+    if (input.isComposingRangeValid && !input.composing.isCollapsed) return;
+    final text = input.text;
     if (text == _keyboardLast) return;
 
     if (text.length > _keyboardLast.length) {
       final added = text.substring(_keyboardLast.length);
-      for (final char in added.runes) {
-        final key = _charToKey(char);
-        if (key != null) {
-          _bridge.feedKey(key, true);
-          _bridge.feedKey(key, false);
+      final engine = _bridge;
+      if (engine is! EngineTextInput ||
+          !(engine as EngineTextInput).feedText(added)) {
+        for (final char in added.runes) {
+          final key = _charToKey(char);
+          if (key != null) {
+            engine.feedKey(key, true);
+            engine.feedKey(key, false);
+          }
         }
       }
     } else if (text.length < _keyboardLast.length) {
@@ -1851,13 +1862,21 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     }
 
     final vk = _virtualKey(event.logicalKey);
-    if (vk == null) return KeyEventResult.ignored;
     if (event is KeyDownEvent || event is KeyRepeatEvent) {
-      _bridge.feedKey(vk, true);
-    } else if (event is KeyUpEvent) {
+      final engine = _bridge;
+      if (vk != null) engine.feedKey(vk, true);
+      final text = event.character;
+      if (engine is EngineTextInput &&
+          text != null &&
+          (vk == null || _effectiveInputGate.filterKey(vk) == vk)) {
+        if ((engine as EngineTextInput).feedText(text)) {
+          return KeyEventResult.handled;
+        }
+      }
+    } else if (event is KeyUpEvent && vk != null) {
       _bridge.feedKey(vk, false);
     }
-    return KeyEventResult.handled;
+    return vk == null ? KeyEventResult.ignored : KeyEventResult.handled;
   }
 
   int? _virtualKey(LogicalKeyboardKey key) {

@@ -535,27 +535,139 @@ final class _SiglusHostApiV1 extends Struct {
 
 typedef _GetHostApi = Pointer<_SiglusHostApiV1> Function(Pointer<UintPtr>);
 
+typedef _SiglusSessionOp = Int32 Function(Uint64);
+typedef _ReadDialog =
+    Int32 Function(Uint64, Pointer<Uint8>, UintPtr, Pointer<UintPtr>);
+typedef _SubmitDialog = Int32 Function(Uint64, Uint64, Int64);
+typedef _SendText = Int32 Function(Uint64, Pointer<Uint8>, UintPtr);
+
+final class _SiglusHostApiV2 extends Struct {
+  @Uint32()
+  external int structSize;
+  @Uint32()
+  external int abiVersion;
+  @Uint64()
+  external int magic;
+  external Pointer<_SiglusHostApiV1> base;
+  external Pointer<NativeFunction<_SiglusSessionOp>> enableDialogs;
+  external Pointer<NativeFunction<_ReadDialog>> readDialog;
+  external Pointer<NativeFunction<_SubmitDialog>> submitDialog;
+  external Pointer<NativeFunction<_SendText>> sendText;
+}
+
+typedef _GetHostApiV2 = Pointer<_SiglusHostApiV2> Function(Pointer<UintPtr>);
+
+final class CoreSiglusUi {
+  CoreSiglusUi._(this._table);
+
+  final Pointer<_SiglusHostApiV2> _table;
+
+  int enableDialogs(int session) =>
+      _table.ref.enableDialogs.asFunction<int Function(int)>()(session);
+
+  Map<String, dynamic>? readDialog(int session) {
+    final read = _table.ref.readDialog
+        .asFunction<int Function(int, Pointer<Uint8>, int, Pointer<UintPtr>)>();
+    final required = calloc<UintPtr>();
+    try {
+      if (read(session, nullptr, 0, required) != CoreSiglusApiV1.ok ||
+          required.value == 0) {
+        return null;
+      }
+      final capacity = required.value;
+      final buffer = calloc<Uint8>(capacity);
+      try {
+        if (read(session, buffer, capacity, required) != CoreSiglusApiV1.ok ||
+            required.value == 0 ||
+            required.value > capacity) {
+          return null;
+        }
+        return jsonDecode(utf8.decode(buffer.asTypedList(required.value)))
+            as Map<String, dynamic>;
+      } finally {
+        calloc.free(buffer);
+      }
+    } finally {
+      calloc.free(required);
+    }
+  }
+
+  int submitDialog(int session, int id, int value) => _table.ref.submitDialog
+      .asFunction<int Function(int, int, int)>()(session, id, value);
+
+  bool sendText(int session, String text) {
+    final bytes = utf8.encode(text);
+    if (bytes.isEmpty) return false;
+    final buffer = calloc<Uint8>(bytes.length);
+    try {
+      buffer.asTypedList(bytes.length).setAll(0, bytes);
+      return _table.ref.sendText
+              .asFunction<int Function(int, Pointer<Uint8>, int)>()(
+            session,
+            buffer,
+            bytes.length,
+          ) ==
+          1;
+    } finally {
+      calloc.free(buffer);
+    }
+  }
+}
+
 final class CoreSiglusHostV1 {
-  CoreSiglusHostV1._(this.runtime, this.audio, this.diagnostics, this.output);
+  CoreSiglusHostV1._(
+    this.runtime,
+    this.audio,
+    this.diagnostics,
+    this.output,
+    this.ui,
+  );
 
   final CoreSiglusApiV1 runtime;
   final CoreSiglusAudioV1 audio;
   final CoreSiglusDiagnosticsV1 diagnostics;
   final CoreSiglusOutputV1 output;
+  final CoreSiglusUi? ui;
 
   /// An older Core can expose each table through its original entry point.
   static CoreSiglusHostV1? tryLoad(DynamicLibrary library) {
-    const symbol = 'art3m1s_siglus_get_host_api_v1';
-    if (!library.providesSymbol(symbol)) return null;
-    final get = library.lookupFunction<_GetHostApi, _GetHostApi>(symbol);
+    const v1 = 'art3m1s_siglus_get_host_api_v1';
+    const v2 = 'art3m1s_siglus_get_host_api_v2';
     final size = calloc<UintPtr>();
     try {
-      final pointer = get(size);
-      if (pointer == nullptr || size.value != sizeOf<_SiglusHostApiV1>()) {
-        throw StateError('Siglus Host API table size mismatch');
+      final Pointer<_SiglusHostApiV1> pointer;
+      CoreSiglusUi? ui;
+      if (library.providesSymbol(v2)) {
+        final extended = library.lookupFunction<_GetHostApiV2, _GetHostApiV2>(
+          v2,
+        )(size);
+        if (extended == nullptr || size.value != sizeOf<_SiglusHostApiV2>()) {
+          throw StateError('Siglus Host API v2 table size mismatch');
+        }
+        final table = extended.ref;
+        if (table.structSize != size.value ||
+            table.abiVersion != 2 ||
+            table.magic != 0x325648534d334152 ||
+            table.enableDialogs == nullptr ||
+            table.readDialog == nullptr ||
+            table.submitDialog == nullptr ||
+            table.sendText == nullptr) {
+          throw StateError('Siglus Host API v2 header mismatch');
+        }
+        pointer = table.base;
+        ui = CoreSiglusUi._(extended);
+      } else {
+        if (!library.providesSymbol(v1)) return null;
+        pointer = library.lookupFunction<_GetHostApi, _GetHostApi>(v1)(size);
+        if (size.value != sizeOf<_SiglusHostApiV1>()) {
+          throw StateError('Siglus Host API v1 table size mismatch');
+        }
+      }
+      if (pointer == nullptr) {
+        throw StateError('Siglus Host API base table missing');
       }
       final api = pointer.ref;
-      if (api.structSize != size.value ||
+      if (api.structSize != sizeOf<_SiglusHostApiV1>() ||
           api.abiVersion != 1 ||
           api.magic != 0x315648534d334152) {
         throw StateError('Siglus Host API header mismatch');
@@ -570,7 +682,7 @@ final class CoreSiglusHostV1 {
           output == null) {
         throw StateError('Siglus Host API contains an incompatible table');
       }
-      return CoreSiglusHostV1._(runtime, audio, diagnostics, output);
+      return CoreSiglusHostV1._(runtime, audio, diagnostics, output, ui);
     } finally {
       calloc.free(size);
     }
