@@ -31,7 +31,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Alphaly2K/siglus_rs
-          ref: 6f10a87ee25d000c750bba537ada5627ee13323f
+          ref: 6690204ce83fb351b1d62226c7ef5bf08ca949cc
           path: siglus_rs
       - uses: actions/checkout@v4
         with:
