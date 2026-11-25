@@ -1,5 +1,26 @@
 import 'dart:async';
 
+import 'package:flutter/services.dart';
+
+abstract final class SharedTextureHost {
+  static const _channel = MethodChannel('moe.alphaly.art3m1s/shared_texture');
+
+  static Future<Map<String, dynamic>?> create(int width, int height) =>
+      _channel.invokeMapMethod<String, dynamic>('create', {
+        'width': width,
+        'height': height,
+      });
+
+  static Future<void> release() => _channel.invokeMethod<void>('release');
+
+  static Future<void> frameAvailable() =>
+      _channel.invokeMethod<void>('frameAvailable');
+
+  static void setMethodCallHandler(
+    Future<dynamic> Function(MethodCall)? handler,
+  ) => _channel.setMethodCallHandler(handler);
+}
+
 /// Serializes access to the platform's process-wide shared-texture channel.
 ///
 /// Engine runtimes remain independent, but the current native Host exposes one

@@ -31,10 +31,6 @@ class RfvpEngineRuntime implements EngineRuntime {
   final ValueNotifier<String?> _windowTitle = ValueNotifier(null);
   late final RfvpMediaHost _media = RfvpMediaHost();
 
-  static const MethodChannel _sharedTextureChannel = MethodChannel(
-    'moe.alphaly.art3m1s/shared_texture',
-  );
-
   DynamicLibrary? _library;
   CoreRfvpApiV1? _api;
   int _runtime = 0;
@@ -424,17 +420,13 @@ class RfvpEngineRuntime implements EngineRuntime {
             () async {
               if (_sessionState != EngineSessionState.active) return null;
               if (!_sharedTextureHandlerAttached) {
-                _sharedTextureChannel.setMethodCallHandler(
+                SharedTextureHost.setMethodCallHandler(
                   _handleSharedTextureCall,
                 );
                 _sharedTextureHandlerAttached = true;
               }
               _detachSharedTexture();
-              final raw = await _sharedTextureChannel
-                  .invokeMapMethod<String, dynamic>('create', {
-                    'width': width,
-                    'height': height,
-                  });
+              final raw = await SharedTextureHost.create(width, height);
               if (raw == null ||
                   !_attachSharedTexture(raw, width: width, height: height)) {
                 Log.warn('[RfvpEngineRuntime] 共享纹理 attach 失败，使用 RGBA 回读');
@@ -531,13 +523,13 @@ class RfvpEngineRuntime implements EngineRuntime {
     _detachSharedTexture();
     try {
       if (_sharedTextureId != null) {
-        await _sharedTextureChannel.invokeMethod<void>('release');
+        await SharedTextureHost.release();
       }
     } catch (error) {
       Log.warn('[RfvpEngineRuntime] 共享纹理释放失败: $error');
     }
     if (_sharedTextureHandlerAttached) {
-      _sharedTextureChannel.setMethodCallHandler(null);
+      SharedTextureHost.setMethodCallHandler(null);
       _sharedTextureHandlerAttached = false;
     }
     _sharedTextureId = null;
@@ -583,9 +575,7 @@ class RfvpEngineRuntime implements EngineRuntime {
     _drainNativeLogs(api);
     if (result > 0 && (_sharedTextureKind == 2 || _sharedTextureKind == 3)) {
       unawaited(
-        _sharedTextureChannel.invokeMethod<void>('frameAvailable').catchError((
-          Object error,
-        ) {
+        SharedTextureHost.frameAvailable().catchError((Object error) {
           Log.warn('[RfvpEngineRuntime] 共享纹理帧通知失败: $error');
         }),
       );
@@ -844,10 +834,10 @@ class RfvpEngineRuntime implements EngineRuntime {
     final runtime = _runtime;
     _detachSharedTexture();
     if (_sharedTextureId != null) {
-      unawaited(_sharedTextureChannel.invokeMethod<void>('release'));
+      unawaited(SharedTextureHost.release());
     }
     if (_sharedTextureHandlerAttached) {
-      _sharedTextureChannel.setMethodCallHandler(null);
+      SharedTextureHost.setMethodCallHandler(null);
       _sharedTextureHandlerAttached = false;
     }
     unawaited(SharedTextureSessionCoordinator.abandon(this));

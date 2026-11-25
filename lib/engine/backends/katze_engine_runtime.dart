@@ -1,8 +1,7 @@
 import 'dart:async';
 import 'dart:ffi';
 import 'dart:io';
-
-import 'package:flutter/services.dart';
+import 'dart:typed_data';
 
 import '../../models/game_engine.dart';
 import '../../models/game_entry.dart';
@@ -39,9 +38,6 @@ final class KatzeEngineRuntime extends UnsupportedEngineRuntime
   bool _exit = false;
   int _milliseconds = 0;
   int? _touch;
-  static const _textureChannel = MethodChannel(
-    'moe.alphaly.art3m1s/shared_texture',
-  );
   int? _textureId;
   bool _changingTexture = false;
   int _textureWidth = 0;
@@ -85,21 +81,17 @@ final class KatzeEngineRuntime extends UnsupportedEngineRuntime
             await _releaseSharedTexture();
             await game.waitForFrame();
             if (!identical(_game, game) || !_state.isRunning) return null;
-            final descriptor = await _textureChannel
-                .invokeMapMethod<String, int>('create', {
-                  'width': width,
-                  'height': height,
-                });
+            final descriptor = await SharedTextureHost.create(width, height);
             final id = descriptor?['textureId'];
             final handle = descriptor?['handle'];
             if (!identical(_game, game) ||
                 !_state.isRunning ||
                 descriptor?['kind'] != 2 ||
-                id == null ||
-                handle == null ||
+                id is! int ||
+                handle is! int ||
                 handle == 0 ||
                 !game.attachSurface(handle, width, height)) {
-              await _textureChannel.invokeMethod<void>('release');
+              await SharedTextureHost.release();
               return null;
             }
             _textureId = id;
@@ -134,7 +126,7 @@ final class KatzeEngineRuntime extends UnsupportedEngineRuntime
         await game.waitForFrame();
         if (identical(_game, game)) game.detachSurface();
       }
-      await _textureChannel.invokeMethod<void>('release');
+      await SharedTextureHost.release();
     } catch (error) {
       Log.warn('[Katze] Shared texture release failed: $error');
     } finally {
@@ -167,7 +159,7 @@ final class KatzeEngineRuntime extends UnsupportedEngineRuntime
       return false;
     }
     try {
-      await _textureChannel.invokeMethod<void>('frameAvailable');
+      await SharedTextureHost.frameAvailable();
       return canPresent();
     } catch (error) {
       Log.warn('[Katze] Shared texture notification failed: $error');
