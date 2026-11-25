@@ -6,6 +6,7 @@ import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
 
+import '../../../services/logger.dart';
 import '../../native_library.dart';
 import 'core_katze_api.dart';
 
@@ -656,14 +657,15 @@ final class KatzeGameHost {
         !host.providesSymbol(setter)) {
       return null;
     }
-    final media = openKatzeMediaLibrary();
-    if (media == null) return null;
-    const getter = 'art3m1s_katze_movie_host_v0';
-    if (!media.providesSymbol(getter)) {
-      media.close();
-      return null;
-    }
+    DynamicLibrary? media;
     try {
+      media = openKatzeMediaLibrary();
+      if (media == null) return null;
+      const getter = 'art3m1s_katze_movie_host_v0';
+      if (!media.providesSymbol(getter)) {
+        media.close();
+        return null;
+      }
       final callbacks = media
           .lookupFunction<Pointer<Void> Function(), Pointer<Void> Function()>(
             getter,
@@ -677,9 +679,10 @@ final class KatzeGameHost {
         throw StateError('Cannot attach the bundled Katze movie host');
       }
       return media;
-    } catch (_) {
-      media.close();
-      rethrow;
+    } catch (error) {
+      media?.close();
+      Log.warn('[Katze] Using the built-in movie decoder: $error');
+      return null;
     }
   }
 
