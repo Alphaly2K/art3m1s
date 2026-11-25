@@ -89,20 +89,23 @@ class CoreSiglusAudioV1 {
     final size = calloc<UintPtr>();
     try {
       final table = getApi(size);
-      if (table == nullptr ||
-          size.value != sizeOf<_SiglusAudioApiV1>() ||
-          table.ref.structSize != size.value ||
-          table.ref.abiVersion != 1 ||
-          table.ref.magic != 0x315641534d334152 ||
-          table.ref.sampleRate != 48000 ||
-          table.ref.channels != 2 ||
-          table.ref.runtimeRenderPcm == nullptr) {
-        return null;
-      }
-      return CoreSiglusAudioV1._(table);
+      return size.value == sizeOf<_SiglusAudioApiV1>() ? _from(table) : null;
     } finally {
       calloc.free(size);
     }
+  }
+
+  static CoreSiglusAudioV1? _from(Pointer<_SiglusAudioApiV1> table) {
+    if (table == nullptr ||
+        table.ref.structSize != sizeOf<_SiglusAudioApiV1>() ||
+        table.ref.abiVersion != 1 ||
+        table.ref.magic != 0x315641534d334152 ||
+        table.ref.sampleRate != 48000 ||
+        table.ref.channels != 2 ||
+        table.ref.runtimeRenderPcm == nullptr) {
+      return null;
+    }
+    return CoreSiglusAudioV1._(table);
   }
 
   Uint8List? renderPcm(int runtime, int frames) {
@@ -159,20 +162,27 @@ class CoreSiglusDiagnosticsV1 {
     final size = calloc<UintPtr>();
     try {
       final table = getApi(size);
-      if (table == nullptr ||
-          size.value != sizeOf<_SiglusDiagnosticsApiV1>() ||
-          table.ref.structSize != size.value ||
-          table.ref.abiVersion != 1 ||
-          table.ref.magic != 0x315647534d334152 ||
-          table.ref.logNextBytes == nullptr ||
-          table.ref.pollLog == nullptr ||
-          table.ref.runtimeSetDebug == nullptr) {
-        return null;
-      }
-      return CoreSiglusDiagnosticsV1._(table);
+      return size.value == sizeOf<_SiglusDiagnosticsApiV1>()
+          ? _from(table)
+          : null;
     } finally {
       calloc.free(size);
     }
+  }
+
+  static CoreSiglusDiagnosticsV1? _from(
+    Pointer<_SiglusDiagnosticsApiV1> table,
+  ) {
+    if (table == nullptr ||
+        table.ref.structSize != sizeOf<_SiglusDiagnosticsApiV1>() ||
+        table.ref.abiVersion != 1 ||
+        table.ref.magic != 0x315647534d334152 ||
+        table.ref.logNextBytes == nullptr ||
+        table.ref.pollLog == nullptr ||
+        table.ref.runtimeSetDebug == nullptr) {
+      return null;
+    }
+    return CoreSiglusDiagnosticsV1._(table);
   }
 
   int setDebug(int runtime, bool enabled) => _table.ref.runtimeSetDebug
@@ -266,15 +276,9 @@ class CoreSiglusApiV1 {
           'art3m1s_siglus_get_api_v2',
         );
         final table = getV2(size);
-        if (table != nullptr && size.value == sizeOf<_SiglusApiV2>()) {
-          final api = table.ref;
-          final create = api.runtimeCreateWithSaveDir;
-          if (_valid(api.base, size.value, 2) && create != nullptr) {
-            return CoreSiglusApiV1._(
-              table.cast<_SiglusApiV1>(),
-              create.asFunction<_CreateWithSaveDirDart>(),
-            );
-          }
+        if (size.value == sizeOf<_SiglusApiV2>()) {
+          final runtime = _fromV2(table);
+          if (runtime != null) return runtime;
         }
       }
       if (!library.providesSymbol('art3m1s_siglus_get_api_v1')) return null;
@@ -287,6 +291,19 @@ class CoreSiglusApiV1 {
     } finally {
       calloc.free(size);
     }
+  }
+
+  static CoreSiglusApiV1? _fromV2(Pointer<_SiglusApiV2> table) {
+    if (table == nullptr) return null;
+    final api = table.ref;
+    final create = api.runtimeCreateWithSaveDir;
+    if (!_valid(api.base, sizeOf<_SiglusApiV2>(), 2) || create == nullptr) {
+      return null;
+    }
+    return CoreSiglusApiV1._(
+      table.cast<_SiglusApiV1>(),
+      create.asFunction<_CreateWithSaveDirDart>(),
+    );
   }
 
   static bool _valid(_SiglusApiV1 api, int size, int version) =>
@@ -463,27 +480,29 @@ class CoreSiglusOutputV1 {
       final size = calloc<UintPtr>();
       try {
         final table = get(size);
-        if (table == nullptr || size.value != sizeOf<_SiglusOutputApiV1>()) {
-          return null;
-        }
-        final api = table.ref;
-        if (api.structSize != size.value ||
-            api.abiVersion != 1 ||
-            api.magic != 0x31564f534d334152 ||
-            api.start == nullptr ||
-            api.stop == nullptr ||
-            api.suspend == nullptr ||
-            api.volume == nullptr ||
-            api.initializeAndroid == nullptr) {
-          return null;
-        }
-        return CoreSiglusOutputV1._(table);
+        return size.value == sizeOf<_SiglusOutputApiV1>() ? _from(table) : null;
       } finally {
         calloc.free(size);
       }
     } catch (_) {
       return null;
     }
+  }
+
+  static CoreSiglusOutputV1? _from(Pointer<_SiglusOutputApiV1> table) {
+    if (table == nullptr) return null;
+    final api = table.ref;
+    if (api.structSize != sizeOf<_SiglusOutputApiV1>() ||
+        api.abiVersion != 1 ||
+        api.magic != 0x31564f534d334152 ||
+        api.start == nullptr ||
+        api.stop == nullptr ||
+        api.suspend == nullptr ||
+        api.volume == nullptr ||
+        api.initializeAndroid == nullptr) {
+      return null;
+    }
+    return CoreSiglusOutputV1._(table);
   }
 
   int start(int runtime) =>
@@ -499,4 +518,61 @@ class CoreSiglusOutputV1 {
         Pointer.fromAddress(vm),
         Pointer.fromAddress(context),
       );
+}
+
+final class _SiglusHostApiV1 extends Struct {
+  @Uint32()
+  external int structSize;
+  @Uint32()
+  external int abiVersion;
+  @Uint64()
+  external int magic;
+  external Pointer<_SiglusApiV2> runtime;
+  external Pointer<_SiglusAudioApiV1> audio;
+  external Pointer<_SiglusDiagnosticsApiV1> diagnostics;
+  external Pointer<_SiglusOutputApiV1> output;
+}
+
+typedef _GetHostApi = Pointer<_SiglusHostApiV1> Function(Pointer<UintPtr>);
+
+final class CoreSiglusHostV1 {
+  CoreSiglusHostV1._(this.runtime, this.audio, this.diagnostics, this.output);
+
+  final CoreSiglusApiV1 runtime;
+  final CoreSiglusAudioV1 audio;
+  final CoreSiglusDiagnosticsV1 diagnostics;
+  final CoreSiglusOutputV1 output;
+
+  /// An older Core can expose each table through its original entry point.
+  static CoreSiglusHostV1? tryLoad(DynamicLibrary library) {
+    const symbol = 'art3m1s_siglus_get_host_api_v1';
+    if (!library.providesSymbol(symbol)) return null;
+    final get = library.lookupFunction<_GetHostApi, _GetHostApi>(symbol);
+    final size = calloc<UintPtr>();
+    try {
+      final pointer = get(size);
+      if (pointer == nullptr || size.value != sizeOf<_SiglusHostApiV1>()) {
+        throw StateError('Siglus Host API table size mismatch');
+      }
+      final api = pointer.ref;
+      if (api.structSize != size.value ||
+          api.abiVersion != 1 ||
+          api.magic != 0x315648534d334152) {
+        throw StateError('Siglus Host API header mismatch');
+      }
+      final runtime = CoreSiglusApiV1._fromV2(api.runtime);
+      final audio = CoreSiglusAudioV1._from(api.audio);
+      final diagnostics = CoreSiglusDiagnosticsV1._from(api.diagnostics);
+      final output = CoreSiglusOutputV1._from(api.output);
+      if (runtime == null ||
+          audio == null ||
+          diagnostics == null ||
+          output == null) {
+        throw StateError('Siglus Host API contains an incompatible table');
+      }
+      return CoreSiglusHostV1._(runtime, audio, diagnostics, output);
+    } finally {
+      calloc.free(size);
+    }
+  }
 }

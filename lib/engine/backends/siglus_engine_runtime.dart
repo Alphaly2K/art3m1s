@@ -98,13 +98,14 @@ class SiglusEngineRuntime extends UnsupportedEngineRuntime {
     final epoch = ++_epoch;
     try {
       final library = openEngineCoreLibrary();
-      _api = CoreSiglusApiV1.tryLoad(library);
+      final host = CoreSiglusHostV1.tryLoad(library);
+      _api = host?.runtime ?? CoreSiglusApiV1.tryLoad(library);
       if (_api == null) {
         throw StateError(
-          'art3m1s-core 未导出兼容的 Siglus API v1；请使用 --features siglus-engine 构建',
+          'art3m1s-core 未导出兼容的 Siglus API，请使用 --features siglus-engine 构建',
         );
       }
-      _output = CoreSiglusOutputV1.tryLoad(library);
+      _output = host?.output ?? CoreSiglusOutputV1.tryLoad(library);
       if (_output == null) {
         throw StateError('Siglus 原生音频输出接口不可用；请重新构建 core');
       }
@@ -119,7 +120,8 @@ class SiglusEngineRuntime extends UnsupportedEngineRuntime {
           throw StateError('Siglus Android 音频上下文初始化失败');
         }
       }
-      _diagnostics = CoreSiglusDiagnosticsV1.tryLoad(library);
+      _diagnostics =
+          host?.diagnostics ?? CoreSiglusDiagnosticsV1.tryLoad(library);
       if (_diagnostics == null) {
         Log.warn('[SiglusEngineRuntime] Siglus 诊断接口不可用');
       }
