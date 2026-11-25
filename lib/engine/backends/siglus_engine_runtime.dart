@@ -23,6 +23,7 @@ class SiglusEngineRuntime extends UnsupportedEngineRuntime
   final void Function(EngineDialogRequest request)? onDialogRequested;
   CoreSiglusUi? _ui;
   CoreSiglusFrames? _frames;
+  CoreSiglusOutputClock? _outputClock;
   int? _pendingDialog;
 
   late final EngineMediaHost _media = _SiglusMediaHost(
@@ -107,6 +108,7 @@ class SiglusEngineRuntime extends UnsupportedEngineRuntime
       final host = CoreSiglusHostV1.tryLoad(library);
       _ui = host?.ui;
       _frames = host?.frames;
+      _outputClock = host?.outputClock;
       _api = host?.runtime ?? CoreSiglusApiV1.tryLoad(library);
       if (_api == null) {
         throw StateError(
@@ -194,7 +196,8 @@ class SiglusEngineRuntime extends UnsupportedEngineRuntime
       _width = api.stageWidth(_runtime);
       _height = api.stageHeight(_runtime);
       _applyDebug();
-      final audioStatus = _output!.start(_runtime);
+      final audioStatus =
+          _outputClock?.start(_runtime) ?? _output!.start(_runtime);
       if (audioStatus != CoreSiglusApiV1.ok) {
         throw StateError('Siglus 音频输出失败: ${api.lastError}');
       }
@@ -347,8 +350,19 @@ class SiglusEngineRuntime extends UnsupportedEngineRuntime
       return false;
     }
     _exitRequested = api.isExitRequested(_runtime);
+    if (!_pumpAudio(deltaMs)) return false;
     _pollDialog();
     return true;
+  }
+
+  bool _pumpAudio(int deltaMs) {
+    final clock = _outputClock;
+    if (clock == null || _exitRequested) return true;
+    final status = clock.pump(_runtime, deltaMs.clamp(0, 100) * 48);
+    if (status == CoreSiglusApiV1.ok) return true;
+    _exitRequested = true;
+    Log.error('[SiglusEngineRuntime] 音频输出失败 ($status): ${_api?.lastError}');
+    return false;
   }
 
   void _pollDialog() {
@@ -406,6 +420,7 @@ class SiglusEngineRuntime extends UnsupportedEngineRuntime
       final frame = api.render(_runtime, deltaMs, size);
       _drainNativeLogs();
       _exitRequested = api.isExitRequested(_runtime);
+      if (!_pumpAudio(deltaMs)) return null;
       _pollDialog();
       return frame;
     } catch (error) {
@@ -611,6 +626,7 @@ class SiglusEngineRuntime extends UnsupportedEngineRuntime
     _api = null;
     _ui = null;
     _frames = null;
+    _outputClock = null;
     _pendingDialog = null;
     _output = null;
     _diagnostics = null;

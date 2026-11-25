@@ -696,6 +696,34 @@ final class CoreSiglusFrames {
   }
 }
 
+typedef _PumpOutput = Int32 Function(Uint64, Uint32);
+
+final class _SiglusOutputClockApiV1 extends Struct {
+  @Uint32()
+  external int structSize;
+  @Uint32()
+  external int abiVersion;
+  external Pointer<NativeFunction<_SiglusSessionOp>> start;
+  external Pointer<NativeFunction<_PumpOutput>> pump;
+}
+
+final class _SiglusHostOutputClockV2 extends Struct {
+  external _SiglusHostFramesV2 base;
+  external Pointer<_SiglusOutputClockApiV1> outputClock;
+}
+
+final class CoreSiglusOutputClock {
+  CoreSiglusOutputClock._(this._table);
+
+  final Pointer<_SiglusOutputClockApiV1> _table;
+
+  int start(int session) =>
+      _table.ref.start.asFunction<int Function(int)>()(session);
+
+  int pump(int session, int frames) =>
+      _table.ref.pump.asFunction<int Function(int, int)>()(session, frames);
+}
+
 final class CoreSiglusHostV1 {
   CoreSiglusHostV1._(
     this.runtime,
@@ -704,6 +732,7 @@ final class CoreSiglusHostV1 {
     this.output,
     this.ui,
     this.frames,
+    this.outputClock,
   );
 
   final CoreSiglusApiV1 runtime;
@@ -712,6 +741,7 @@ final class CoreSiglusHostV1 {
   final CoreSiglusOutputV1 output;
   final CoreSiglusUi? ui;
   final CoreSiglusFrames? frames;
+  final CoreSiglusOutputClock? outputClock;
 
   /// An older Core can expose each table through its original entry point.
   static CoreSiglusHostV1? tryLoad(DynamicLibrary library) {
@@ -722,6 +752,7 @@ final class CoreSiglusHostV1 {
       final Pointer<_SiglusHostApiV1> pointer;
       CoreSiglusUi? ui;
       CoreSiglusFrames? frames;
+      CoreSiglusOutputClock? outputClock;
       if (library.providesSymbol(v2)) {
         final extended = library.lookupFunction<_GetHostApiV2, _GetHostApiV2>(
           v2,
@@ -754,6 +785,22 @@ final class CoreSiglusHostV1 {
               throw StateError('Siglus frame API header mismatch');
             }
             frames = CoreSiglusFrames._(frameTable);
+          }
+        }
+        if (size.value >= sizeOf<_SiglusHostOutputClockV2>()) {
+          final clock = extended
+              .cast<_SiglusHostOutputClockV2>()
+              .ref
+              .outputClock;
+          if (clock != nullptr) {
+            final api = clock.ref;
+            if (api.structSize < sizeOf<_SiglusOutputClockApiV1>() ||
+                api.abiVersion != 1 ||
+                api.start == nullptr ||
+                api.pump == nullptr) {
+              throw StateError('Siglus output clock API header mismatch');
+            }
+            outputClock = CoreSiglusOutputClock._(clock);
           }
         }
       } else {
@@ -789,6 +836,7 @@ final class CoreSiglusHostV1 {
         output,
         ui,
         frames,
+        outputClock,
       );
     } finally {
       calloc.free(size);
