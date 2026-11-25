@@ -205,21 +205,25 @@ class KrkrEngineRuntime implements EngineRuntime {
     final api = _api;
     final projectPath = _projectPath;
     if (api == null || projectPath == null) return;
-    if (_runtime > 0) {
-      Log.info('[KrkrEngineRuntime] 复用已有 KRKR runtime，避免进程内二次初始化');
-      return;
-    }
-    // The upstream shim currently rejects a non-empty save root. Keep the app
-    // save directory reserved, but let KRKR use the game's own savedata path.
-    if (_saveDirectory != null) {
-      Log.warn('[KrkrEngineRuntime] 独立存档目录尚未接入，暂用游戏自身 savedata');
-    }
+    if (_runtime > 0) return;
     _runtime = api.createRuntime(
       gameRoot: projectPath,
+      saveRoot: _saveDirectory,
       width: stageWidth,
       height: stageHeight,
       backend: backend,
     );
+    if (_runtime == 0 &&
+        _saveDirectory != null &&
+        api.lastStatus == art3m1sKrkrStatusUnsupported) {
+      Log.warn('[KrkrEngineRuntime] 当前 Core 使用项目内的 savedata');
+      _runtime = api.createRuntime(
+        gameRoot: projectPath,
+        width: stageWidth,
+        height: stageHeight,
+        backend: backend,
+      );
+    }
     _drainNativeLogs();
     if (_runtime <= 0) {
       Log.error(
