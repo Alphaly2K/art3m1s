@@ -8,6 +8,7 @@ const int art3m1sKrkrStatusOk = 0;
 const int art3m1sKrkrStatusNoFrame = 1;
 const int art3m1sKrkrStatusNoCommand = 2;
 const int art3m1sKrkrStatusUnsupported = -4;
+const int _krkrConfigCpuFrames = 1 << 8;
 
 const int art3m1sKrkrInputKey = 1;
 const int art3m1sKrkrInputText = 2;
@@ -495,6 +496,7 @@ class CoreKrkrApiV1 {
     required int width,
     required int height,
     int backend = 0,
+    bool cpuFrames = false,
   }) {
     final nativeGameRoot = gameRoot.toNativeUtf8();
     final nativeSaveRoot = saveRoot?.toNativeUtf8();
@@ -503,7 +505,7 @@ class CoreKrkrApiV1 {
     try {
       config.ref
         ..structSize = sizeOf<_KrkrRuntimeConfigV1>()
-        ..flags = backend & 0xff
+        ..flags = (backend & 0xff) | (cpuFrames ? _krkrConfigCpuFrames : 0)
         ..width = width
         ..height = height
         ..audioSampleRate = 48000
@@ -759,14 +761,26 @@ final class _KrkrHostApiV2 extends Struct {
   external Pointer<Void> openProject;
 }
 
+final class _KrkrHostConfigV2 extends Struct {
+  external _KrkrHostApiV2 base;
+  @Uint32()
+  external int supportedConfigFlags;
+}
+
 typedef _GetHostV2 = Pointer<_KrkrHostApiV2> Function(Pointer<UintPtr>);
 
 final class CoreKrkrHostV2 {
-  CoreKrkrHostV2._(this.runtime, this.diagnostics, this.controls);
+  CoreKrkrHostV2._(
+    this.runtime,
+    this.diagnostics,
+    this.controls,
+    this.supportsCpuFrames,
+  );
 
   final CoreKrkrApiV1 runtime;
   final CoreKrkrDiagnosticsV1 diagnostics;
   final CoreKrkrControlV1 controls;
+  final bool supportsCpuFrames;
 
   static CoreKrkrHostV2? tryLoad(DynamicLibrary library) {
     const symbol = 'art3m1s_krkr_get_host_api_v2';
@@ -792,7 +806,15 @@ final class CoreKrkrHostV2 {
       if (runtime == null || diagnostics == null || controls == null) {
         throw StateError('KRKR Host API contains an incompatible table');
       }
-      return CoreKrkrHostV2._(runtime, diagnostics, controls);
+      final flags = size.value >= sizeOf<_KrkrHostConfigV2>()
+          ? pointer.cast<_KrkrHostConfigV2>().ref.supportedConfigFlags
+          : 0;
+      return CoreKrkrHostV2._(
+        runtime,
+        diagnostics,
+        controls,
+        (flags & _krkrConfigCpuFrames) != 0,
+      );
     } finally {
       calloc.free(size);
     }

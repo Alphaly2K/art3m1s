@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:ffi';
 import 'dart:math' as math;
 
+import 'package:flutter/animation.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
@@ -38,6 +39,8 @@ class KrkrEngineRuntime implements EngineRuntime {
 
   DynamicLibrary? _library;
   CoreKrkrApiV1? _api;
+  bool _supportsCpuFrames = false;
+  bool _cpuFrames = false;
   CoreKrkrControlV1? _controls;
   CoreKrkrDiagnosticsV1? _diagnostics;
   bool _debugEnabled = false;
@@ -120,6 +123,7 @@ class KrkrEngineRuntime implements EngineRuntime {
       }
       _library = _openCoreLibrary();
       final host = CoreKrkrHostV2.tryLoad(_library!);
+      _supportsCpuFrames = host?.supportsCpuFrames ?? false;
       _api = host?.runtime ?? CoreKrkrApiV1.tryLoad(_library!);
       if (_api == null) {
         throw StateError('art3m1s-core 未导出兼容的 KRKR API v1');
@@ -146,7 +150,6 @@ class KrkrEngineRuntime implements EngineRuntime {
     final translation = _translation;
     _translation = null;
     if (translation != null) unawaited(translation.dispose());
-    _media.dispose();
   }
 
   void _shutdownNative() {
@@ -163,6 +166,8 @@ class KrkrEngineRuntime implements EngineRuntime {
     }
     unawaited(SharedTextureSessionCoordinator.abandon(this));
     _runtime = 0;
+    _cpuFrames = false;
+    _supportsCpuFrames = false;
     if (api != null && runtime > 0) {
       _drainNativeLogs();
       api.destroyRuntime(runtime);
@@ -216,6 +221,20 @@ class KrkrEngineRuntime implements EngineRuntime {
       backend: backend,
     );
     if (_runtime == 0 &&
+        _supportsCpuFrames &&
+        api.lastStatus == art3m1sKrkrStatusUnsupported) {
+      _runtime = api.createRuntime(
+        gameRoot: projectPath,
+        saveRoot: _saveDirectory,
+        width: stageWidth,
+        height: stageHeight,
+        cpuFrames: true,
+      );
+      _cpuFrames = _runtime != 0;
+      if (_cpuFrames) Log.info('[KrkrEngineRuntime] 使用软件 RGBA 输出');
+    }
+    if (_runtime == 0 &&
+        !_supportsCpuFrames &&
         _saveDirectory != null &&
         api.lastStatus == art3m1sKrkrStatusUnsupported) {
       Log.warn('[KrkrEngineRuntime] 当前 Core 使用项目内的 savedata');
@@ -519,7 +538,7 @@ class KrkrEngineRuntime implements EngineRuntime {
   }) async {
     final api = _api;
     final runtime = _runtime;
-    if (api == null || runtime <= 0) return null;
+    if (api == null || runtime <= 0 || _cpuFrames) return null;
     final epoch = _epoch;
     final width = math.max(outputWidth ?? _stageWidth, _stageWidth);
     final height = math.max(outputHeight ?? _stageHeight, _stageHeight);
@@ -708,14 +727,12 @@ class _KrkrMediaHost implements EngineMediaHost {
   _KrkrMediaHost({required this.onVolume, required this.onSuspended});
   final void Function(double) onVolume;
   final void Function(bool) onSuspended;
-  final ValueNotifier<EngineVideoPlayback?> _videoPlayback = ValueNotifier(
-    null,
-  );
-  final ValueNotifier<bool> _fullscreenVideoBlocking = ValueNotifier(false);
   @override
-  ValueListenable<EngineVideoPlayback?> get videoPlayback => _videoPlayback;
+  ValueListenable<EngineVideoPlayback?> get videoPlayback =>
+      const AlwaysStoppedAnimation(null);
   @override
-  ValueListenable<bool> get fullscreenVideoBlocking => _fullscreenVideoBlocking;
+  ValueListenable<bool> get fullscreenVideoBlocking =>
+      const AlwaysStoppedAnimation(false);
   @override
   bool get isFullscreenVideoBlocking => false;
   @override
@@ -729,9 +746,4 @@ class _KrkrMediaHost implements EngineMediaHost {
   Future<void> setSuspended(bool suspended) async => onSuspended(suspended);
   @override
   Future<void> skipVideo() async {}
-
-  void dispose() {
-    _videoPlayback.dispose();
-    _fullscreenVideoBlocking.dispose();
-  }
 }
