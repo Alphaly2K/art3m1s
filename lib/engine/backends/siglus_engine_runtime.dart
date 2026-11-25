@@ -47,6 +47,7 @@ class SiglusEngineRuntime extends UnsupportedEngineRuntime {
   final Set<int> _keys = {};
   int? _touchId;
   String? _projectPath;
+  String? _saveDirectory;
   InputGatePolicy _inputGate = InputGatePolicy.full;
   bool _exitRequested = false;
   int _epoch = 0;
@@ -122,7 +123,8 @@ class SiglusEngineRuntime extends UnsupportedEngineRuntime {
       if (_diagnostics == null) {
         Log.warn('[SiglusEngineRuntime] Siglus 诊断接口不可用');
       }
-      Log.info('[SiglusEngineRuntime] 使用 art3m1s_siglus_get_api_v1');
+      final version = _api!.supportsSaveDirectory ? 2 : 1;
+      Log.info('[SiglusEngineRuntime] 使用 Siglus ABI v$version');
     } catch (error) {
       if (_epoch != epoch) return;
       _api = null;
@@ -150,12 +152,19 @@ class SiglusEngineRuntime extends UnsupportedEngineRuntime {
   }
 
   @override
+  void setSaveDir(String dir) => _saveDirectory = dir;
+
+  @override
   void createRuntime(int stageWidth, int stageHeight, {int backend = 0}) {
     final api = _api;
     final path = _projectPath;
     if (api == null || path == null || _runtime != 0) return;
     try {
-      _runtime = api.createRuntime(path, backend: backend);
+      _runtime = api.createRuntime(
+        path,
+        backend: backend,
+        saveDir: _saveDirectory,
+      );
       _drainNativeLogs();
       _width = api.stageWidth(_runtime);
       _height = api.stageHeight(_runtime);

@@ -6,6 +6,12 @@ import 'package:ffi/ffi.dart';
 
 typedef _GetApiNative = Pointer<_SiglusApiV1> Function(Pointer<UintPtr>);
 typedef _GetApiDart = Pointer<_SiglusApiV1> Function(Pointer<UintPtr>);
+typedef _GetApiV2Native = Pointer<_SiglusApiV2> Function(Pointer<UintPtr>);
+typedef _GetApiV2Dart = Pointer<_SiglusApiV2> Function(Pointer<UintPtr>);
+typedef _CreateWithSaveDirNative =
+    Int32 Function(Pointer<Char>, Pointer<Char>, Int32, Pointer<Uint64>);
+typedef _CreateWithSaveDirDart =
+    int Function(Pointer<Char>, Pointer<Char>, int, Pointer<Uint64>);
 typedef _ProbeNative = Int32 Function(Pointer<Char>);
 typedef _ProbeDart = int Function(Pointer<Char>);
 typedef _CreateNative = Int32 Function(Pointer<Char>, Int32, Pointer<Uint64>);
@@ -227,8 +233,14 @@ final class _SiglusApiV1 extends Struct {
   external Pointer<NativeFunction<_ErrorNative>> lastError;
 }
 
+final class _SiglusApiV2 extends Struct {
+  external _SiglusApiV1 base;
+  external Pointer<NativeFunction<_CreateWithSaveDirNative>>
+  runtimeCreateWithSaveDir;
+}
+
 class CoreSiglusApiV1 {
-  CoreSiglusApiV1._(this._table);
+  CoreSiglusApiV1._(this._table, [this._createWithSaveDir]);
 
   static const ok = 0;
   static const invalidHandle = -2;
@@ -242,41 +254,55 @@ class CoreSiglusApiV1 {
   static const tickPresent = 2;
 
   final Pointer<_SiglusApiV1> _table;
+  final _CreateWithSaveDirDart? _createWithSaveDir;
+
+  bool get supportsSaveDirectory => _createWithSaveDir != null;
 
   static CoreSiglusApiV1? tryLoad(DynamicLibrary library) {
-    final _GetApiDart getApi;
-    try {
-      getApi = library.lookupFunction<_GetApiNative, _GetApiDart>(
-        'art3m1s_siglus_get_api_v1',
-      );
-    } catch (_) {
-      return null;
-    }
     final size = calloc<UintPtr>();
     try {
-      final table = getApi(size);
-      if (table == nullptr || size.value != sizeOf<_SiglusApiV1>()) return null;
-      final api = table.ref;
-      if (api.structSize != sizeOf<_SiglusApiV1>() ||
-          api.abiVersion != 1 ||
-          api.magic != 0x53494731 ||
-          api.probeProject == nullptr ||
-          api.runtimeCreate == nullptr ||
-          api.runtimeDestroy == nullptr ||
-          api.runtimeStageWidth == nullptr ||
-          api.runtimeStageHeight == nullptr ||
-          api.runtimeSetExternalSurface == nullptr ||
-          api.runtimeTick == nullptr ||
-          api.runtimeInput == nullptr ||
-          api.runtimeIsExitRequested == nullptr ||
-          api.lastError == nullptr) {
-        return null;
+      if (library.providesSymbol('art3m1s_siglus_get_api_v2')) {
+        final getV2 = library.lookupFunction<_GetApiV2Native, _GetApiV2Dart>(
+          'art3m1s_siglus_get_api_v2',
+        );
+        final table = getV2(size);
+        if (table != nullptr && size.value == sizeOf<_SiglusApiV2>()) {
+          final api = table.ref;
+          final create = api.runtimeCreateWithSaveDir;
+          if (_valid(api.base, size.value, 2) && create != nullptr) {
+            return CoreSiglusApiV1._(
+              table.cast<_SiglusApiV1>(),
+              create.asFunction<_CreateWithSaveDirDart>(),
+            );
+          }
+        }
       }
-      return CoreSiglusApiV1._(table);
+      if (!library.providesSymbol('art3m1s_siglus_get_api_v1')) return null;
+      final getV1 = library.lookupFunction<_GetApiNative, _GetApiDart>(
+        'art3m1s_siglus_get_api_v1',
+      );
+      final table = getV1(size);
+      if (table == nullptr || size.value != sizeOf<_SiglusApiV1>()) return null;
+      return _valid(table.ref, size.value, 1) ? CoreSiglusApiV1._(table) : null;
     } finally {
       calloc.free(size);
     }
   }
+
+  static bool _valid(_SiglusApiV1 api, int size, int version) =>
+      api.structSize == size &&
+      api.abiVersion == version &&
+      api.magic == 0x53494731 &&
+      api.probeProject != nullptr &&
+      api.runtimeCreate != nullptr &&
+      api.runtimeDestroy != nullptr &&
+      api.runtimeStageWidth != nullptr &&
+      api.runtimeStageHeight != nullptr &&
+      api.runtimeSetExternalSurface != nullptr &&
+      api.runtimeTick != nullptr &&
+      api.runtimeInput != nullptr &&
+      api.runtimeIsExitRequested != nullptr &&
+      api.lastError != nullptr;
 
   String get lastError {
     final fn = _table.ref.lastError.asFunction<_ErrorDart>();
@@ -303,21 +329,33 @@ class CoreSiglusApiV1 {
     }
   }
 
-  int createRuntime(String path, {int backend = 0}) {
+  int createRuntime(String path, {int backend = 0, String? saveDir}) {
     final nativePath = path.toNativeUtf8();
+    final create = _createWithSaveDir;
+    final nativeSave = create != null && saveDir != null
+        ? saveDir.toNativeUtf8()
+        : nullptr;
     final handle = calloc<Uint64>();
     try {
-      final status = _table.ref.runtimeCreate.asFunction<_CreateDart>()(
-        nativePath.cast<Char>(),
-        backend,
-        handle,
-      );
+      final status = create != null && nativeSave != nullptr
+          ? create(
+              nativePath.cast<Char>(),
+              nativeSave.cast<Char>(),
+              backend,
+              handle,
+            )
+          : _table.ref.runtimeCreate.asFunction<_CreateDart>()(
+              nativePath.cast<Char>(),
+              backend,
+              handle,
+            );
       if (status != ok) {
         throw StateError('Siglus 创建失败 ($status): $lastError');
       }
       return handle.value;
     } finally {
       calloc.free(nativePath);
+      calloc.free(nativeSave);
       calloc.free(handle);
     }
   }
