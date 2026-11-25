@@ -355,6 +355,11 @@ final class KatzeEngineRuntime extends UnsupportedEngineRuntime
             hasTextField: true,
             textFieldSize: null,
             initialText: initialText,
+            onResult: (result) => _replyToDialog(
+              game,
+              id,
+              result?.accepted == true ? result!.text : null,
+            ),
           ),
         );
       }
@@ -364,10 +369,17 @@ final class KatzeEngineRuntime extends UnsupportedEngineRuntime
 
   @override
   bool submitDialog(bool accepted, String text) {
+    final game = _game;
     final id = _dialogRequest;
-    if (id == null) return false;
+    return game != null &&
+        id != null &&
+        _replyToDialog(game, id, accepted ? text : null);
+  }
+
+  bool _replyToDialog(KatzeGameHost game, int id, String? text) {
+    if (!identical(_game, game) || _dialogRequest != id) return false;
     _dialogRequest = null;
-    return _game?.completeTextEntry(id, accepted ? text : null) ?? false;
+    return game.completeTextEntry(id, text);
   }
 
   @override

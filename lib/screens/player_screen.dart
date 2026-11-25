@@ -336,8 +336,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     try {
       final result = await showEngineDialog(context, request);
       if (mounted && !_closing) {
-        if (request.onChoice case final submit?) {
-          if (result?.choice case final choice?) submit(choice);
+        if (request.onResult case final submit?) {
+          submit(result);
         } else {
           _bridge.submitDialog(result?.accepted == true, result?.text ?? '');
         }

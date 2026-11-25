@@ -386,8 +386,11 @@ class SiglusEngineRuntime extends UnsupportedEngineRuntime
           for (final button in payload['buttons'] as List<dynamic>)
             (label: button['label'] as String, value: button['value'] as int),
         ],
-        onChoice: (value) {
-          if (_runtime != session || _pendingDialog != id) return;
+        onResult: (result) {
+          final value = result?.choice;
+          if (value == null || _runtime != session || _pendingDialog != id) {
+            return;
+          }
           final status = ui.submitDialog(session, id, value);
           _pendingDialog = null;
           if (status != CoreSiglusApiV1.ok) {

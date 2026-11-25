@@ -3,18 +3,6 @@ import 'package:flutter/services.dart';
 
 import '../engine/engine_runtime.dart';
 
-class EngineDialogResult {
-  const EngineDialogResult({
-    required this.accepted,
-    required this.text,
-    this.choice,
-  });
-
-  final bool accepted;
-  final String text;
-  final int? choice;
-}
-
 Future<EngineDialogResult?> showEngineDialog(
   BuildContext context,
   EngineDialogRequest request,

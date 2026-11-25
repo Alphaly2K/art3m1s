@@ -34,6 +34,18 @@ abstract interface class EngineTextInput {
   bool feedText(String text);
 }
 
+class EngineDialogResult {
+  const EngineDialogResult({
+    required this.accepted,
+    required this.text,
+    this.choice,
+  });
+
+  final bool accepted;
+  final String text;
+  final int? choice;
+}
+
 class EngineDialogRequest {
   const EngineDialogRequest({
     required this.title,
@@ -43,7 +55,7 @@ class EngineDialogRequest {
     required this.textFieldSize,
     required this.initialText,
     this.choices = const [],
-    this.onChoice,
+    this.onResult,
   });
 
   factory EngineDialogRequest.fromJson(Map<String, dynamic> json) {
@@ -67,7 +79,7 @@ class EngineDialogRequest {
   final int? textFieldSize;
   final String initialText;
   final List<EngineDialogChoice> choices;
-  final void Function(int)? onChoice;
+  final void Function(EngineDialogResult?)? onResult;
 }
 
 /// 紧急回避覆盖状态（`avoid` 事件）。`file` 为覆盖图资源名，null 表示纯黑。
