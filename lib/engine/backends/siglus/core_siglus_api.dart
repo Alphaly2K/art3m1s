@@ -614,6 +614,88 @@ final class CoreSiglusUi {
   }
 }
 
+typedef _CreateFrameRuntime =
+    Int32 Function(Pointer<Char>, Pointer<Char>, Pointer<Uint64>);
+typedef _AcquireFrame = Int32 Function(Uint64, Pointer<Uint64>);
+typedef _FrameView = Int32 Function(Uint64, Pointer<Void>);
+typedef _TextureView = Int32 Function(Uint64, Uint32, Pointer<Void>);
+typedef _ConfigurePresenter = Int32 Function(Uint64, Int32);
+
+final class _SiglusFrameApiV1 extends Struct {
+  @Uint32()
+  external int structSize;
+  @Uint32()
+  external int abiVersion;
+  external Pointer<NativeFunction<_CreateFrameRuntime>> createRuntime;
+  external Pointer<NativeFunction<_AcquireFrame>> acquire;
+  external Pointer<NativeFunction<_FrameView>> view;
+  external Pointer<NativeFunction<_TextureView>> texture;
+  external Pointer<NativeFunction<_SiglusSessionOp>> release;
+  external Pointer<NativeFunction<_ConfigurePresenter>> configurePresenter;
+  external Pointer<NativeFunction<_SiglusSessionOp>> presentLatest;
+  external Pointer<NativeFunction<_ReadDialog>> readbackLatest;
+}
+
+final class _SiglusHostFramesV2 extends Struct {
+  external _SiglusHostApiV2 base;
+  external Pointer<_SiglusFrameApiV1> frames;
+}
+
+final class CoreSiglusFrames {
+  CoreSiglusFrames._(this._table);
+
+  final Pointer<_SiglusFrameApiV1> _table;
+  static const noFrame = 1;
+
+  int createRuntime(String project, String? saveDir, CoreSiglusApiV1 runtime) {
+    final path = project.toNativeUtf8(allocator: calloc);
+    final save = saveDir?.toNativeUtf8(allocator: calloc) ?? nullptr;
+    final out = calloc<Uint64>();
+    try {
+      final status = _table.ref.createRuntime
+          .asFunction<
+            int Function(Pointer<Char>, Pointer<Char>, Pointer<Uint64>)
+          >()(path.cast(), save.cast(), out);
+      if (status != CoreSiglusApiV1.ok || out.value == 0) {
+        throw StateError('Siglus 会话创建失败 ($status): ${runtime.lastError}');
+      }
+      return out.value;
+    } finally {
+      calloc.free(path);
+      if (save != nullptr) calloc.free(save);
+      calloc.free(out);
+    }
+  }
+
+  int configurePresenter(int session, int backend) => _table
+      .ref
+      .configurePresenter
+      .asFunction<int Function(int, int)>()(session, backend);
+
+  int presentLatest(int session) =>
+      _table.ref.presentLatest.asFunction<int Function(int)>()(session);
+
+  Uint8List? readbackLatest(int session, int size, CoreSiglusApiV1 runtime) {
+    if (size <= 0 || size > 256 * 1024 * 1024) return null;
+    final buffer = calloc<Uint8>(size);
+    final written = calloc<UintPtr>();
+    try {
+      final status = _table.ref.readbackLatest
+          .asFunction<
+            int Function(int, Pointer<Uint8>, int, Pointer<UintPtr>)
+          >()(session, buffer, size, written);
+      if (status == noFrame) return null;
+      if (status != CoreSiglusApiV1.ok || written.value != size) {
+        throw StateError('Siglus 帧回读失败 ($status): ${runtime.lastError}');
+      }
+      return Uint8List.fromList(buffer.asTypedList(size));
+    } finally {
+      calloc.free(buffer);
+      calloc.free(written);
+    }
+  }
+}
+
 final class CoreSiglusHostV1 {
   CoreSiglusHostV1._(
     this.runtime,
@@ -621,6 +703,7 @@ final class CoreSiglusHostV1 {
     this.diagnostics,
     this.output,
     this.ui,
+    this.frames,
   );
 
   final CoreSiglusApiV1 runtime;
@@ -628,6 +711,7 @@ final class CoreSiglusHostV1 {
   final CoreSiglusDiagnosticsV1 diagnostics;
   final CoreSiglusOutputV1 output;
   final CoreSiglusUi? ui;
+  final CoreSiglusFrames? frames;
 
   /// An older Core can expose each table through its original entry point.
   static CoreSiglusHostV1? tryLoad(DynamicLibrary library) {
@@ -637,11 +721,12 @@ final class CoreSiglusHostV1 {
     try {
       final Pointer<_SiglusHostApiV1> pointer;
       CoreSiglusUi? ui;
+      CoreSiglusFrames? frames;
       if (library.providesSymbol(v2)) {
         final extended = library.lookupFunction<_GetHostApiV2, _GetHostApiV2>(
           v2,
         )(size);
-        if (extended == nullptr || size.value != sizeOf<_SiglusHostApiV2>()) {
+        if (extended == nullptr || size.value < sizeOf<_SiglusHostApiV2>()) {
           throw StateError('Siglus Host API v2 table size mismatch');
         }
         final table = extended.ref;
@@ -656,6 +741,21 @@ final class CoreSiglusHostV1 {
         }
         pointer = table.base;
         ui = CoreSiglusUi._(extended);
+        if (size.value >= sizeOf<_SiglusHostFramesV2>()) {
+          final frameTable = extended.cast<_SiglusHostFramesV2>().ref.frames;
+          if (frameTable != nullptr) {
+            final api = frameTable.ref;
+            if (api.structSize < sizeOf<_SiglusFrameApiV1>() ||
+                api.abiVersion != 1 ||
+                api.createRuntime == nullptr ||
+                api.configurePresenter == nullptr ||
+                api.presentLatest == nullptr ||
+                api.readbackLatest == nullptr) {
+              throw StateError('Siglus frame API header mismatch');
+            }
+            frames = CoreSiglusFrames._(frameTable);
+          }
+        }
       } else {
         if (!library.providesSymbol(v1)) return null;
         pointer = library.lookupFunction<_GetHostApi, _GetHostApi>(v1)(size);
@@ -682,7 +782,14 @@ final class CoreSiglusHostV1 {
           output == null) {
         throw StateError('Siglus Host API contains an incompatible table');
       }
-      return CoreSiglusHostV1._(runtime, audio, diagnostics, output, ui);
+      return CoreSiglusHostV1._(
+        runtime,
+        audio,
+        diagnostics,
+        output,
+        ui,
+        frames,
+      );
     } finally {
       calloc.free(size);
     }

@@ -22,6 +22,7 @@ class SiglusEngineRuntime extends UnsupportedEngineRuntime
 
   final void Function(EngineDialogRequest request)? onDialogRequested;
   CoreSiglusUi? _ui;
+  CoreSiglusFrames? _frames;
   int? _pendingDialog;
 
   late final EngineMediaHost _media = _SiglusMediaHost(
@@ -105,6 +106,7 @@ class SiglusEngineRuntime extends UnsupportedEngineRuntime
       final library = openEngineCoreLibrary();
       final host = CoreSiglusHostV1.tryLoad(library);
       _ui = host?.ui;
+      _frames = host?.frames;
       _api = host?.runtime ?? CoreSiglusApiV1.tryLoad(library);
       if (_api == null) {
         throw StateError(
@@ -168,11 +170,20 @@ class SiglusEngineRuntime extends UnsupportedEngineRuntime
     final path = _projectPath;
     if (api == null || path == null || _runtime != 0) return;
     try {
-      _runtime = api.createRuntime(
-        path,
-        backend: backend,
-        saveDir: _saveDirectory,
-      );
+      final frames = _frames;
+      if (frames == null) {
+        _runtime = api.createRuntime(
+          path,
+          backend: backend,
+          saveDir: _saveDirectory,
+        );
+      } else {
+        _runtime = frames.createRuntime(path, _saveDirectory, api);
+        final status = frames.configurePresenter(_runtime, backend);
+        if (status != CoreSiglusApiV1.ok) {
+          throw StateError('Siglus 渲染器初始化失败 ($status): ${api.lastError}');
+        }
+      }
       final ui = _ui;
       if (ui != null &&
           onDialogRequested != null &&
@@ -384,9 +395,18 @@ class SiglusEngineRuntime extends UnsupportedEngineRuntime
       return null;
     }
     try {
-      final frame = api.render(_runtime, deltaMs, _width * _height * 4);
+      final size = _width * _height * 4;
+      final frames = _frames;
+      if (frames != null) {
+        if (!_tick(deltaMs, CoreSiglusApiV1.tickAdvance) || _exitRequested) {
+          return null;
+        }
+        return frames.readbackLatest(_runtime, size, api);
+      }
+      final frame = api.render(_runtime, deltaMs, size);
       _drainNativeLogs();
       _exitRequested = api.isExitRequested(_runtime);
+      _pollDialog();
       return frame;
     } catch (error) {
       _drainNativeLogs();
@@ -541,9 +561,22 @@ class SiglusEngineRuntime extends UnsupportedEngineRuntime
   @override
   int advanceAndPresent(int deltaMs) {
     if (!_textureAttached) return -1;
-    if (!_tick(deltaMs, CoreSiglusApiV1.tickPresent)) {
+    final frames = _frames;
+    final mode = frames == null
+        ? CoreSiglusApiV1.tickPresent
+        : CoreSiglusApiV1.tickAdvance;
+    if (!_tick(deltaMs, mode)) {
       _detachTexture();
       return -1;
+    }
+    if (frames != null) {
+      final status = frames.presentLatest(_runtime);
+      if (status == CoreSiglusFrames.noFrame) return 0;
+      if (status != CoreSiglusApiV1.ok) {
+        Log.error('[SiglusEngineRuntime] 呈现失败 ($status): ${_api?.lastError}');
+        _detachTexture();
+        return -1;
+      }
     }
     if (_textureKind == 2 || _textureKind == 3) {
       unawaited(
@@ -577,6 +610,7 @@ class SiglusEngineRuntime extends UnsupportedEngineRuntime
     _runtime = 0;
     _api = null;
     _ui = null;
+    _frames = null;
     _pendingDialog = null;
     _output = null;
     _diagnostics = null;
