@@ -4,6 +4,8 @@ import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
 
+part 'core_rfvp_replay_api.dart';
+
 typedef _GetApiNative = Pointer<_Art3m1sRfvpApiV1> Function(Pointer<UintPtr>);
 typedef _GetApi = Pointer<_Art3m1sRfvpApiV1> Function(Pointer<UintPtr>);
 
@@ -99,7 +101,8 @@ typedef _RuntimeSetTraceMaskNative = Int32 Function(Uint64, Uint32);
 typedef _RuntimeSetTraceMaskDart = int Function(int, int);
 typedef _RuntimeSetProfilerEnabledNative = Int32 Function(Uint64, Int32);
 typedef _RuntimeSetProfilerEnabledDart = int Function(int, int);
-typedef _RuntimeProfilerSnapshotNative = Int32 Function(Uint64, Pointer<Uint8>, Uint32);
+typedef _RuntimeProfilerSnapshotNative =
+    Int32 Function(Uint64, Pointer<Uint8>, Uint32);
 typedef _RuntimeProfilerSnapshotDart = int Function(int, Pointer<Uint8>, int);
 typedef _RuntimeSetDamageVisualizationNative = Int32 Function(Uint64, Int32);
 typedef _RuntimeSetDamageVisualizationDart = int Function(int, int);
@@ -540,19 +543,7 @@ class CoreRfvpApiV1 {
     if (events.isEmpty) return art3m1sRfvpStatusOk;
     final native = calloc<_InputEventV1>(events.length);
     try {
-      for (var index = 0; index < events.length; index++) {
-        final event = events[index];
-        native[index]
-          ..structSize = sizeOf<_InputEventV1>()
-          ..kind = event.kind
-          ..code = event.code
-          ..phase = event.phase
-          ..x = event.x
-          ..y = event.y
-          ..value = event.value
-          ..modifiers = event.modifiers
-          ..id = event.id;
-      }
+      _writeInputEvents(native, events);
       final status = _pointer.ref.runtimeFeedInput
           .asFunction<_RuntimeFeedInputDart>()(runtime, native, events.length);
       _lastStatus = status;
@@ -851,5 +842,24 @@ class CoreRfvpApiV1 {
     final status = slot.asFunction<_RuntimeClearFontOverrideDart>()(runtime);
     _lastStatus = status;
     return status;
+  }
+}
+
+void _writeInputEvents(
+  Pointer<_InputEventV1> native,
+  List<RfvpCoreInputEvent> events,
+) {
+  for (var index = 0; index < events.length; index++) {
+    final event = events[index];
+    native[index]
+      ..structSize = sizeOf<_InputEventV1>()
+      ..kind = event.kind
+      ..code = event.code
+      ..phase = event.phase
+      ..x = event.x
+      ..y = event.y
+      ..value = event.value
+      ..modifiers = event.modifiers
+      ..id = event.id;
   }
 }
