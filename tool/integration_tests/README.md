@@ -63,8 +63,8 @@ KATZE_LIBRARY="$katze/target/release/libkatze_system2_ffi.dylib" \
 构建带有归档、输入及存档回调的示例宿主并运行读写测试。PFS 或原引擎资源不参与合成存档回归。
 
 ```sh
-(cd "$katze" && cargo build --locked --release -p katze-system2-example-host --features builtin-mpeg)
-KATZE_GAME_HOST="$katze/target/release/libkatze_system2_example_host.dylib" \
+(cd "$katze" && cargo build --locked --release -p katze-system2-host --features builtin-mpeg)
+KATZE_GAME_HOST="$katze/target/release/libkatze_system2_host.dylib" \
   KATZE_FIXTURES="$fixtures" flutter test tool/integration_tests/katze_storage_test.dart
 ```
 

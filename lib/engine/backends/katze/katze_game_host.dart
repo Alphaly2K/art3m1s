@@ -43,10 +43,101 @@ typedef _AudioStartDart =
     Pointer<Void> Function(int, Pointer<NativeFunction<KatzeMixStereo>>);
 typedef _AudioStop = Void Function(Pointer<Void>);
 
+final class _GameHostApiV1 extends Struct {
+  @Uint32()
+  external int structSize;
+  @Uint32()
+  external int abiVersion;
+  @Uint64()
+  external int magic;
+  @Array(19)
+  external Array<Pointer<Void>> functions;
+}
+
+typedef _GetGameHostApiNative = Pointer<_GameHostApiV1> Function(Pointer<Size>);
+
+final class _GameHostBindings {
+  _GameHostBindings(this.library) : table = _readTable(library);
+
+  final DynamicLibrary library;
+  final Pointer<_GameHostApiV1>? table;
+  static const _entries = [
+    'katze_game_mount',
+    'katze_game_unmount',
+    'katze_game_set_movie_host',
+    'katze_game_set_model_host',
+    'katze_game_enable_script_messages',
+    'katze_game_drain_script_messages',
+    'katze_game_pixels',
+    'katze_game_pointer',
+    'katze_game_button',
+    'katze_game_focus',
+    'katze_game_take_window_action',
+    'katze_game_step_async',
+    'katze_game_step_async_report',
+    'katze_game_present_async_report',
+    'katze_game_attach_surface',
+    'katze_game_present_surface',
+    'katze_game_present_surface_async',
+    'katze_game_audio_start',
+    'katze_game_audio_stop',
+  ];
+
+  static Pointer<_GameHostApiV1>? _readTable(DynamicLibrary library) {
+    const symbol = 'katze_game_get_api_v1';
+    if (!library.providesSymbol(symbol)) return null;
+    final size = calloc<Size>();
+    try {
+      final get = library
+          .lookupFunction<_GetGameHostApiNative, _GetGameHostApiNative>(symbol);
+      final table = get(size);
+      if (table == nullptr || size.value < sizeOf<_GameHostApiV1>()) {
+        throw StateError('Katze Host API v1 table is incomplete');
+      }
+      final api = table.ref;
+      if (api.structSize != size.value ||
+          api.abiVersion != 1 ||
+          api.magic != 0x54534f485a54414b) {
+        throw StateError('Katze Host API v1 header is invalid');
+      }
+      for (var field = 0; field < 14; field++) {
+        if (api.functions[field] == nullptr) {
+          throw StateError('Katze Host API v1 is missing ${_entries[field]}');
+        }
+      }
+      return table;
+    } finally {
+      calloc.free(size);
+    }
+  }
+
+  Pointer<Void> _entry(Pointer<_GameHostApiV1> table, String name) {
+    final index = _entries.indexOf(name);
+    return index < 0 ? nullptr : table.ref.functions[index];
+  }
+
+  bool providesSymbol(String name) {
+    final api = table;
+    return api == null
+        ? library.providesSymbol(name)
+        : _entry(api, name) != nullptr;
+  }
+
+  Pointer<NativeFunction<T>> lookup<T extends Function>(String name) {
+    final api = table;
+    if (api == null) return library.lookup<NativeFunction<T>>(name);
+    final entry = _entry(api, name);
+    if (entry == nullptr) {
+      throw ArgumentError('Katze Host does not provide $name');
+    }
+    return entry.cast<NativeFunction<T>>();
+  }
+}
+
 /// Mount and own a single native game. Call on the owning Dart isolate.
 final class KatzeGameHost {
   KatzeGameHost._(
-    this._library,
+    this._host,
     this._api,
     this._mediaLibrary,
     this._releaseModelHost,
@@ -68,7 +159,8 @@ final class KatzeGameHost {
     void Function(String)? onScriptMessage,
   }) {
     final api = KatzeApi.load(library);
-    final mount = library.lookupFunction<_Mount, _Mount>('katze_game_mount');
+    final host = _GameHostBindings(library);
+    final mount = host.lookup<_Mount>('katze_game_mount').asFunction<_Mount>();
     final context = using(
       (arena) => mount(
         root.toNativeUtf8(allocator: arena),
@@ -82,17 +174,15 @@ final class KatzeGameHost {
     void Function()? models;
     NativeCallable<_ScriptMessage>? scriptListener;
     try {
-      media = _attachMovieHost(library, context);
-      models = _attachModelHost(library, context, encoding);
+      media = _attachMovieHost(host, context);
+      models = _attachModelHost(host, context, encoding);
       const enableLogs = 'katze_game_enable_script_messages';
       if (onScriptMessage != null &&
-          library.providesSymbol(enableLogs) &&
-          library.providesSymbol(_drainScriptMessagesSymbol)) {
-        final enable = library
-            .lookupFunction<
-              Void Function(Pointer<KatzeCreateInfo>),
-              void Function(Pointer<KatzeCreateInfo>)
-            >(enableLogs);
+          host.providesSymbol(enableLogs) &&
+          host.providesSymbol(_drainScriptMessagesSymbol)) {
+        final enable = host
+            .lookup<Void Function(Pointer<KatzeCreateInfo>)>(enableLogs)
+            .asFunction<void Function(Pointer<KatzeCreateInfo>)>();
         scriptListener = NativeCallable<_ScriptMessage>.isolateLocal(
           (Pointer<Uint8> text, int length) =>
               onScriptMessage(utf8.decode(text.asTypedList(length))),
@@ -102,7 +192,7 @@ final class KatzeGameHost {
       session = api.create(context);
       final (width, height) = api.stage(session);
       return KatzeGameHost._(
-        library,
+        host,
         api,
         media,
         models,
@@ -116,7 +206,7 @@ final class KatzeGameHost {
       scriptListener?.close();
       if (session != 0) api.destroy(session);
       try {
-        _releaseMount(library, context);
+        _releaseMount(host, context);
       } finally {
         media?.close();
         models?.call();
@@ -125,7 +215,7 @@ final class KatzeGameHost {
     }
   }
 
-  final DynamicLibrary _library;
+  final _GameHostBindings _host;
   final KatzeApi _api;
   final DynamicLibrary? _mediaLibrary;
   final void Function()? _releaseModelHost;
@@ -147,38 +237,43 @@ final class KatzeGameHost {
   NativeCallable<_StepReport>? _stepReportListener;
   static const _diagnosticCapacity = 4096;
   late final _diagnostic = _buffers<Uint8>(_diagnosticCapacity);
-  late final _hasStepReport = _library.providesSymbol(
+  late final _hasStepReport = _host.providesSymbol(
     'katze_game_step_async_report',
   );
   Completer<bool>? _stepCompletion;
   final _pendingInput = <void Function()>[];
 
-  late final _ReadPixels _pixels = _library
-      .lookupFunction<_Pixels, _ReadPixels>('katze_game_pixels');
-  late final _InputEvent _pointer = _library
-      .lookupFunction<_PointerEvent, _InputEvent>('katze_game_pointer');
-  late final _InputEvent _button = _library
-      .lookupFunction<_ButtonEvent, _InputEvent>('katze_game_button');
-  late final _SetFocus _focus = _library.lookupFunction<_FocusEvent, _SetFocus>(
-    'katze_game_focus',
-  );
+  late final _ReadPixels _pixels = _host
+      .lookup<_Pixels>('katze_game_pixels')
+      .asFunction<_ReadPixels>();
+  late final _InputEvent _pointer = _host
+      .lookup<_PointerEvent>('katze_game_pointer')
+      .asFunction<_InputEvent>();
+  late final _InputEvent _button = _host
+      .lookup<_ButtonEvent>('katze_game_button')
+      .asFunction<_InputEvent>();
+  late final _SetFocus _focus = _host
+      .lookup<_FocusEvent>('katze_game_focus')
+      .asFunction<_SetFocus>();
 
-  late final _windowAction = _library
-      .lookupFunction<
-        Uint32 Function(Pointer<KatzeCreateInfo>),
-        int Function(Pointer<KatzeCreateInfo>)
-      >('katze_game_take_window_action');
+  late final _windowAction = _host
+      .lookup<Uint32 Function(Pointer<KatzeCreateInfo>)>(
+        'katze_game_take_window_action',
+      )
+      .asFunction<int Function(Pointer<KatzeCreateInfo>)>();
 
   int takeWindowAction() {
     _requireLive();
     return _windowAction(_mount);
   }
 
-  late final _drainScriptMessages = _library
-      .lookupFunction<
-        Void Function(Pointer<KatzeCreateInfo>, _ScriptMessageCallback),
+  late final _drainScriptMessages = _host
+      .lookup<Void Function(Pointer<KatzeCreateInfo>, _ScriptMessageCallback)>(
+        _drainScriptMessagesSymbol,
+      )
+      .asFunction<
         void Function(Pointer<KatzeCreateInfo>, _ScriptMessageCallback)
-      >(_drainScriptMessagesSymbol);
+      >();
 
   void _reportScriptMessages() {
     final listener = _scriptListener;
@@ -216,14 +311,14 @@ final class KatzeGameHost {
     }
   }
 
-  late final _enqueueStep = _library
-      .lookupFunction<
-        Int32 Function(Uint64, Uint32, Uint32, _StepCallback),
-        int Function(int, int, int, _StepCallback)
-      >('katze_game_step_async');
+  late final _enqueueStep = _host
+      .lookup<Int32 Function(Uint64, Uint32, Uint32, _StepCallback)>(
+        'katze_game_step_async',
+      )
+      .asFunction<int Function(int, int, int, _StepCallback)>();
 
-  late final _enqueueStepReport = _library
-      .lookupFunction<
+  late final _enqueueStepReport = _host
+      .lookup<
         Int32 Function(
           Uint64,
           Uint32,
@@ -231,9 +326,11 @@ final class KatzeGameHost {
           Pointer<Uint8>,
           Size,
           _StepReportCallback,
-        ),
+        )
+      >('katze_game_step_async_report')
+      .asFunction<
         int Function(int, int, int, Pointer<Uint8>, int, _StepReportCallback)
-      >('katze_game_step_async_report');
+      >();
 
   Future<bool> stepAsync(int milliseconds) async {
     _requireLive();
@@ -330,55 +427,61 @@ final class KatzeGameHost {
   }
 
   late final bool supportsAsyncPixels =
-      _library.providesSymbol('katze_game_step_async') &&
-      _library.providesSymbol('katze_game_present_async_report');
+      _host.providesSymbol('katze_game_step_async') &&
+      _host.providesSymbol('katze_game_present_async_report');
 
   bool get supportsSharedTexture =>
       Platform.isMacOS &&
-      _library.providesSymbol('katze_game_attach_surface') &&
-      _library.providesSymbol('katze_game_present_surface') &&
-      _library.providesSymbol('katze_game_step_async');
+      _host.providesSymbol('katze_game_attach_surface') &&
+      _host.providesSymbol('katze_game_present_surface') &&
+      _host.providesSymbol('katze_game_step_async');
 
-  late final _attachSurface = _library
-      .lookupFunction<
-        Int32 Function(Pointer<KatzeCreateInfo>, Pointer<Void>, Uint32, Uint32),
+  late final _attachSurface = _host
+      .lookup<
+        Int32 Function(Pointer<KatzeCreateInfo>, Pointer<Void>, Uint32, Uint32)
+      >('katze_game_attach_surface')
+      .asFunction<
         int Function(Pointer<KatzeCreateInfo>, Pointer<Void>, int, int)
-      >('katze_game_attach_surface');
-  late final _presentSurface = _library
-      .lookupFunction<
-        Int32 Function(Pointer<KatzeCreateInfo>, Uint64),
-        int Function(Pointer<KatzeCreateInfo>, int)
-      >('katze_game_present_surface');
+      >();
+  late final _presentSurface = _host
+      .lookup<Int32 Function(Pointer<KatzeCreateInfo>, Uint64)>(
+        'katze_game_present_surface',
+      )
+      .asFunction<int Function(Pointer<KatzeCreateInfo>, int)>();
 
-  late final _presentSurfaceAsync = _library
-      .lookupFunction<
+  late final _presentSurfaceAsync = _host
+      .lookup<
         Int32 Function(
           Pointer<KatzeCreateInfo>,
           Uint64,
           Pointer<NativeFunction<_PresentFinished>>,
-        ),
+        )
+      >('katze_game_present_surface_async')
+      .asFunction<
         int Function(
           Pointer<KatzeCreateInfo>,
           int,
           Pointer<NativeFunction<_PresentFinished>>,
         )
-      >('katze_game_present_surface_async');
+      >();
 
-  late final _presentPixelsAsync = _library
-      .lookupFunction<
+  late final _presentPixelsAsync = _host
+      .lookup<
         Int32 Function(
           Uint64,
           Pointer<Uint8>,
           Size,
           Pointer<NativeFunction<_PresentReport>>,
-        ),
+        )
+      >('katze_game_present_async_report')
+      .asFunction<
         int Function(
           int,
           Pointer<Uint8>,
           int,
           Pointer<NativeFunction<_PresentReport>>,
         )
-      >('katze_game_present_async_report');
+      >();
 
   bool attachSurface(int address, int width, int height) {
     _requireLive();
@@ -401,7 +504,7 @@ final class KatzeGameHost {
   Future<bool> presentSurface() async {
     _requireLive();
     _requireIdle();
-    if (!_library.providesSymbol('katze_game_present_surface_async')) {
+    if (!_host.providesSymbol('katze_game_present_surface_async')) {
       return _presentSurface(_mount, _session) == 0;
     }
     final listener = _presentListener ??=
@@ -480,13 +583,12 @@ final class KatzeGameHost {
     _requireLive();
     if (_stopAudio != null) return true;
     try {
-      final start = _library.lookupFunction<_AudioStart, _AudioStartDart>(
-        'katze_game_audio_start',
-      );
-      final stop = _library
-          .lookupFunction<_AudioStop, void Function(Pointer<Void>)>(
-            'katze_game_audio_stop',
-          );
+      final start = _host
+          .lookup<_AudioStart>('katze_game_audio_start')
+          .asFunction<_AudioStartDart>();
+      final stop = _host
+          .lookup<_AudioStop>('katze_game_audio_stop')
+          .asFunction<void Function(Pointer<Void>)>();
       final output = start(_session, _api.mixCallback);
       if (output == nullptr) return false;
       _stopAudio = () => stop(output);
@@ -537,7 +639,7 @@ final class KatzeGameHost {
       _pendingInput.clear();
       _buffers.releaseAll();
       try {
-        _releaseMount(_library, _mount);
+        _releaseMount(_host, _mount);
       } finally {
         _mediaLibrary?.close();
         _releaseModelHost?.call();
@@ -546,12 +648,12 @@ final class KatzeGameHost {
   }
 
   static DynamicLibrary? _attachMovieHost(
-    DynamicLibrary library,
+    _GameHostBindings host,
     Pointer<KatzeCreateInfo> mount,
   ) {
     const setter = 'katze_game_set_movie_host';
     if (Platform.environment['KATZE_FFMPEG_MOVIES'] == '1' ||
-        !library.providesSymbol(setter)) {
+        !host.providesSymbol(setter)) {
       return null;
     }
     final media = openKatzeMediaLibrary();
@@ -566,11 +668,11 @@ final class KatzeGameHost {
           .lookupFunction<Pointer<Void> Function(), Pointer<Void> Function()>(
             getter,
           )();
-      final attach = library
-          .lookupFunction<
-            Int32 Function(Pointer<KatzeCreateInfo>, Pointer<Void>),
-            int Function(Pointer<KatzeCreateInfo>, Pointer<Void>)
-          >(setter);
+      final attach = host
+          .lookup<Int32 Function(Pointer<KatzeCreateInfo>, Pointer<Void>)>(
+            setter,
+          )
+          .asFunction<int Function(Pointer<KatzeCreateInfo>, Pointer<Void>)>();
       if (attach(mount, callbacks) != 0) {
         throw StateError('Cannot attach the bundled Katze movie host');
       }
@@ -582,12 +684,12 @@ final class KatzeGameHost {
   }
 
   static void Function()? _attachModelHost(
-    DynamicLibrary library,
+    _GameHostBindings host,
     Pointer<KatzeCreateInfo> mount,
     String encoding,
   ) {
     const setter = 'katze_game_set_model_host';
-    if (!library.providesSymbol(setter)) return null;
+    if (!host.providesSymbol(setter)) return null;
     final DynamicLibrary core;
     try {
       core = openEngineCoreLibrary();
@@ -615,11 +717,11 @@ final class KatzeGameHost {
               void Function(Pointer<Void>)
             >(destroySymbol);
       }
-      final attach = library
-          .lookupFunction<
-            Int32 Function(Pointer<KatzeCreateInfo>, Pointer<Void>),
-            int Function(Pointer<KatzeCreateInfo>, Pointer<Void>)
-          >(setter);
+      final attach = host
+          .lookup<Int32 Function(Pointer<KatzeCreateInfo>, Pointer<Void>)>(
+            setter,
+          )
+          .asFunction<int Function(Pointer<KatzeCreateInfo>, Pointer<Void>)>();
       callbacks = using(
         (arena) => provider(encoding.toNativeUtf8(allocator: arena)),
       );
@@ -638,13 +740,12 @@ final class KatzeGameHost {
   }
 
   static void _releaseMount(
-    DynamicLibrary library,
+    _GameHostBindings host,
     Pointer<KatzeCreateInfo> mount,
   ) {
-    final unmount = library
-        .lookupFunction<_Unmount, int Function(Pointer<KatzeCreateInfo>)>(
-          'katze_game_unmount',
-        );
+    final unmount = host
+        .lookup<_Unmount>('katze_game_unmount')
+        .asFunction<int Function(Pointer<KatzeCreateInfo>)>();
     final remaining = unmount(mount);
     if (remaining != 0) {
       throw StateError(

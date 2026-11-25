@@ -40,15 +40,21 @@ DynamicLibrary openKatzeHostLibrary() {
     return DynamicLibrary.open(configured);
   }
   final executable = File(Platform.resolvedExecutable).parent;
-  final name = Platform.isWindows
-      ? 'katze_system2_example_host.dll'
-      : Platform.isMacOS
-      ? 'libkatze_system2_example_host.dylib'
-      : 'libkatze_system2_example_host.so';
+  final names = [
+    for (final suffix in ['host', 'example_host'])
+      if (Platform.isWindows)
+        'katze_system2_$suffix.dll'
+      else if (Platform.isMacOS)
+        'libkatze_system2_$suffix.dylib'
+      else
+        'libkatze_system2_$suffix.so',
+  ];
   final candidates = [
-    '${executable.path}/$name',
-    if (Platform.isMacOS) '${executable.parent.path}/Frameworks/$name',
-    if (Platform.isLinux) '${executable.path}/lib/$name',
+    for (final name in names) ...[
+      '${executable.path}/$name',
+      if (Platform.isMacOS) '${executable.parent.path}/Frameworks/$name',
+      if (Platform.isLinux) '${executable.path}/lib/$name',
+    ],
   ];
   for (final candidate in candidates) {
     if (File(candidate).existsSync()) return DynamicLibrary.open(candidate);
