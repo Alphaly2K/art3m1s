@@ -24,10 +24,12 @@ import 'rfvp/rfvp_media_host.dart';
 class RfvpEngineRuntime implements EngineRuntime {
   RfvpEngineRuntime({
     this.engineCursorControlEnabled = true,
-    this.useReplayFrames = false,
-  });
+    bool useReplayFrames = true,
+  }) : _preferReplayFrames = useReplayFrames;
 
-  final bool useReplayFrames;
+  final bool _preferReplayFrames;
+  bool? _activeReplayFrames;
+  bool get useReplayFrames => _activeReplayFrames ?? _preferReplayFrames;
 
   final bool? engineCursorControlEnabled;
 
@@ -131,11 +133,14 @@ class RfvpEngineRuntime implements EngineRuntime {
     try {
       _lastError = null;
       _library = _openCoreLibrary();
-      final api = CoreRfvpApiV1.tryLoad(_library!, replayHost: useReplayFrames);
+      final replay = _preferReplayFrames
+          ? CoreRfvpApiV1.tryLoad(_library!, replayHost: true)
+          : null;
+      final api = replay ?? CoreRfvpApiV1.tryLoad(_library!);
       if (api == null) {
-        final version = useReplayFrames ? 'v2 Host' : 'v1';
-        throw StateError('art3m1s-core 未导出 RFVP $version 接口');
+        throw StateError('art3m1s-core 未导出兼容的 RFVP 接口');
       }
+      _activeReplayFrames = replay != null;
       _api = api;
       // 日志走拉取式队列：不在 native 侧注册 NativeCallable，避免在
       // 越狱/注入环境触发 Dart 回调蹦床崩溃。

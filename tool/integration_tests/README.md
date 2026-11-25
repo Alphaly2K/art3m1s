@@ -11,9 +11,8 @@ SwiftUI 目录服务的合成输入验证可在安装 Xcode 命令行工具的 m
 
 ## RFVP 播放器版本
 
-Flutter 默认使用 RFVP v1。构建或运行时传入 `--dart-define=RFVP_V2=true` 可显式启用 v2。
-桌面程序也可用 `RFVP_V2=1` 启动。显式 Dart 定义优先于进程环境。v2 需要包含
-`art3m1s_rfvp_get_replay_host_v1` 的聚合动态库。
+Flutter 优先使用 RFVP v2。旧动态库只提供 v1 时，播放器自动使用 v1。构建时传入
+`--dart-define=RFVP_V2=false` 或在桌面设置 `RFVP_V2=0` 可指定 v1。Dart 定义优先于进程环境。
 
 在 Core 仓库用 `cargo build --locked --features rfvp-engine,metal-backend --lib` 构建 macOS
 动态库，再运行 `python3 tools/host-smoke/rfvp_tile.py "$RFVP_SMOKE_GAME/tile.hcb" --services`
@@ -22,10 +21,10 @@ Flutter 默认使用 RFVP v1。构建或运行时传入 `--dart-define=RFVP_V2=t
 ```sh
 RFVP_SMOKE_WIDTH=640 RFVP_SMOKE_HEIGHT=480 RFVP_SMOKE_TILE=1 \
 RFVP_SMOKE_SERVICES=1 RFVP_SMOKE_EXPECT_VERSION=2 \
-flutter test --dart-define=RFVP_V2=true tool/integration_tests/rfvp_runtime_smoke_test.dart
+flutter test tool/integration_tests/rfvp_runtime_smoke_test.dart
 ```
 
-将版本期望改成 `1`，并取消 Dart 定义与进程环境中的 `RFVP_V2`，即可验证 v1 默认路径。
+将版本期望改成 `1`，并传入 `--dart-define=RFVP_V2=false`，可验证 v1 路径。
 
 验证 v2 的资源和存档时，用 `--io` 生成另一个合成项目，并通过 `RFVP_SMOKE_GAME` 指向该目录。
 保持同一个 macOS 动态库，运行下列测试。它核对封包与松散资源的渲染像素、编号存档及全局存档，
@@ -40,8 +39,8 @@ RFVP_SMOKE_EXPECT_VERSION=2 flutter test --dart-define=RFVP_V2=true \
 验证 macOS 窗口里的共享纹理时，运行
 `flutter build macos --debug --target=tool/integration_tests/rfvp_macos_smoke.dart`。
 在桌面会话中用相同的 `RFVP_SMOKE_GAME` 和 `ART3M1S_CORE_LIBRARY` 运行生成的应用可执行文件。
-`RFVP_SMOKE_EXPECT_VERSION=1` 检查默认路径。设置 `RFVP_V2=1 RFVP_SMOKE_EXPECT_VERSION=2`
-检查 v2。探针核对 Flutter 合成像素，以及会话恢复后能否重新绑定并呈现。
+`RFVP_SMOKE_EXPECT_VERSION=2` 检查默认路径。设置 `RFVP_V2=0 RFVP_SMOKE_EXPECT_VERSION=1`
+检查 v1。探针核对 Flutter 合成像素，以及会话恢复后能否重新绑定并呈现。
 
 ## KatzeSystem2
 

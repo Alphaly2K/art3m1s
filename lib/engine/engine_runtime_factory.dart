@@ -18,7 +18,7 @@ class EngineRuntimeFactory {
 
   static bool get _rfvpV2 => const bool.hasEnvironment('RFVP_V2')
       ? const bool.fromEnvironment('RFVP_V2')
-      : Platform.environment['RFVP_V2'] == '1';
+      : Platform.environment['RFVP_V2'] != '0';
 
   static bool get _artemisV2 =>
       Platform.isMacOS &&
