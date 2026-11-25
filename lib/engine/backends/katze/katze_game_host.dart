@@ -34,6 +34,9 @@ typedef _StepCallback = Pointer<NativeFunction<_StepFinished>>;
 typedef _StepReport = Void Function(Int32, Uint32, Size);
 typedef _StepReportCallback = Pointer<NativeFunction<_StepReport>>;
 
+typedef _ScriptMessage = Void Function(Pointer<Uint8>, Size);
+typedef _ScriptMessageCallback = Pointer<NativeFunction<_ScriptMessage>>;
+
 typedef _AudioStart =
     Pointer<Void> Function(Uint64, Pointer<NativeFunction<KatzeMixStereo>>);
 typedef _AudioStartDart =
@@ -47,6 +50,7 @@ final class KatzeGameHost {
     this._api,
     this._mediaLibrary,
     this._releaseModelHost,
+    this._scriptListener,
     this._mount,
     this._session,
     this.width,
@@ -61,6 +65,7 @@ final class KatzeGameHost {
     String root, {
     String encoding = '',
     String saveDirectory = '',
+    void Function(String)? onScriptMessage,
   }) {
     final api = KatzeApi.load(library);
     final mount = library.lookupFunction<_Mount, _Mount>('katze_game_mount');
@@ -75,9 +80,25 @@ final class KatzeGameHost {
     var session = 0;
     DynamicLibrary? media;
     void Function()? models;
+    NativeCallable<_ScriptMessage>? scriptListener;
     try {
       media = _attachMovieHost(library, context);
       models = _attachModelHost(library, context, encoding);
+      const enableLogs = 'katze_game_enable_script_messages';
+      if (onScriptMessage != null &&
+          library.providesSymbol(enableLogs) &&
+          library.providesSymbol(_drainScriptMessagesSymbol)) {
+        final enable = library
+            .lookupFunction<
+              Void Function(Pointer<KatzeCreateInfo>),
+              void Function(Pointer<KatzeCreateInfo>)
+            >(enableLogs);
+        scriptListener = NativeCallable<_ScriptMessage>.isolateLocal(
+          (Pointer<Uint8> text, int length) =>
+              onScriptMessage(utf8.decode(text.asTypedList(length))),
+        );
+        enable(context);
+      }
       session = api.create(context);
       final (width, height) = api.stage(session);
       return KatzeGameHost._(
@@ -85,12 +106,14 @@ final class KatzeGameHost {
         api,
         media,
         models,
+        scriptListener,
         context,
         session,
         width,
         height,
       );
     } catch (_) {
+      scriptListener?.close();
       if (session != 0) api.destroy(session);
       try {
         _releaseMount(library, context);
@@ -106,6 +129,8 @@ final class KatzeGameHost {
   final KatzeApi _api;
   final DynamicLibrary? _mediaLibrary;
   final void Function()? _releaseModelHost;
+  final NativeCallable<_ScriptMessage>? _scriptListener;
+  static const _drainScriptMessagesSymbol = 'katze_game_drain_script_messages';
   final Pointer<KatzeCreateInfo> _mount;
   int _session;
   void Function()? _stopAudio;
@@ -149,6 +174,19 @@ final class KatzeGameHost {
     return _windowAction(_mount);
   }
 
+  late final _drainScriptMessages = _library
+      .lookupFunction<
+        Void Function(Pointer<KatzeCreateInfo>, _ScriptMessageCallback),
+        void Function(Pointer<KatzeCreateInfo>, _ScriptMessageCallback)
+      >(_drainScriptMessagesSymbol);
+
+  void _reportScriptMessages() {
+    final listener = _scriptListener;
+    if (listener != null) {
+      _drainScriptMessages(_mount, listener.nativeFunction);
+    }
+  }
+
   void reportWindow({bool? fullscreen}) {
     _requireLive();
     _sendInput(() => _api.reportWindow(_session, fullscreen: fullscreen));
@@ -171,7 +209,11 @@ final class KatzeGameHost {
       ..tick += increment
       ..increment = increment
       ..milliseconds = milliseconds;
-    return (_api.step(_session, _time, _flags) & 1) == 0;
+    try {
+      return (_api.step(_session, _time, _flags) & 1) == 0;
+    } finally {
+      _reportScriptMessages();
+    }
   }
 
   late final _enqueueStep = _library
@@ -235,6 +277,7 @@ final class KatzeGameHost {
     if (completion == null) return;
     _stepCompletion = null;
     try {
+      _reportScriptMessages();
       if (status != 0) {
         final detail = written == 0
             ? 'status $status'
@@ -362,7 +405,9 @@ final class KatzeGameHost {
       return _presentSurface(_mount, _session) == 0;
     }
     final listener = _presentListener ??=
-        NativeCallable<_PresentFinished>.listener(_finishAsyncPresent);
+        NativeCallable<_PresentFinished>.listener(
+          (int status) => _finishAsyncPresent(status),
+        );
     if (_presentSurfaceAsync(_mount, _session, listener.nativeFunction) != 0) {
       return false;
     }
@@ -477,8 +522,10 @@ final class KatzeGameHost {
     stopDeviceAudio();
     try {
       _api.destroy(session);
+      _reportScriptMessages();
     } finally {
       _session = 0;
+      _scriptListener?.close();
       _presentListener?.close();
       _presentReportListener?.close();
       _presentCompletion?.complete(false);

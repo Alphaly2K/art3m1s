@@ -286,6 +286,7 @@ final class KatzeEngineRuntime extends UnsupportedEngineRuntime
         directory,
         encoding: _encoding,
         saveDirectory: _saveDirectory,
+        onScriptMessage: (text) => Log.debug('[Katze] [Script] $text'),
       );
       _game = game;
       game.reportWindow(fullscreen: _fullscreen);
