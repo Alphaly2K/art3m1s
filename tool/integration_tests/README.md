@@ -72,6 +72,8 @@ KATZE_GAME_HOST="$katze/target/release/libkatze_system2_host.dylib" \
 
 设置 `KATZE_GAME_HOST` 后，Flutter 的游戏库可识别含 `config/startup.xml` 的目录，并通过通用播放器加载。每个游戏可在 `art3m1s.json` 中设置 `katzeScriptEncoding`，例如 `"gbk"`。缺省时可用 `KATZE_GAME_ENCODING` 提供调试默认值。`tool/integration_tests/katze_player_test.dart` 使用同样的两个变量及 `KATZE_GAME`。设置 `KATZE_OFFSCREEN_AUDIO=1` 核对导入、推进、暂停恢复、软件画面和内存混音。宿主也可启用 `device-audio`，测试时设置 `SDL_AUDIODRIVER=dummy` 以验证设备启停。
 
+运行 `dart run tool/build.dart macos --katze --debug` 可从 KatzeSystem2 源码构建并打包 Host。将 `KATZE_SRC` 指向源码目录，或使用与 Flutter 项目同级的源码。
+
 可把同一宿主装入本地 macOS 预览构建。用 `KATZE_RUNTIME_DIR` 指定含宿主动态库的目录，然后执行普通的 `flutter build macos`。应用从自己的 Frameworks 目录加载库，`KATZE_GAME_HOST` 仍可用于指定本地调试构建。 同一目录可放入配套 `libart3m1s_artemis_media_host.dylib`，支持从游戏归档播放 WebM。打包时沿用应用的 FFmpeg 库，运行时自动发现该媒体宿主。
 
 设置 `KATZE_RUNTIME_DIR` 后运行 `dart run tool/build.dart macos --debug`，预览中的 core 会提供 E‑Mote 模型回调。Flutter 创建会话时自动挂载该服务。离屏测试可通过 `ART3M1S_CORE_LIBRARY` 指定启用了 `metal-backend,katze-model-host` 的 core 动态库。

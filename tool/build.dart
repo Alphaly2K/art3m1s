@@ -111,6 +111,7 @@ final class BuildOptions {
     required this.signOnly,
     required this.krkr,
     required this.siglus,
+    required this.katze,
     required this.artemisV2,
   });
 
@@ -120,6 +121,7 @@ final class BuildOptions {
   final bool signOnly;
   final bool krkr;
   final bool siglus;
+  final bool katze;
   final bool artemisV2;
 
   static BuildOptions parse(List<String> arguments) {
@@ -129,6 +131,7 @@ final class BuildOptions {
     var signOnly = false;
     var krkr = false;
     var siglus = false;
+    var katze = false;
     var artemisV2 = false;
     for (final argument in arguments) {
       switch (argument) {
@@ -146,6 +149,8 @@ final class BuildOptions {
           krkr = true;
         case '--siglus':
           siglus = true;
+        case '--katze':
+          katze = true;
         case '--artemis-v2':
           artemisV2 = true;
         case 'all':
@@ -161,13 +166,16 @@ final class BuildOptions {
           stdout.writeln(
             'Usage: dart run tool/build.dart '
             '[all|ios|ios-obsolete|macos|android|windows|linux] '
-            '[--release|--profile|--debug] [--device-only] [--sign-only] [--krkr] [--siglus] [--artemis-v2]\n'
+            '[--release|--profile|--debug] [--device-only] [--sign-only] [--krkr] [--siglus] [--katze] [--artemis-v2]\n'
             '       dart run tool/build.dart --check-artemis-v2-bindings',
           );
           exit(0);
         default:
           throw UsageException('Unknown argument: $argument');
       }
+    }
+    if (katze && target != 'macos') {
+      throw UsageException('--katze requires the macos target');
     }
     if (artemisV2 && target != 'macos') {
       throw UsageException('--artemis-v2 requires the macos target');
@@ -179,6 +187,7 @@ final class BuildOptions {
       signOnly: signOnly,
       krkr: krkr,
       siglus: siglus,
+      katze: katze,
       artemisV2: artemisV2,
     );
   }
@@ -536,6 +545,7 @@ Future<void> _buildMacos(
   BuildOptions options,
 ) async {
   final krkrSource = Platform.environment['KRKRSDL3_SOURCE_DIR'];
+  final prebuiltKatze = Platform.environment['KATZE_RUNTIME_DIR'] ?? '';
   final hasCompiler =
       Platform.environment['ARTEMIS_V2_HLSL_COMPILER_DIR']?.isNotEmpty ?? false;
   final hasDxvk =
@@ -567,8 +577,7 @@ Future<void> _buildMacos(
           krkr: options.krkr,
           siglus: options.siglus,
         ),
-        if (Platform.environment['KATZE_RUNTIME_DIR']?.isNotEmpty ?? false)
-          'katze-model-host',
+        if (options.katze || prebuiltKatze.isNotEmpty) 'katze-model-host',
       ].join(','),
       '--manifest-path',
       '${core.path}/Cargo.toml',
@@ -612,6 +621,15 @@ Future<void> _buildMacos(
   final artemisRuntime = bundleArtemisV2
       ? await _buildArtemisV2Macos(project, core, ffmpegPrefix, suffix)
       : '';
+  final katzeRuntime = options.katze
+      ? await _buildKatzeMacos(
+          project,
+          core,
+          ffmpegPrefix,
+          suffix,
+          artemisRuntime,
+        )
+      : prebuiltKatze;
   await _run(
     flutter,
     <String>[
@@ -626,6 +644,7 @@ Future<void> _buildMacos(
     environment: {
       ...secrets.environment,
       'ARTEMIS_V2_RUNTIME_DIR': artemisRuntime,
+      'KATZE_RUNTIME_DIR': katzeRuntime,
     },
   );
   if (options.krkr) {
@@ -728,6 +747,62 @@ Future<String> _buildArtemisV2Macos(
       '@rpath/${artifact.uri.pathSegments.last}',
       artifact.path,
     ], workingDirectory: project);
+  }
+  return stage.path;
+}
+
+Future<String> _buildKatzeMacos(
+  Directory project,
+  Directory core,
+  Directory ffmpegPrefix,
+  String profile,
+  String artemisRuntime,
+) async {
+  final source = Directory(
+    Platform.environment['KATZE_SRC'] ?? '${project.parent.path}/KatzeSystem2',
+  ).absolute;
+  final manifest = File('${source.path}/crates/katze-system2-host/Cargo.toml');
+  final license = File('${source.path}/LICENSE');
+  if (!manifest.existsSync() || !license.existsSync()) {
+    throw UsageException('Set KATZE_SRC to a KatzeSystem2 Host checkout');
+  }
+  final stage = Directory('${project.path}/.build/katze').absolute
+    ..createSync(recursive: true);
+  final target = '${source.path}/target';
+  await _run('cargo', [
+    'build',
+    '--locked',
+    if (profile == 'release') '--release',
+    '--package',
+    'katze-system2-host',
+    '--target-dir',
+    target,
+  ], workingDirectory: source);
+  File(
+    '$target/$profile/libkatze_system2_host.dylib',
+  ).copySync('${stage.path}/libkatze_system2_host.dylib');
+  license.copySync('${stage.path}/LICENSE-KatzeSystem2.txt');
+
+  const media = 'libart3m1s_artemis_media_host.dylib';
+  if (artemisRuntime.isNotEmpty) {
+    File('$artemisRuntime/$media').copySync('${stage.path}/$media');
+  } else {
+    final mediaTarget = '${project.path}/.build/artemis-v2/target';
+    await _run(
+      'cargo',
+      [
+        'build',
+        '--locked',
+        if (profile == 'release') '--release',
+        '--manifest-path',
+        '${core.path}/crates/artemis-media-host/Cargo.toml',
+        '--target-dir',
+        mediaTarget,
+      ],
+      workingDirectory: core,
+      environment: {'FFMPEG_DIR': ffmpegPrefix.path},
+    );
+    File('$mediaTarget/$profile/$media').copySync('${stage.path}/$media');
   }
   return stage.path;
 }
