@@ -775,13 +775,28 @@ Future<String> _buildKatzeMacos(
     if (profile == 'release') '--release',
     '--package',
     'katze-system2-host',
+    '--features',
+    'device-audio',
     '--target-dir',
     target,
   ], workingDirectory: source);
   File(
     '$target/$profile/libkatze_system2_host.dylib',
   ).copySync('${stage.path}/libkatze_system2_host.dylib');
-  license.copySync('${stage.path}/LICENSE-KatzeSystem2.txt');
+  final notices = StringBuffer(license.readAsStringSync());
+  for (final name in const [
+    'sdl2-0.38.0/LICENSE',
+    'sdl2-sys-0.38.0/LICENSE-MIT',
+    'sdl2-sys-0.38.0/SDL/LICENSE.txt',
+    'sdl2-sys-0.38.0/SDL/src/hidapi/LICENSE-bsd.txt',
+    'sdl2-sys-0.38.0/SDL/src/video/yuv2rgb/LICENSE',
+  ]) {
+    notices
+      ..writeln()
+      ..writeln(name)
+      ..writeln(File('${source.path}/licenses/$name').readAsStringSync());
+  }
+  File('${stage.path}/LICENSE-KatzeSystem2.txt').writeAsStringSync('$notices');
 
   const media = 'libart3m1s_artemis_media_host.dylib';
   if (artemisRuntime.isNotEmpty) {
