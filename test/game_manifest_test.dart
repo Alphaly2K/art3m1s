@@ -39,6 +39,27 @@ void main() {
     );
   });
 
+  test('CatSystem2 translation settings round trip through the manifest', () {
+    final entry = GameEntry(
+      name: 'CatSystem2',
+      path: '/games/katze',
+      source: GameSource.directory,
+      engine: GameEngineKind.katze,
+      addedAt: DateTime(2026),
+    );
+    final manifest = GameManifest.fromJson({
+      'engine': 'katze',
+      'translationEnabled': true,
+      'translationPatchPath': 'translation.json',
+    });
+    final saved = manifest.applyTo(entry);
+    expect(saved.translationEnabled, isTrue);
+    expect(saved.translationPatchPath, 'translation.json');
+    final serialized = GameManifest.fromGameEntry(saved).toJson();
+    expect(serialized['translationEnabled'], isTrue);
+    expect(serialized['translationPatchPath'], 'translation.json');
+  });
+
   test('KRKR 启动 XP3 在资料库和游戏清单中保持一致', () {
     final entry = GameEntry(
       name: 'Kirikiri',
@@ -467,6 +488,9 @@ void main() {
       expect(krkr.contains(GameSettingField.translationEnabled), isFalse);
       expect(krkr.contains(GameSettingField.fontOverride), isFalse);
       expect(GameEngineKind.krkr.supportsPfsArchives, isFalse);
+      final katze = GameEngineKind.katze.supportedGameSettings;
+      expect(katze, contains(GameSettingField.translationEnabled));
+      expect(katze, contains(GameSettingField.translationPatchPath));
       final siglus = GameEngineKind.siglus.supportedGameSettings;
       expect(siglus.contains(GameSettingField.inputGate), isTrue);
       expect(siglus.contains(GameSettingField.translationEnabled), isFalse);

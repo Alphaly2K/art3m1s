@@ -9,6 +9,7 @@ import 'package:ffi/ffi.dart';
 import '../../../services/logger.dart';
 import '../../native_library.dart';
 import 'core_katze_api.dart';
+import 'katze_translation_api.dart';
 
 typedef _Mount =
     Pointer<KatzeCreateInfo> Function(
@@ -140,6 +141,7 @@ final class KatzeGameHost {
   KatzeGameHost._(
     this._host,
     this._api,
+    this._translation,
     this._mediaLibrary,
     this._releaseModelHost,
     this._scriptListener,
@@ -195,6 +197,7 @@ final class KatzeGameHost {
       return KatzeGameHost._(
         host,
         api,
+        KatzeTranslationApi.load(library),
         media,
         models,
         scriptListener,
@@ -218,6 +221,7 @@ final class KatzeGameHost {
 
   final _GameHostBindings _host;
   final KatzeApi _api;
+  final KatzeTranslationApi? _translation;
   final DynamicLibrary? _mediaLibrary;
   final void Function()? _releaseModelHost;
   final NativeCallable<_ScriptMessage>? _scriptListener;
@@ -297,6 +301,17 @@ final class KatzeGameHost {
     _requireLive();
     return _api.completeTextEntry(_session, id, text);
   }
+
+  bool configureTranslation(
+    Map<String, String> entries, {
+    required bool online,
+  }) => _translation?.configure(_session, entries, online: online) ?? false;
+
+  void drainTranslationRequests(void Function(int, String) request) =>
+      _translation?.drain(_session, request);
+
+  void completeTranslation(int id, String? text) =>
+      _translation?.complete(_session, id, text);
 
   bool step({required int increment, required int milliseconds}) {
     _requireLive();

@@ -37,7 +37,6 @@ enum GameEngineKind {
       GameSettingField.displayName,
       GameSettingField.cover,
       GameSettingField.vndbId,
-      // RFVP 的 text event ABI 尚未落地,翻译字段仅作预留接线。
       GameSettingField.translationEnabled,
       GameSettingField.translationPatchPath,
       GameSettingField.fontOverride,
@@ -62,6 +61,8 @@ enum GameEngineKind {
       GameSettingField.vndbId,
       GameSettingField.inputGate,
       GameSettingField.katzeScriptEncoding,
+      GameSettingField.translationEnabled,
+      GameSettingField.translationPatchPath,
     },
   };
 

@@ -6,8 +6,9 @@ import 'dart:typed_data';
 import '../../models/game_engine.dart';
 import '../../models/game_entry.dart';
 import '../../models/input_gate.dart';
-import '../../services/logger.dart';
 import '../../services/game_manifest.dart';
+import '../../services/logger.dart';
+import '../../services/text_translation_service.dart';
 import '../engine_runtime.dart';
 import '../native_library.dart';
 import '../shared_texture_session.dart';
@@ -25,6 +26,8 @@ final class KatzeEngineRuntime extends UnsupportedEngineRuntime
 
   DynamicLibrary? _library;
   KatzeGameHost? _game;
+  TextTranslationService? _translation;
+  bool _translationOnline = false;
   String? _directory;
   String scriptEncoding = '';
   String _encoding = '';
@@ -264,6 +267,49 @@ final class KatzeEngineRuntime extends UnsupportedEngineRuntime
   }
 
   @override
+  void configureTranslation(TextTranslationService? service) {
+    if (identical(_translation, service)) return;
+    final previous = _translation;
+    _translation = service;
+    if (previous != null) unawaited(previous.dispose());
+    _syncTranslation();
+  }
+
+  void _syncTranslation() {
+    _translationOnline = false;
+    final game = _game;
+    if (game == null) return;
+    final service = _translation;
+    if (service == null || !service.hostTranslationEnabled) {
+      game.configureTranslation(const {}, online: false);
+      return;
+    }
+    final configured = game.configureTranslation(
+      service.hostReplacementTable,
+      online: service.hostOnlineEnabled,
+    );
+    if (!configured) {
+      Log.warn('[Katze] Cannot configure text translation on this Host');
+    }
+    _translationOnline = configured && service.hostOnlineEnabled;
+  }
+
+  void _drainTranslations(KatzeGameHost game) {
+    final service = _translation;
+    if (!_translationOnline || service == null) return;
+    game.drainTranslationRequests((id, source) {
+      service.enqueue(
+        source,
+        onComplete: (text) {
+          if (identical(_game, game) && identical(_translation, service)) {
+            game.completeTranslation(id, text);
+          }
+        },
+      );
+    });
+  }
+
+  @override
   void setSaveDir(String dir) => _saveDirectory = dir;
 
   @override
@@ -281,6 +327,7 @@ final class KatzeEngineRuntime extends UnsupportedEngineRuntime
         onScriptMessage: (text) => Log.debug('[Katze] [Script] $text'),
       );
       _game = game;
+      _syncTranslation();
       game.reportWindow(fullscreen: _fullscreen);
       _milliseconds = 0;
       _exit = false;
@@ -298,6 +345,7 @@ final class KatzeEngineRuntime extends UnsupportedEngineRuntime
     try {
       _closeGame();
     } finally {
+      configureTranslation(null);
       _library = null;
       _directory = null;
     }
@@ -308,6 +356,7 @@ final class KatzeEngineRuntime extends UnsupportedEngineRuntime
     _dialogRequest = null;
     final game = _game;
     _game = null;
+    _translationOnline = false;
     try {
       game?.close();
     } catch (error) {
@@ -334,6 +383,7 @@ final class KatzeEngineRuntime extends UnsupportedEngineRuntime
 
   bool _finishStep(KatzeGameHost game, bool running) {
     _exit = !running;
+    if (!_exit) _drainTranslations(game);
     var command = game.takeWindowAction();
     while (command != 0) {
       final action = switch (command) {
