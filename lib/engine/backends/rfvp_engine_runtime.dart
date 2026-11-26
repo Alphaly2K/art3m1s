@@ -227,9 +227,9 @@ class RfvpEngineRuntime implements EngineRuntime {
     final api = _api;
     final runtime = _runtime;
     if (api == null || runtime <= 0) return;
+    api.setTextTranslationEnabled(runtime, false);
     final service = _translation;
     if (service == null || !service.hostTranslationEnabled) {
-      api.setTextTranslationEnabled(runtime, false);
       api.setTextReplacements(runtime, null);
       return;
     }
@@ -253,8 +253,11 @@ class RfvpEngineRuntime implements EngineRuntime {
         event.source,
         ruby: event.ruby,
         onComplete: (translated) {
-          // 翻译异步完成；引擎按 serial 丢弃过期结果，直接提交即可。
-          api.submitTextTranslation(runtime, event.serial, translated);
+          if (identical(_api, api) &&
+              _runtime == runtime &&
+              identical(_translation, service)) {
+            api.submitTextTranslation(runtime, event.serial, translated);
+          }
         },
       );
     }

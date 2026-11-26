@@ -44,7 +44,6 @@ class KrkrEngineRuntime implements EngineRuntime {
   CoreKrkrControlV1? _controls;
   CoreKrkrDiagnosticsV1? _diagnostics;
   bool _debugEnabled = false;
-  TextTranslationService? _translation;
   InputGatePolicy _inputGate = InputGatePolicy.full;
   String? _projectPath;
   String? _saveDirectory;
@@ -147,9 +146,6 @@ class KrkrEngineRuntime implements EngineRuntime {
   @override
   void shutdown() {
     _shutdownNative();
-    final translation = _translation;
-    _translation = null;
-    if (translation != null) unawaited(translation.dispose());
   }
 
   void _shutdownNative() {
@@ -463,10 +459,7 @@ class KrkrEngineRuntime implements EngineRuntime {
   void configureInputGate(InputGatePolicy gate) => _inputGate = gate;
   @override
   void configureTranslation(TextTranslationService? service) {
-    if (identical(_translation, service)) return;
-    final previous = _translation;
-    _translation = service;
-    if (previous != null) unawaited(previous.dispose());
+    if (service != null) unawaited(service.dispose());
   }
 
   @override
