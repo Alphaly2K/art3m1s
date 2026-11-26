@@ -99,6 +99,26 @@ void main() {
     );
   });
 
+  test(
+    'Sena archives need an engine marker and take priority over system.ini',
+    () {
+      final root = Directory.systemTemp.createTempSync('art3m1s_sena_');
+      addTearDown(() => root.deleteSync(recursive: true));
+      File.fromUri(root.uri.resolve('SYSTEM.INI')).writeAsStringSync('[boot]');
+      File.fromUri(root.uri.resolve('Data.PAC')).writeAsBytesSync([0]);
+      expect(
+        GameImporter.detectDirectoryEngine(root.path),
+        GameEngineKind.art3m1s,
+      );
+
+      File.fromUri(root.uri.resolve('PAL.DLL')).writeAsBytesSync([0]);
+      expect(
+        GameImporter.detectDirectoryEngine(root.path),
+        GameEngineKind.sena,
+      );
+    },
+  );
+
   test('directory detection prefers Artemis when system.ini is present', () {
     final root = Directory.systemTemp.createTempSync('art3m1s_mixed_');
     addTearDown(() => root.deleteSync(recursive: true));

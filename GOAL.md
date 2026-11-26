@@ -87,3 +87,7 @@
 
 - SwiftUI 暂无在线崩溃采集和上传链路，目前提供本地日志导出。
 - 尚未运行真实游戏的真机回归。后续需验证实际引擎版本下的音视频、HTTP 脚本、前后台切换和大目录导入；显式集成验证入口见 `tool/integration_tests/README.md`。
+
+## Sena / Softpal 接入
+
+Flutter 从游戏目录识别 Sena。Host 管理大小写不敏感的资源查找和独立存档目录，向 Core 发送输入并呈现 RGBA8。使用包含 `sena-engine` 的 Core，或用 Flutter 构建脚本的 `--sena` 选项编译。macOS 已使用合成项目验证导入、启动、像素读取、暂停恢复和关闭。原生 SwiftUI iOS 播放器尚未接入 Sena。

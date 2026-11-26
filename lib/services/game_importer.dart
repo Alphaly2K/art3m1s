@@ -172,10 +172,37 @@ class GameImporter {
             FileSystemEntityType.file;
   }
 
+  static bool _hasSenaStartup(List<FileSystemEntity> entries) {
+    final files = {
+      for (final entry in entries.whereType<File>())
+        _basename(entry.path).toLowerCase(),
+    };
+    if (files.contains('data.pac') &&
+        (files.contains('script.src') || files.contains('pal.dll'))) {
+      return true;
+    }
+    if (files.contains('script.src') && files.contains('archive.dat')) {
+      return true;
+    }
+    for (final data in entries.whereType<Directory>()) {
+      if (_basename(data.path).toLowerCase() != 'data') continue;
+      final loose = {
+        for (final entry in data.listSync(followLinks: false).whereType<File>())
+          _basename(entry.path).toLowerCase(),
+      };
+      if (loose.contains('archive.dat') &&
+          (loose.contains('script.src') || files.contains('script.src'))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   /// 递归查找已解包工程根目录。
   ///
   /// Artemis 工程以 system.ini 为根标记,RFVP 工程以根目录中的 `.hcb`
-  /// 为标记,Siglus 工程以 Scene.pck + Gameexe.dat/ini 为标记；KRKR
+  /// 为标记,Siglus 工程以 Scene.pck + Gameexe.dat/ini 为标记；Sena
+  /// 根据脚本与资源归档识别；KRKR
   /// 接受 data.xp3、startup.tjs 或根级 XP3；多归档由宿主选择入口。
   /// 某个目录一旦命中标记,就把它当作工程根,不再继续往下找,
   /// 避免把工程内部的资源子目录误当成独立游戏。
@@ -192,8 +219,11 @@ class GameImporter {
       var hasGameexe = false;
       var rootXp3Count = 0;
       final subdirs = <Directory>[];
+      var hasSena = false;
       try {
-        for (final entity in dir.listSync(followLinks: false)) {
+        final entries = dir.listSync(followLinks: false);
+        hasSena = _hasSenaStartup(entries);
+        for (final entity in entries) {
           if (entity is File && _isSystemIniName(_basename(entity.path))) {
             hasSystemIni = true;
           } else if (entity is File && _isHcbName(_basename(entity.path))) {
@@ -217,7 +247,8 @@ class GameImporter {
       } on FileSystemException {
         return;
       }
-      if (hasSystemIni ||
+      if (hasSena ||
+          hasSystemIni ||
           hasHcb ||
           hasDataXp3 ||
           hasStartupTjs ||
@@ -274,7 +305,9 @@ class GameImporter {
     var hasGameexe = false;
     var rootXp3Count = 0;
     try {
-      for (final entity in directory.listSync(followLinks: false)) {
+      final entries = directory.listSync(followLinks: false);
+      if (_hasSenaStartup(entries)) return GameEngineKind.sena;
+      for (final entity in entries) {
         if (entity is! File) continue;
         final name = _basename(entity.path);
         if (_isSystemIniName(name)) {

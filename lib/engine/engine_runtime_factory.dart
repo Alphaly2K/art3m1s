@@ -9,6 +9,7 @@ import 'backends/artemis_v2_engine_runtime.dart';
 import 'backends/krkr_engine_runtime.dart';
 import 'backends/rfvp_engine_runtime.dart';
 import 'backends/siglus_engine_runtime.dart';
+import 'backends/sena_engine_runtime.dart';
 import 'backends/katze_engine_runtime.dart';
 import 'engine_runtime.dart';
 
@@ -64,6 +65,7 @@ class EngineRuntimeFactory {
       GameEngineKind.siglus => SiglusEngineRuntime(
         onDialogRequested: onDialogRequested,
       ),
+      GameEngineKind.sena => SenaEngineRuntime(),
       GameEngineKind.katze => KatzeEngineRuntime(
         onWindowAction: onWindowAction,
         onDialogRequested: onDialogRequested,
@@ -100,6 +102,7 @@ class EngineRuntimeFactory {
       case GameEngineKind.siglus:
         Log.info('[Engine] Siglus caption probe 尚未接入');
         return null;
+      case GameEngineKind.sena:
       case GameEngineKind.katze:
         return null;
     }

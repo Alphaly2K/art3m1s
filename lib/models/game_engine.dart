@@ -4,6 +4,7 @@ enum GameEngineKind {
   rfvp('rfvp', 'FVP'),
   krkr('krkr', 'Kirikiri'),
   siglus('siglus', 'Siglus'),
+  sena('sena', 'Sena / Softpal'),
   katze('katze', 'CatSystem2');
 
   const GameEngineKind(this.id, this.label);
@@ -19,6 +20,7 @@ enum GameEngineKind {
       'rfvp' || 'fvp' => GameEngineKind.rfvp,
       'krkr' || 'kirikiri' => GameEngineKind.krkr,
       'siglus' => GameEngineKind.siglus,
+      'sena' || 'softpal' => GameEngineKind.sena,
       'katze' => GameEngineKind.katze,
       _ => GameEngineKind.art3m1s,
     };
@@ -52,6 +54,12 @@ enum GameEngineKind {
     GameEngineKind.siglus => const {
       GameSettingField.translationEnabled,
       GameSettingField.translationPatchPath,
+      GameSettingField.displayName,
+      GameSettingField.cover,
+      GameSettingField.vndbId,
+      GameSettingField.inputGate,
+    },
+    GameEngineKind.sena => const {
       GameSettingField.displayName,
       GameSettingField.cover,
       GameSettingField.vndbId,

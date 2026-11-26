@@ -89,6 +89,7 @@ List<String> coreFeaturesForTarget(
   String target, {
   required bool krkr,
   required bool siglus,
+  bool sena = false,
   bool ffmpeg = false,
 }) {
   final darwin =
@@ -100,6 +101,7 @@ List<String> coreFeaturesForTarget(
     if (darwin || ffmpeg) 'ffmpeg',
     if (krkr) 'krkr-engine',
     if (siglus) 'siglus-engine',
+    if (sena) 'sena-engine',
   ];
 }
 
@@ -111,6 +113,7 @@ final class BuildOptions {
     required this.signOnly,
     required this.krkr,
     required this.siglus,
+    this.sena = false,
     required this.katze,
     required this.artemisV2,
   });
@@ -121,6 +124,7 @@ final class BuildOptions {
   final bool signOnly;
   final bool krkr;
   final bool siglus;
+  final bool sena;
   final bool katze;
   final bool artemisV2;
 
@@ -131,6 +135,7 @@ final class BuildOptions {
     var signOnly = false;
     var krkr = false;
     var siglus = false;
+    var sena = false;
     var katze = false;
     var artemisV2 = false;
     for (final argument in arguments) {
@@ -147,6 +152,9 @@ final class BuildOptions {
           signOnly = true;
         case '--krkr':
           krkr = true;
+        case '--sena':
+          sena = true;
+          break;
         case '--siglus':
           siglus = true;
         case '--katze':
@@ -166,7 +174,7 @@ final class BuildOptions {
           stdout.writeln(
             'Usage: dart run tool/build.dart '
             '[all|ios|ios-obsolete|macos|android|windows|linux] '
-            '[--release|--profile|--debug] [--device-only] [--sign-only] [--krkr] [--siglus] [--katze] [--artemis-v2]\n'
+            '[--release|--profile|--debug] [--device-only] [--sign-only] [--krkr] [--siglus] [--sena] [--katze] [--artemis-v2]\n'
             '       dart run tool/build.dart --check-artemis-v2-bindings',
           );
           exit(0);
@@ -187,6 +195,7 @@ final class BuildOptions {
       signOnly: signOnly,
       krkr: krkr,
       siglus: siglus,
+      sena: sena,
       katze: katze,
       artemisV2: artemisV2,
     );
@@ -357,6 +366,7 @@ Future<void> _buildNativeIos(
   }
   if (options.krkr) rustArgs.add('--krkr');
   if (options.siglus) rustArgs.add('--siglus');
+  if (options.sena) rustArgs.add('--sena');
   await _run(
     '${project.path}/scripts/ios_build_rust.sh',
     rustArgs,
@@ -474,6 +484,7 @@ Future<void> _buildIosObsolete(
   if (options.deviceOnly) args.add('--device-only');
   if (options.krkr) args.add('--krkr');
   if (options.siglus) args.add('--siglus');
+  if (options.sena) args.add('--sena');
   await _run(
     '${project.path}/scripts/ios_build_rust.sh',
     args,
@@ -576,6 +587,7 @@ Future<void> _buildMacos(
           'macos',
           krkr: options.krkr,
           siglus: options.siglus,
+          sena: options.sena,
         ),
         if (options.katze || prebuiltKatze.isNotEmpty) 'katze-model-host',
       ].join(','),
@@ -959,6 +971,7 @@ Future<void> _buildAndroid(
             'android',
             krkr: options.krkr,
             siglus: options.siglus,
+            sena: options.sena,
             ffmpeg: Platform.environment['FFMPEG_DIR']?.isNotEmpty ?? false,
           ).join(','),
         ],
@@ -1079,6 +1092,7 @@ Future<void> _buildWindows(
     options.profile,
     krkr: options.krkr,
     siglus: options.siglus,
+    sena: options.sena,
   );
   await _run(
     flutter,
@@ -1124,6 +1138,7 @@ Future<void> _buildLinux(
     options.profile,
     krkr: options.krkr,
     siglus: options.siglus,
+    sena: options.sena,
   );
   await _run(
     flutter,
@@ -1167,6 +1182,7 @@ Future<void> _buildHostRust(
   String profile, {
   required bool krkr,
   required bool siglus,
+  bool sena = false,
 }) async {
   for (final crate in <Directory>[core, pfs]) {
     await _run(
@@ -1181,6 +1197,7 @@ Future<void> _buildHostRust(
             Platform.operatingSystem,
             krkr: krkr,
             siglus: siglus,
+            sena: sena,
             ffmpeg: Platform.environment['FFMPEG_DIR']?.isNotEmpty ?? false,
           ).join(','),
         ],

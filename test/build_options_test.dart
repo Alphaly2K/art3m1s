@@ -12,15 +12,25 @@ void main() {
       'windows',
       'linux',
     ]) {
-      final options = BuildOptions.parse([target, '--krkr', '--siglus']);
+      final options = BuildOptions.parse([
+        target,
+        '--krkr',
+        '--siglus',
+        '--sena',
+      ]);
       expect(options.krkr, isTrue);
       expect(options.siglus, isTrue);
+      expect(options.sena, isTrue);
       final features = coreFeaturesForTarget(
         target,
         krkr: options.krkr,
         siglus: options.siglus,
+        sena: options.sena,
       );
-      expect(features, containsAll(['krkr-engine', 'siglus-engine']));
+      expect(
+        features,
+        containsAll(['krkr-engine', 'siglus-engine', 'sena-engine']),
+      );
       final darwin = ['ios', 'ios-obsolete', 'macos'].contains(target);
       expect(features.contains('metal-backend'), darwin);
       expect(features.contains('vulkan-backend'), !darwin);
@@ -38,5 +48,6 @@ void main() {
     expect(features, contains('ffmpeg'));
     expect(features, isNot(contains('krkr-engine')));
     expect(features, isNot(contains('siglus-engine')));
+    expect(features, isNot(contains('sena-engine')));
   });
 }

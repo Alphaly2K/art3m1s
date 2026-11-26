@@ -29,6 +29,7 @@ BUILD_SIM=1
 BUILD_ANGLE=1
 BUILD_KRKR=0
 BUILD_SIGLUS=0
+BUILD_SENA=0
 export IPHONEOS_DEPLOYMENT_TARGET="${IPHONEOS_DEPLOYMENT_TARGET:-15.0}"
 
 while [[ $# -gt 0 ]]; do
@@ -39,6 +40,7 @@ while [[ $# -gt 0 ]]; do
     --skip-angle) BUILD_ANGLE=0 ;;
     --krkr) BUILD_KRKR=1 ;;
     --siglus) BUILD_SIGLUS=1 ;;
+    --sena) BUILD_SENA=1 ;;
     --sign)
       shift
       CODE_SIGN_ID="${1:-}"
@@ -258,6 +260,7 @@ make_framework() {
     local core_features="gl-backend,metal-backend,rfvp-engine,ffmpeg"
     if [[ "$BUILD_KRKR" == "1" ]]; then core_features+=",krkr-engine"; fi
     if [[ "$BUILD_SIGLUS" == "1" ]]; then core_features+=",siglus-engine"; fi
+    if [[ "$BUILD_SENA" == "1" ]]; then core_features+=",sena-engine"; fi
     device_cargo_args=(--no-default-features --features "$core_features" "${device_cargo_args[@]}")
     simulator_cargo_args=(--no-default-features --features "$core_features" "${simulator_cargo_args[@]}")
   fi
