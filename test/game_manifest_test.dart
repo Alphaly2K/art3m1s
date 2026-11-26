@@ -385,12 +385,14 @@ void main() {
         name: 'Siglus Game',
         engine: GameEngineKind.siglus,
         translationEnabled: true,
+        translationPatchPath: 'dialogue.json',
         environmentPatchEnabled: true,
         inputGate: InputGatePolicy.touchOnly,
       ).toJson();
       expect(json['engine'], 'siglus');
       expect(json.containsKey('inputGate'), isTrue);
-      expect(json.containsKey('translationEnabled'), isFalse);
+      expect(json['translationEnabled'], isTrue);
+      expect(json['translationPatchPath'], 'dialogue.json');
       expect(json.containsKey('environmentPatchEnabled'), isFalse);
     });
 
@@ -493,7 +495,8 @@ void main() {
       expect(katze, contains(GameSettingField.translationPatchPath));
       final siglus = GameEngineKind.siglus.supportedGameSettings;
       expect(siglus.contains(GameSettingField.inputGate), isTrue);
-      expect(siglus.contains(GameSettingField.translationEnabled), isFalse);
+      expect(siglus.contains(GameSettingField.translationEnabled), isTrue);
+      expect(siglus.contains(GameSettingField.translationPatchPath), isTrue);
       expect(siglus.contains(GameSettingField.krkrEntryXp3), isFalse);
       expect(GameEngineKind.siglus.supportsPfsArchives, isFalse);
     });

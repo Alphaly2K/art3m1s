@@ -50,6 +50,8 @@ enum GameEngineKind {
       GameSettingField.krkrEntryXp3,
     },
     GameEngineKind.siglus => const {
+      GameSettingField.translationEnabled,
+      GameSettingField.translationPatchPath,
       GameSettingField.displayName,
       GameSettingField.cover,
       GameSettingField.vndbId,

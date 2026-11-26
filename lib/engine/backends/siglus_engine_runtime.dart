@@ -9,9 +9,11 @@ import 'package:flutter/foundation.dart';
 import '../../models/game_engine.dart';
 import '../../models/input_gate.dart';
 import '../../services/logger.dart';
+import '../../services/text_translation_service.dart';
 import '../engine_runtime.dart';
 import '../shared_texture_session.dart';
 import '../native_library.dart';
+import '../native_text_translation.dart';
 import 'siglus/core_siglus_api.dart';
 
 /// Siglus VM with the common art3m1s-render GPU backend. The VM is confined
@@ -22,6 +24,9 @@ class SiglusEngineRuntime extends UnsupportedEngineRuntime
 
   final void Function(EngineDialogRequest request)? onDialogRequested;
   CoreSiglusUi? _ui;
+  NativeTextTranslation? _translationApi;
+  TextTranslationService? _translation;
+  bool _translationOnline = false;
   CoreSiglusFrames? _frames;
   CoreSiglusOutputClock? _outputClock;
   int? _pendingDialog;
@@ -107,6 +112,10 @@ class SiglusEngineRuntime extends UnsupportedEngineRuntime
       final library = openEngineCoreLibrary();
       final host = CoreSiglusHostV1.tryLoad(library);
       _ui = host?.ui;
+      _translationApi = NativeTextTranslation.load(
+        library,
+        'art3m1s_siglus_get_translation_api_v1',
+      );
       _frames = host?.frames;
       _outputClock = host?.outputClock;
       _api = host?.runtime ?? CoreSiglusApiV1.tryLoad(library);
@@ -164,6 +173,60 @@ class SiglusEngineRuntime extends UnsupportedEngineRuntime
   }
 
   @override
+  void configureTranslation(TextTranslationService? service) {
+    if (identical(service, _translation)) return;
+    final previous = _translation;
+    _translation = service;
+    if (previous != null) unawaited(previous.dispose());
+    _syncTranslation();
+  }
+
+  void _syncTranslation() {
+    _translationOnline = false;
+    final session = _runtime;
+    if (session == 0) return;
+    final api = _translationApi;
+    final service = _translation;
+    if (service == null || !service.hostTranslationEnabled) {
+      api?.configure(session, const {}, online: false);
+      return;
+    }
+    final online = service.hostOnlineEnabled;
+    if (api?.configure(session, service.hostReplacementTable, online: online) !=
+        true) {
+      Log.warn('[SiglusEngineRuntime] 宿主翻译接口不可用或配置失败');
+      return;
+    }
+    _translationOnline = online;
+  }
+
+  void _pollTranslations() {
+    final api = _translationApi;
+    final service = _translation;
+    final session = _runtime;
+    if (_exitRequested ||
+        !_translationOnline ||
+        api == null ||
+        service == null ||
+        session == 0) {
+      return;
+    }
+    final epoch = _epoch;
+    api.drain(session, (id, source) {
+      service.enqueue(
+        source,
+        onComplete: (text) {
+          if (_runtime == session &&
+              _epoch == epoch &&
+              identical(_translation, service)) {
+            api.complete(session, id, text);
+          }
+        },
+      );
+    });
+  }
+
+  @override
   void setSaveDir(String dir) => _saveDirectory = dir;
 
   @override
@@ -196,6 +259,7 @@ class SiglusEngineRuntime extends UnsupportedEngineRuntime
       _width = api.stageWidth(_runtime);
       _height = api.stageHeight(_runtime);
       _applyDebug();
+      _syncTranslation();
       final audioStatus =
           _outputClock?.start(_runtime) ?? _output!.start(_runtime);
       if (audioStatus != CoreSiglusApiV1.ok) {
@@ -352,6 +416,7 @@ class SiglusEngineRuntime extends UnsupportedEngineRuntime
     _exitRequested = api.isExitRequested(_runtime);
     if (!_pumpAudio(deltaMs)) return false;
     _pollDialog();
+    _pollTranslations();
     return true;
   }
 
@@ -425,6 +490,7 @@ class SiglusEngineRuntime extends UnsupportedEngineRuntime
       _exitRequested = api.isExitRequested(_runtime);
       if (!_pumpAudio(deltaMs)) return null;
       _pollDialog();
+      _pollTranslations();
       return frame;
     } catch (error) {
       _drainNativeLogs();
@@ -628,6 +694,9 @@ class SiglusEngineRuntime extends UnsupportedEngineRuntime
     _runtime = 0;
     _api = null;
     _ui = null;
+    _translationApi = null;
+    _translationOnline = false;
+    configureTranslation(null);
     _frames = null;
     _outputClock = null;
     _pendingDialog = null;

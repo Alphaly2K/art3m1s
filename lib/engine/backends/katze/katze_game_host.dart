@@ -8,8 +8,8 @@ import 'package:ffi/ffi.dart';
 
 import '../../../services/logger.dart';
 import '../../native_library.dart';
+import '../../native_text_translation.dart';
 import 'core_katze_api.dart';
-import 'katze_translation_api.dart';
 
 typedef _Mount =
     Pointer<KatzeCreateInfo> Function(
@@ -197,7 +197,10 @@ final class KatzeGameHost {
       return KatzeGameHost._(
         host,
         api,
-        KatzeTranslationApi.load(library),
+        NativeTextTranslation.load(
+          library,
+          'katze_system2_get_translation_api_v1',
+        ),
         media,
         models,
         scriptListener,
@@ -221,7 +224,7 @@ final class KatzeGameHost {
 
   final _GameHostBindings _host;
   final KatzeApi _api;
-  final KatzeTranslationApi? _translation;
+  final NativeTextTranslation? _translation;
   final DynamicLibrary? _mediaLibrary;
   final void Function()? _releaseModelHost;
   final NativeCallable<_ScriptMessage>? _scriptListener;

@@ -38,8 +38,8 @@ final class _Table extends Struct {
 
 typedef _GetApi = Pointer<_Table> Function();
 
-final class KatzeTranslationApi {
-  KatzeTranslationApi._(_Table table)
+final class NativeTextTranslation {
+  NativeTextTranslation._(_Table table)
     : _configure = table.configure.asFunction(),
       _poll = table.poll.asFunction(),
       _complete = table.complete.asFunction();
@@ -50,8 +50,7 @@ final class KatzeTranslationApi {
   final int Function(int, int, Pointer<_Bytes>) _complete;
   static const _maxTextBytes = 16 * 1024;
 
-  static KatzeTranslationApi? load(DynamicLibrary library) {
-    const symbol = 'katze_system2_get_translation_api_v1';
+  static NativeTextTranslation? load(DynamicLibrary library, String symbol) {
     if (!library.providesSymbol(symbol)) return null;
     final pointer = library.lookupFunction<_GetApi, _GetApi>(symbol)();
     if (pointer == nullptr) return null;
@@ -63,7 +62,7 @@ final class KatzeTranslationApi {
         table.complete == nullptr) {
       return null;
     }
-    return KatzeTranslationApi._(table);
+    return NativeTextTranslation._(table);
   }
 
   bool configure(
@@ -72,7 +71,10 @@ final class KatzeTranslationApi {
     required bool online,
   }) {
     return using((arena) {
-      final entries = arena<_Replacement>(replacements.length);
+      const maxEntries = 262144;
+      final entries = arena<_Replacement>(
+        replacements.length.clamp(0, maxEntries),
+      );
       var count = 0;
       var total = 0;
       for (final entry in replacements.entries) {
@@ -82,7 +84,7 @@ final class KatzeTranslationApi {
           continue;
         }
         total += source.length + target.length;
-        if (count == 262144 || total > 64 * 1024 * 1024) break;
+        if (count == maxEntries || total > 64 * 1024 * 1024) break;
         final pair = entries[count++];
         _write(pair.source, source, arena);
         _write(pair.translation, target, arena);
