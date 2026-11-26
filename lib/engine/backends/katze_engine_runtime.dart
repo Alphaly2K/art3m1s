@@ -3,6 +3,8 @@ import 'dart:ffi';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show ValueNotifier;
+
 import '../../models/game_engine.dart';
 import '../../models/game_entry.dart';
 import '../../models/input_gate.dart';
@@ -21,6 +23,9 @@ final class KatzeEngineRuntime extends UnsupportedEngineRuntime
 
   final void Function(EngineWindowAction)? onWindowAction;
   final void Function(EngineDialogRequest)? onDialogRequested;
+  @override
+  final ValueNotifier<bool> cursorHidden = ValueNotifier(false);
+
   int? _dialogRequest;
   bool? _fullscreen;
 
@@ -352,6 +357,7 @@ final class KatzeEngineRuntime extends UnsupportedEngineRuntime
   }
 
   void _closeGame() {
+    cursorHidden.value = false;
     _touch = null;
     _dialogRequest = null;
     final game = _game;
@@ -414,6 +420,11 @@ final class KatzeEngineRuntime extends UnsupportedEngineRuntime
         );
       }
     }
+    cursorHidden.value = identical(_game, game) &&
+        _focused &&
+        !_exit &&
+        _dialogRequest == null &&
+        game.usesImageCursor;
     return !_exit;
   }
 
@@ -490,7 +501,10 @@ final class KatzeEngineRuntime extends UnsupportedEngineRuntime
       _focused = focused;
       _focusRevision++;
     }
-    if (!focused) _touch = null;
+    if (!focused) {
+      _touch = null;
+      cursorHidden.value = false;
+    }
     final game = _game;
     if (game == null) return;
     game.focus(focused);

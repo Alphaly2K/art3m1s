@@ -235,6 +235,7 @@ final class KatzeGameHost {
   late final Pointer<Uint8> _frame = _buffers<Uint8>(width * height * 4);
   late final Pointer<KatzeFrameTime> _time;
   late final Pointer<Uint32> _flags;
+  late final Pointer<Uint32> _imageCursor = _buffers<Uint32>();
   NativeCallable<_PresentFinished>? _presentListener;
   NativeCallable<_PresentReport>? _presentReportListener;
   Completer<bool>? _presentCompletion;
@@ -301,6 +302,8 @@ final class KatzeGameHost {
     _requireLive();
     return _api.completeTextEntry(_session, id, text);
   }
+
+  bool get usesImageCursor => _api.usesImageCursor(_session, _imageCursor);
 
   bool configureTranslation(
     Map<String, String> entries, {

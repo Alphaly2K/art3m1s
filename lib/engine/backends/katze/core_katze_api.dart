@@ -61,6 +61,7 @@ typedef _LastError = Int32 Function(Pointer<Uint8>, Size, Pointer<Size>);
 typedef _Create = Int32 Function(Pointer<KatzeCreateInfo>, Pointer<Uint64>);
 typedef _Session = Int32 Function(Uint64);
 typedef _Stage = Int32 Function(Uint64, Pointer<KatzeStage>);
+typedef _ImageCursor = Int32 Function(Uint64, Pointer<Uint32>);
 typedef _Step =
     Int32 Function(Uint64, Pointer<KatzeFrameTime>, Pointer<Uint32>);
 typedef KatzeMixStereo = Int32 Function(Uint64, Uint32, Pointer<Float>, Size);
@@ -87,7 +88,7 @@ final class _Table extends Struct {
   external Pointer<NativeFunction<_CompleteText>> completeTextEntry;
   external Pointer<Void> windowPreferences;
   external Pointer<Void> setInputBindings;
-  external Pointer<Void> usesImageCursor;
+  external Pointer<NativeFunction<_ImageCursor>> usesImageCursor;
 }
 
 final class KatzeApi {
@@ -159,6 +160,13 @@ final class KatzeApi {
     final call = _table.mixStereo
         .asFunction<int Function(int, int, Pointer<Float>, int)>();
     _check(call(session, sampleRate, output, frames), 'mix_stereo');
+  }
+
+  bool usesImageCursor(int session, Pointer<Uint32> enabled) {
+    final call = _table.usesImageCursor
+        .asFunction<int Function(int, Pointer<Uint32>)>();
+    _check(call(session, enabled), 'uses_image_cursor');
+    return enabled.value != 0;
   }
 
   void reportWindow(int session, {bool? fullscreen}) => using((arena) {
