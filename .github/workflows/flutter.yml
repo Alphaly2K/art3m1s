@@ -44,7 +44,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Alphaly2K/siglus_rs
-          ref: 6690204ce83fb351b1d62226c7ef5bf08ca949cc
+          ref: a6e152c108ae306a8ac0e94b96ddbcfcf4669025
           path: siglus_rs
       - name: Checkout Art3m1s
         uses: actions/checkout@v4
@@ -90,7 +90,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Alphaly2K/siglus_rs
-          ref: 6690204ce83fb351b1d62226c7ef5bf08ca949cc
+          ref: a6e152c108ae306a8ac0e94b96ddbcfcf4669025
           path: siglus_rs
       - name: Checkout Art3m1s
         uses: actions/checkout@v4
@@ -157,7 +157,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Alphaly2K/siglus_rs
-          ref: 6690204ce83fb351b1d62226c7ef5bf08ca949cc
+          ref: a6e152c108ae306a8ac0e94b96ddbcfcf4669025
           path: siglus_rs
       - name: Checkout Art3m1s
         uses: actions/checkout@v4
